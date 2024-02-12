@@ -1,0 +1,64 @@
+INFIX
+        11      NEWLINE ;
+        21      -> is has
+        30      written
+        31      else into
+        40      loop while until
+        50      then require ensure
+        75      with as
+        85      := += -= *= /= ^= |= &= :+ :<
+        100     STATEMENT
+        105     ,
+        110     =>
+        130     where
+        200     DEFAULT
+        211     when
+        240     return
+        250     and or xor
+        260     in at contains
+        271     of to from
+        280     .. by
+        290     = < > <= >= <> !=
+        300     & |
+        310     + -
+        320     * / mod rem
+        330     shl shr
+        381     ^
+        480     .
+        600     :
+
+SUGAR
+        30      type module function procedure to
+
+PREFIX
+        20      matching
+        40      loop while until
+        121     case if return yield transform
+        180     variable var
+        350     not
+        360     ! ~
+        370     - + * /
+        401     FUNCTION
+        420     ++ --
+        430     &
+
+POSTFIX
+        400     ! ? % cm inch mm pt px h m s ms us
+        420     ++ --
+
+BLOCK
+        5       INDENT UNINDENT
+        25      '{' '}'
+        500     '(' ')' '[' ']'
+
+TEXT
+        "<<" ">>"
+
+COMMENT
+        "//" NEWLINE
+        "/*" "*/"
+
+BINARY  "bits"
+
+SYNTAX "C"
+        extern ;

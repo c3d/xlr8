@@ -1,0 +1,248 @@
+// *****************************************************************************
+// builtins.xl                                                        XL project
+// *****************************************************************************
+//
+// File description:
+//
+//   Built-in operations that are pre-loaded by the compiler without
+//   any explicit `use` statement.
+//
+//
+//
+//
+//
+// *****************************************************************************
+// This software is licensed under the GNU General Public License v3+
+// (C) 2017-2021, Christophe de Dinechin <christophe@dinechin.org>
+// *****************************************************************************
+// This file is part of XL
+//
+// XL is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License,
+// or (at your option) any later version.
+//
+// XL is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with XL, in a file named COPYING.
+// If not, see <https://www.gnu.org/licenses/>.
+// *****************************************************************************
+
+// Binary operations on naturals
+X:natural + Y:natural           as natural is builtin "add_natural"
+X:natural - Y:natural           as natural is builtin "sub_natural"
+X:natural * Y:natural           as natural is builtin "mul_natural"
+X:natural / Y:natural           as natural is builtin "div_natural"
+X:natural ^ Y:natural           as natural is native "xl_natural_pow"
+X:natural rem Y:natural         as natural is builtin "mod_natural"
+X:natural mod Y:natural         as natural is builtin "mod_natural"
+X:natural and Y:natural         as natural is builtin "and_natural"
+X:natural or  Y:natural         as natural is builtin "or_natural"
+X:natural xor Y:natural         as natural is builtin "xor_natural"
+X:natural shl Y:natural         as natural is builtin "shl_natural"
+X:natural shr Y:natural         as natural is builtin "shr_natural"
+not X:natural                   as natural is builtin "not_natural"
+
+// Binary operations on integers
+X:integer + Y:integer           as integer is builtin "add_integer"
+X:integer - Y:integer           as integer is builtin "sub_integer"
+X:integer * Y:integer           as integer is builtin "mul_integer"
+X:integer / Y:integer           as integer is builtin "div_integer"
+X:integer ^ Y:integer           as integer is native "xl_integer_pow"
+X:integer rem Y:integer         as integer is native "xl_integer_rem"
+X:integer mod Y:integer         as integer is native "xl_integer_mod"
+X:integer and Y:integer         as integer is builtin "and_integer"
+X:integer or  Y:integer         as integer is builtin "or_integer"
+X:integer xor Y:integer         as integer is builtin "xor_integer"
+X:integer shl Y:natural         as integer is builtin "shl_integer"
+X:integer shr Y:natural         as integer is builtin "shr_integer"
+-X:integer                      as integer is builtin "neg_integer"
+not X:integer                   as integer is builtin "not_integer"
+
+// Binary operation on real numbers
+X:real + Y:real                 as real is builtin "add_real"
+X:real - Y:real                 as real is builtin "sub_real"
+X:real * Y:real                 as real is builtin "mul_real"
+X:real / Y:real                 as real is builtin "div_real"
+X:real ^ Y:integer              as real is native "xl_real_pow"
+X:real ^ Y:real                 as real is native "pow"
+X:real rem Y:real               as real is native "xl_real_rem"
+X:real mod Y:real               as real is native "xl_real_mod"
+-X:real                         as real is builtin "neg_real"
+
+// Comparison operators
+X:integer = Y:integer           as boolean is builtin "eq_integer"
+X:integer <> Y:integer          as boolean is builtin "ne_integer"
+X:integer > Y:integer           as boolean is builtin "gt_integer"
+X:integer >= Y:integer          as boolean is builtin "ge_integer"
+X:integer < Y:integer           as boolean is builtin "lt_integer"
+X:integer <= Y:integer          as boolean is builtin "le_integer"
+
+X:natural = Y:natural           as boolean is builtin "eq_natural"
+X:natural <> Y:natural          as boolean is builtin "ne_natural"
+X:natural > Y:natural           as boolean is builtin "gt_natural"
+X:natural >= Y:natural          as boolean is builtin "ge_natural"
+X:natural < Y:natural           as boolean is builtin "lt_natural"
+X:natural <= Y:natural          as boolean is builtin "le_natural"
+
+X:real = Y:real                 as boolean is builtin "eq_real"
+X:real <> Y:real                as boolean is builtin "ne_real"
+X:real > Y:real                 as boolean is builtin "gt_real"
+X:real >= Y:real                as boolean is builtin "ge_real"
+X:real < Y:real                 as boolean is builtin "lt_real"
+X:real <= Y:real                as boolean is builtin "le_real"
+
+X:boolean = Y:boolean           as boolean is builtin "eq_boolean"
+X:boolean <> Y:boolean          as boolean is builtin "ne_boolean"
+X:boolean > Y:boolean           as boolean is builtin "gt_boolean"
+X:boolean >= Y:boolean          as boolean is builtin "ge_boolean"
+X:boolean < Y:boolean           as boolean is builtin "lt_boolean"
+X:boolean <= Y:boolean          as boolean is builtin "le_boolean"
+X:boolean and Y:boolean         as boolean is builtin "and_boolean"
+X:boolean or  Y:boolean         as boolean is builtin "or_boolean"
+X:boolean xor Y:boolean         as boolean is builtin "xor_boolean"
+not X:boolean                   as boolean is builtin "not_boolean"
+
+// Implicit conversion of integer and natural to real
+X:natural as real               is builtin "natural2real"
+X:integer as real               is builtin "integer2real"
+
+// Text
+X:text = Y:text                 as boolean is native "xl_text_eq"
+X:text <> Y:text                as boolean is native "xl_text_ne"
+X:text > Y:text                 as boolean is native "xl_text_gt"
+X:text >= Y:text                as boolean is native "xl_text_ge"
+X:text < Y:text                 as boolean is native "xl_text_lt"
+X:text <= Y:text                as boolean is native "xl_text_le"
+
+text X:natural                  as text    is native "xl_natural2text"
+text X:integer                  as text    is native "xl_integer2text"
+text X:real                     as text    is native "xl_real2text"
+
+X:text & Y:text                 as text    is native "xl_text_concat"
+X:text & Y:natural              as text    is (X & text(Y))
+X:text & Y:integer              as text    is (X & text(Y))
+X:text & Y:real                 as text    is (X & text(Y))
+X:natural & Y:text              as text    is (text(X) & Y)
+X:integer & Y:text              as text    is (text(X) & Y)
+X:real & Y:text                 as text    is (text(X) & Y)
+Count:natural * T:text          as text    is native "xl_text_repeat"
+T:text * Count:natural          as text    is Count * T
+length T:text                   as natural is native "xl_text_length"
+
+// A few additional text notations
+text_index Src:text, Pat:text, Idx:natural as integer is native "xl_text_index"
+text_replace Src:text,From:text, To:text as text is native "xl_text_replace"
+text_range Source:text,First:natural,Last:natural as text is native "xl_text_range"
+Source:text / From:text /  To:text      is text_replace Source, From, To
+Src:text contains Pat:text as boolean   is (text_index(Src,Pat,0) >= 0)
+Pat:text in Src:text                    is text_index Src, Pat, 0
+Pat:text in Src:text from Idx:natural   is text_index Src, Pat, Idx
+(Source:text)[First:natural..Last:natural] is text_range(Source, First, Last)
+Source:text from First:natural  as text is text_range(Source, First, not 0)
+
+// Parse tree parsing
+parse Source:text                       is native "xl_parse_text"
+
+// Basic math functions
+abs X   is if X < 0 then -X else X
+sign X  is if X < 0 then -1 else if X > 0 then 1 else 0
+
+// If-then-else statement
+if [[true]]  then True else False   is True
+if [[false]] then True else False   is False
+
+if [[true]]  then True              is True
+if [[false]] then True              is false
+
+// Console / debugging operations
+write X:text            as nil          is native "xl_write_text"
+write X:natural         as nil          is native "xl_write_natural"
+write X:integer         as nil          is native "xl_write_integer"
+write X:real            as nil          is native "xl_write_real"
+write X:character       as nil          is native "xl_write_character"
+write X:value           as nil          is native "xl_write_tree"
+print                   as nil          is native "xl_write_cr"
+
+write [[true]]          is write "true"
+write [[false]]         is write "false"
+write Head, Rest        is { write Head; write Rest }
+print Items             is { write Items; print }
+
+// Error handling
+error Message:text      as nil          is error Message, nil
+error Message:text,Args as nil          is native "xl_error"
+
+// Tree shape and attributes
+kind  X:tree            as natural      is builtin "tree_kind"
+left  X:prefix          as tree         is builtin "prefix_left"
+right X:prefix          as tree         is builtin "prefix_right"
+left  X:postfix         as tree         is builtin "postfix_left"
+right X:postfix         as tree         is builtin "postfix_right"
+left  X:infix           as tree         is builtin "infix_left"
+right X:infix           as tree         is builtin "infix_right"
+name  X:infix           as text         is builtin "infix_name"
+opening X:text          as text         is builtin "text_opening"
+closing X:text          as text         is builtin "text_closing"
+child X:block           as tree         is builtin "block_child"
+opening X:block         as text         is builtin "block_opening"
+closing X:block         as text         is builtin "block_closing"
+
+// Min and max functions
+min X, Y is { mx is min X; my is min Y; if mx < my then mx else my }
+min Y    is Y
+max X, Y is { mx is max X; my is max Y; if mx > my then mx else my }
+max Y    is Y
+
+// Interval test
+X:real in A:real..B:real is X >= A and X <= B
+
+// Factorial function
+0! is 1
+N:natural! is N * (N-1)!
+
+// Boolean to text conversion
+text [[true]]  is "true"
+text [[false]] is "false"
+
+// A utility function for C-style testing
+good [[false]]  is false
+good 0          is false
+good 0.0        is false
+good ""         is false
+good [[nil]]    is false
+good Other      is true
+
+bad X           is not good X
+
+// Loops
+while Condition loop Body is
+    if Condition then
+        Body
+        while Condition loop Body
+until Condition loop Body               is { while not Condition loop Body }
+loop Body                               is { Body; loop Body }
+for Var in Low..High loop Body is
+    Var := Low
+    while Var < High loop
+        Body
+        Var := Var + 1
+
+every Duration, Body is loop { Body; sleep Duration }
+Duration:real h  is Duration * 3600
+Duration:real m  is Duration * 60
+Duration:real s  is Duration
+Duration:real ms is Duration * 0.001
+
+// Remote interface
+tell            Remote:text, Body       as integer  is native "xl_tell"
+ask             Remote:text, Body       as tree     is native "xl_ask"
+invoke          Remote:text, Body       as tree     is native "xl_invoke"
+reply           Body                    as integer  is native "xl_reply"
+listen_received                         as tree     is native "xl_listen_received"
+listen_hook     Hook                    as tree     is native "xl_listen_hook"
+listen Forks:natural, Port:natural      as tree     is native "xl_listen"
