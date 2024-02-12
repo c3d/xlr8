@@ -1,0 +1,6 @@
+O3/builtin-teq.xl
+O3/return-self-tree.xl
+O3/builtin-or.xl
+O3/builtin-kind-postfix.xl
+O3/extern-sqrt.xl
+O3/extern-log1p.xl
