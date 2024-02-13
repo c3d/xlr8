@@ -1,0 +1,29 @@
+--- O3/extern-pi DIFF ---
+--- O3/extern-pi OUTPUT ---
+O3/extern-pi.xl:35:4: Unable to evaluate [pi * 13.5027]:
+builtins.xl:38:11:  Pattern [X:natural * Y:natural as natural] does not match [pi * 13.5027]:
+O3/extern-pi.xl:35:2:   Unable to evaluate [pi]:
+O3/extern-pi.xl:35:2:    No form matching [pi]
+O3/extern-pi.xl:35:2:   Value [pi] does not belong to type [natural]
+builtins.xl:38:11:   Infix [X:natural * Y:natural] does not match [pi * 13.5027]
+builtins.xl:53:11:  Pattern [X:integer * Y:integer as integer] does not match [pi * 13.5027]:
+O3/extern-pi.xl:35:2:   Unable to evaluate [pi]:
+O3/extern-pi.xl:35:2:    No form matching [pi]
+O3/extern-pi.xl:35:2:   Value [pi] does not belong to type [integer]
+builtins.xl:53:11:   Infix [X:integer * Y:integer] does not match [pi * 13.5027]
+builtins.xl:69:8:  Pattern [X:real * Y:real as real] does not match [pi * 13.5027]:
+O3/extern-pi.xl:35:2:   Unable to evaluate [pi]:
+O3/extern-pi.xl:35:2:    No form matching [pi]
+O3/extern-pi.xl:35:2:   Value [pi] does not belong to type [real]
+builtins.xl:69:8:   Infix [X:real * Y:real] does not match [pi * 13.5027]
+builtins.xl:133:15:  Pattern [Count:natural * T:text as text] does not match [pi * 13.5027]:
+O3/extern-pi.xl:35:2:   Unable to evaluate [pi]:
+O3/extern-pi.xl:35:2:    No form matching [pi]
+O3/extern-pi.xl:35:2:   Value [pi] does not belong to type [natural]
+builtins.xl:133:15:   Infix [Count:natural * T:text] does not match [pi * 13.5027]
+builtins.xl:134:8:  Pattern [T:text * Count:natural as text] does not match [pi * 13.5027]:
+O3/extern-pi.xl:35:2:   Unable to evaluate [pi]:
+O3/extern-pi.xl:35:2:    No form matching [pi]
+O3/extern-pi.xl:35:2:   Value [pi] does not belong to type [text]
+builtins.xl:134:8:   Infix [T:text * Count:natural] does not match [pi * 13.5027]
+O3/extern-pi.xl:35:4:  No form matching [pi * 13.5027]

@@ -1,0 +1,51 @@
+// *****************************************************************************
+// 11-parse-tree-and-parse-text.xl                                    XL project
+// *****************************************************************************
+//
+// File description:
+//
+//
+//
+//
+//
+//
+//
+//
+// *****************************************************************************
+// This software is licensed under the GNU General Public License v3+
+// (C) 2015,2017-2021, Christophe de Dinechin <christophe@dinechin.org>
+// *****************************************************************************
+// This file is part of XL
+//
+// XL is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License,
+// or (at your option) any later version.
+//
+// XL is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with XL, in a file named COPYING.
+// If not, see <https://www.gnu.org/licenses/>.
+// *****************************************************************************
+print "Z+1=", quote(Z+1)
+print "X+2*if=", quote(X+2*if X then Y else Z)
+
+print "A+B*C-D*E+F=", parse "A+B*C-D*E+F"
+print "A+B*C-D*E+=", parse "A+B*C-D*E+"
+print "2__3=", parse "2__3"
+print "16#FF+2#1001+8#7.001e-4=", parse "16#FF+2#1001+8#7.001e-4"
+print "2#1001=", parse "2#1001"
+
+print "foo 3=", foo 3
+print "bar 3=", bar 3
+print "foo 551.3=", foo 551.3
+print "bar 551.3=", bar 551.3
+print "foo Z+1=", foo quote (Z+1)
+print "bar Z+1=", bar quote (Z+1)
+
+foo X is quote(X + 2 * [[X+1]])
+bar X is quote(X + 3 * ([[X]]+1))

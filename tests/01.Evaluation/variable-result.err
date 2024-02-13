@@ -1,0 +1,63 @@
+--- 01.Evaluation/variable-result DIFF ---
+2,4c2,4
+< Index(A)=17
+< Index(B)=2
+< Index(C)=1969
+---
+> Index(A)=A:integer := 17
+> Index(B)=B:integer := 2
+> Index(C)=C:integer := 1969
+6,8c6,8
+< Index(A)=5
+< Index(B)=2
+< Index(C)=1969
+---
+> Index(A)=A:integer := 5
+> Index(B)=B:integer := 2
+> Index(C)=C:integer := 1969
+10,12c10,12
+< Index(A)=5
+< Index(B)=12
+< Index(C)=1969
+---
+> Index(A)=A:integer := 5
+> Index(B)=B:integer := 12
+> Index(C)=C:integer := 1969
+14,16c14,16
+< Index(A)=5
+< Index(B)=12
+< Index(C)=1968
+---
+> Index(A)=A:integer := 5
+> Index(B)=B:integer := 12
+> Index(C)=C:integer := 1968
+18,20c18,20
+< Index(A)=5
+< Index(B)=12
+< Index(C)=1968
+---
+> Index(A)=A:integer := 5
+> Index(B)=B:integer := 12
+> Index(C)=C:integer := 1968
+--- 01.Evaluation/variable-result OUTPUT ---
+A=17 B=2 C=1969
+Index(A)=A:integer := 17
+Index(B)=B:integer := 2
+Index(C)=C:integer := 1969
+A=5 B=2 C=1969
+Index(A)=A:integer := 5
+Index(B)=B:integer := 2
+Index(C)=C:integer := 1969
+A=5 B=12 C=1969
+Index(A)=A:integer := 5
+Index(B)=B:integer := 12
+Index(C)=C:integer := 1969
+A=5 B=12 C=1968
+Index(A)=A:integer := 5
+Index(B)=B:integer := 12
+Index(C)=C:integer := 1968
+A=5 B=12 C=1968
+Index(A)=A:integer := 5
+Index(B)=B:integer := 12
+Index(C)=C:integer := 1968
+1968

@@ -1,0 +1,45 @@
+// *****************************************************************************
+// 19-invalid-when-clause.xl                                          XL project
+// *****************************************************************************
+//
+// File description:
+//
+//   Check that a failure evaluating a pattern condition simply rules out
+//   the pattern, but is not reported as an error.
+//
+//
+//
+//
+//
+// *****************************************************************************
+// This software is licensed under the GNU General Public License v3+
+// (C) 2015,2017-2021, Christophe de Dinechin <christophe@dinechin.org>
+// *****************************************************************************
+// This file is part of XL
+//
+// XL is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License,
+// or (at your option) any later version.
+//
+// XL is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with XL, in a file named COPYING.
+// If not, see <https://www.gnu.org/licenses/>.
+// *****************************************************************************
+
+collatz N when N mod 2 = "glop" is N/2
+collatz N                       is 3*N + 1
+
+N : natural := 27
+I : natural := 0
+while I < 10 loop
+    print I, ":", N
+    I := I + 1
+    N := collatz N
+
+print I, ":", N

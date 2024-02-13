@@ -1,0 +1,4 @@
+--- O3/extern-writeln-hello-world DIFF ---
+--- O3/extern-writeln-hello-world OUTPUT ---
+O3/extern-writeln-hello-world.xl:37:22: Unable to evaluate [C puts]:
+O3/extern-writeln-hello-world.xl:37:22:  No form matching [C puts]

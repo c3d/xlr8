@@ -1,0 +1,4 @@
+00.Parser/fault-injection-1-early.OPT=-tinject_fault=1:recorder_reltime=0:recorder_order=0
+00.Parser/fault-injection-1-early.EXIT=114
+00.Parser/fault-injection-1-early.EXCLUDE=release
+00.Parser/fault-injection-1-early.FILTER=grep "^\(fault_injection\|recorder_signals\|.*assert.*\|.*abort.*\):"  | grep -v -e "Activating" -e "for signal \(7\|16\|29\)" -e "No change for .* (\(7\|16\|29\))" | sed -e 's/0x[0-9a-fA-F][0-9a-fA-F]*/HEX/g' -e 's/(nil)/HEX/g' -e 's/Received signal Aborted/Received signal Abort trap: 6/g'

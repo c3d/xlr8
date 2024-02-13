@@ -1,0 +1,4 @@
+--- O3/return-self-tree DIFF ---
+--- O3/return-self-tree OUTPUT ---
+O3/return-self-tree.xl:36:12: Unable to evaluate ["Hello", ' ', "World", 42, 42.42]:
+O3/return-self-tree.xl:36:12:  No form matching ["Hello", ' ', "World", 42, 42.42]

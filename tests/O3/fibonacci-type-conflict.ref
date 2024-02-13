@@ -1,0 +1,44 @@
+O3/fibonacci-type-conflict.xl:41:20: Unable to evaluate [fib (N - 1) + fib (N - 2)]:
+builtins.xl:36:11:  Pattern [X:natural + Y:natural as natural] does not match [fib (N - 1) + fib (N - 2)]:
+O3/fibonacci-type-conflict.xl:41:20:   Unable to evaluate [fib (N - 1) + fib (N - 2)]:
+builtins.xl:36:11:    Pattern [X:natural + Y:natural as natural] does not match [fib (N - 1) + fib (N - 2)]:
+O3/fibonacci-type-conflict.xl:41:14:     Value [fib (N - 1)] does not belong to type [natural]
+builtins.xl:36:11:     Infix [X:natural + Y:natural] does not match [fib (N - 1) + fib (N - 2)]
+builtins.xl:51:11:    Pattern [X:integer + Y:integer as integer] does not match [fib (N - 1) + fib (N - 2)]:
+O3/fibonacci-type-conflict.xl:41:14:     Value [fib (N - 1)] does not belong to type [integer]
+builtins.xl:51:11:     Infix [X:integer + Y:integer] does not match [fib (N - 1) + fib (N - 2)]
+builtins.xl:67:8:    Pattern [X:real + Y:real as real] does not match [fib (N - 1) + fib (N - 2)]:
+O3/fibonacci-type-conflict.xl:41:14:     Value [fib (N - 1)] does not belong to type [real]
+builtins.xl:67:8:     Infix [X:real + Y:real] does not match [fib (N - 1) + fib (N - 2)]
+O3/fibonacci-type-conflict.xl:41:20:    No form matching [fib (N - 1) + fib (N - 2)]
+O3/fibonacci-type-conflict.xl:41:14:   Value [fib (N - 1)] does not belong to type [natural]
+builtins.xl:36:11:   Infix [X:natural + Y:natural] does not match [fib (N - 1) + fib (N - 2)]
+builtins.xl:51:11:  Pattern [X:integer + Y:integer as integer] does not match [fib (N - 1) + fib (N - 2)]:
+O3/fibonacci-type-conflict.xl:41:20:   Unable to evaluate [fib (N - 1) + fib (N - 2)]:
+builtins.xl:36:11:    Pattern [X:natural + Y:natural as natural] does not match [fib (N - 1) + fib (N - 2)]:
+O3/fibonacci-type-conflict.xl:41:14:     Value [fib (N - 1)] does not belong to type [natural]
+builtins.xl:36:11:     Infix [X:natural + Y:natural] does not match [fib (N - 1) + fib (N - 2)]
+builtins.xl:51:11:    Pattern [X:integer + Y:integer as integer] does not match [fib (N - 1) + fib (N - 2)]:
+O3/fibonacci-type-conflict.xl:41:14:     Value [fib (N - 1)] does not belong to type [integer]
+builtins.xl:51:11:     Infix [X:integer + Y:integer] does not match [fib (N - 1) + fib (N - 2)]
+builtins.xl:67:8:    Pattern [X:real + Y:real as real] does not match [fib (N - 1) + fib (N - 2)]:
+O3/fibonacci-type-conflict.xl:41:14:     Value [fib (N - 1)] does not belong to type [real]
+builtins.xl:67:8:     Infix [X:real + Y:real] does not match [fib (N - 1) + fib (N - 2)]
+O3/fibonacci-type-conflict.xl:41:20:    No form matching [fib (N - 1) + fib (N - 2)]
+O3/fibonacci-type-conflict.xl:41:14:   Value [fib (N - 1)] does not belong to type [integer]
+builtins.xl:51:11:   Infix [X:integer + Y:integer] does not match [fib (N - 1) + fib (N - 2)]
+builtins.xl:67:8:  Pattern [X:real + Y:real as real] does not match [fib (N - 1) + fib (N - 2)]:
+O3/fibonacci-type-conflict.xl:41:20:   Unable to evaluate [fib (N - 1) + fib (N - 2)]:
+builtins.xl:36:11:    Pattern [X:natural + Y:natural as natural] does not match [fib (N - 1) + fib (N - 2)]:
+O3/fibonacci-type-conflict.xl:41:14:     Value [fib (N - 1)] does not belong to type [natural]
+builtins.xl:36:11:     Infix [X:natural + Y:natural] does not match [fib (N - 1) + fib (N - 2)]
+builtins.xl:51:11:    Pattern [X:integer + Y:integer as integer] does not match [fib (N - 1) + fib (N - 2)]:
+O3/fibonacci-type-conflict.xl:41:14:     Value [fib (N - 1)] does not belong to type [integer]
+builtins.xl:51:11:     Infix [X:integer + Y:integer] does not match [fib (N - 1) + fib (N - 2)]
+builtins.xl:67:8:    Pattern [X:real + Y:real as real] does not match [fib (N - 1) + fib (N - 2)]:
+O3/fibonacci-type-conflict.xl:41:14:     Value [fib (N - 1)] does not belong to type [real]
+builtins.xl:67:8:     Infix [X:real + Y:real] does not match [fib (N - 1) + fib (N - 2)]
+O3/fibonacci-type-conflict.xl:41:20:    No form matching [fib (N - 1) + fib (N - 2)]
+O3/fibonacci-type-conflict.xl:41:14:   Value [fib (N - 1)] does not belong to type [real]
+builtins.xl:67:8:   Infix [X:real + Y:real] does not match [fib (N - 1) + fib (N - 2)]
+O3/fibonacci-type-conflict.xl:41:20:  No form matching [fib (N - 1) + fib (N - 2)]

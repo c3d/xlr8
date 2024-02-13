@@ -1,0 +1,7 @@
+--- O3/builtin-neg DIFF ---
+1c1
+< 42
+---
+> -1.84467e+19
+--- O3/builtin-neg OUTPUT ---
+-1.84467e+19

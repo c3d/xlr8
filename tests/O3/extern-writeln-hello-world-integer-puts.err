@@ -1,0 +1,4 @@
+--- O3/extern-writeln-hello-world-integer-puts DIFF ---
+--- O3/extern-writeln-hello-world-integer-puts OUTPUT ---
+OOK/extern-writeln-hello-world-integer-puts.xl:OK:OK: Unable to evaluate [C puts]:
+OOK/extern-writeln-hello-world-integer-puts.xl:OK:OK:  No form matching [C puts]

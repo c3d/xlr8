@@ -1,0 +1,4 @@
+--- O3/builtin-ashr DIFF ---
+--- O3/builtin-ashr OUTPUT ---
+O3/builtin-ashr.xl:35:8: Unable to evaluate [168 ashr 2]:
+O3/builtin-ashr.xl:35:8:  No form matching [168 ashr 2]

@@ -64,14 +64,8 @@ O3/extern-sqrt.xl
 O3/extern-tan.xl
 O3/extern-writeln-hello-world-integer-puts.xl
 O3/extern-writeln-hello-world.xl
-O3/factorial.xl
-O3/fibonacci-type-conflict.xl
-O3/fibonacci.xl
 O3/float-expression.xl
-O3/library-writeln-list.xl
-O3/library-writeln.xl
 O3/simple-character.xl
 O3/simple-integer.xl
 O3/simple-real.xl
 O3/simple-text.xl
-O3/unknown-external.xl

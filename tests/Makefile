@@ -33,7 +33,7 @@
 #  along with XL.  If not, see <https://www.gnu.org/licenses/>.
 #******************************************************************************
 
-XL=./xl $(OPTLEVEL) -I../native/lib
+XL=../xl-stage0 $(OPTLEVEL) -I../native/lib
 TESTS=$(wildcard */*.xl)
 RUN_TESTS=yes
 TIMEOUT=30
@@ -225,18 +225,15 @@ xl.dll=		$(PFX.dll)xl$(EXT.dll)
 recorder.dll=	$(PFX.dll)recorder$(EXT.dll)
 
 XL_BINARIES=				\
-	$(xl.exe)			\
-	$(xl.dll)			\
-	$(recorder.dll)
+	$(xl-stage0.exe)
 
 XL_FILES=				\
 	xl.syntax 			\
 	C.syntax			\
 	builtins.xl			\
-	xl.stylesheet			\
-	html.stylesheet			\
 	debug.stylesheet		\
-	dbghtml.stylesheet
+	html.stylesheet			\
+	xl.stylesheet
 
 .products:	$(XL_BINARIES) $(XL_FILES)
 
@@ -248,7 +245,7 @@ $1: $2/$1
 endef
 
 $(eval $(foreach b,$(XL_BINARIES),$(call link,$b,..)))
-$(eval $(foreach f,$(XL_FILES),$(call link,$f,../src)))
+$(eval $(foreach f,$(XL_FILES),$(call link,$f,..)))
 
 ../$(xl.dll)		: ../$(xl.exe)
 ../$(recorder.dll)	: ../$(xl.exe)

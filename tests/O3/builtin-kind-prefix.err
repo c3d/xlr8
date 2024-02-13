@@ -1,0 +1,5 @@
+--- O3/builtin-kind-prefix DIFF ---
+--- O3/builtin-kind-prefix OUTPUT ---
+O3/builtin-kind-prefix.xl:34:18: Unable to evaluate [thing "Hello"]:
+O3/builtin-kind-prefix.xl:34:18:  No form matching [thing "Hello"]
+O3/builtin-kind-prefix.xl:34:10: The returned value 5 is not a [natural]
