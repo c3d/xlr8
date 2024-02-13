@@ -1,7 +1,5 @@
 #define HAVE_SIGACTION 1
 #define HAVE_STRUCT_STAT 1
-#define HAVE_SBRK 1
-#define CONFIG_SBRK_BASE ((void *) 0x10045c000)
 #define HAVE_POSIX_MEMALIGN 1
 /* #undef HAVE_MINGW_ALIGNED_MALLOC */
 #define HAVE_REGEX_H 1

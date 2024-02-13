@@ -35,7 +35,7 @@
 # ******************************************************************************
 
 include version.mk
-SUBDIRS=recorder bootstrap
+SUBDIRS=recorder stage0
 
 MIQ=make-it-quick/
 include $(MIQ)rules.mk

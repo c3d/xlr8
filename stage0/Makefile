@@ -67,7 +67,7 @@ SOURCES=					\
 HEADERS=$(HEADERS_$(VARIANT))
 HEADERS_lib=$(wildcard ../include/*.h *.tbl)
 
-PRODUCTS=xl-bootstrap.exe
+PRODUCTS=xl-stage0.exe
 
 GIT_VERSION=	$(shell git describe --always --tags --dirty=-dirty)
 DEFINES=	$(DEFINES_$(COMPILER))					\
@@ -79,7 +79,6 @@ INCLUDES=. .. ../include
 
 CONFIG= sigaction                       \
         struct_stat                     \
-        sbrk                            \
         posix_memalign                  \
         mingw_aligned_malloc            \
         <regex.h>                       \
