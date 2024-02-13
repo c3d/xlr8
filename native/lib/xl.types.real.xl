@@ -1,0 +1,96 @@
+// *****************************************************************************
+// xl.types.real.xl                                                   XL project
+// *****************************************************************************
+//
+// File description:
+//
+//     The basic real number operations
+//
+//
+//
+//
+//
+//
+//
+//
+// *****************************************************************************
+// This software is licensed under the GNU General Public License v3+
+// (C) 2018-2020, Christophe de Dinechin <christophe@dinechin.org>
+// *****************************************************************************
+// This file is part of XL
+//
+// XL is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License,
+// or (at your option) any later version.
+//
+// XL is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with XL, in a file named COPYING.
+// If not, see <https://www.gnu.org/licenses/>.
+// *****************************************************************************
+
+use MATH = XL.MATH
+
+module XL.REAL[value:type] is
+    x:value + y:value           as value        is builtin FAdd
+    x:value - y:value           as value        is builtin FSub
+    x:value * y:value           as value        is builtin FMul
+    x:value / y:value           as value        is builtin FDiv
+    x:value rem y:value         as value        is builtin FRem
+    x:value mod y:value         as value        is builtin FMod
+    -x:value                    as value        is builtin FNeg
+
+
+    x:value ^ y:integer         as value        is
+    // ------------------------------------------------------------------------
+    //   Power with integer argument, x can be negative
+    // ------------------------------------------------------------------------
+        result : value := 1.0
+        negative is y < 0
+        if negative then
+            y := -y
+        while y > 0 loop
+            if (y and 1) <> 0 then
+                result *= x
+            x *= x
+            y := y ashr 1
+        if negative then
+            result := 1.0 / result
+        return result
+
+
+    x:value ^ y:value           as value        is
+    // ------------------------------------------------------------------------
+    //    Power with non-integer argument, x cannot be negative
+    // ------------------------------------------------------------------------
+        if x <= 0.0 then
+            error "Log of negative value $1", x
+        return exp(y * log x)
+
+
+    out x:value := y:value      as value        is builtin Copy
+
+    in out x:value += y:value   as value        is x := x + y
+    in out x:value -= y:value   as value        is x := x - y
+    in out x:value *= y:value   as value        is x := x * y
+    in out x:value /= y:value   as value        is x := x / y
+
+    X:real = Y:real             as boolean      is builtin FCmpOEQ
+    X:real <> Y:real            as boolean      is builtin FCmpONE
+    X:real > Y:real             as boolean      is builtin FCmpOGT
+    X:real >= Y:real            as boolean      is builtin FCmpOGE
+    X:real < Y:real             as boolean      is builtin FCmpOLT
+    X:real <= Y:real            as boolean      is builtin FCmpOLE
+
+module XL.REAL is
+    type real                                   is builtin real64
+    type real16                                 is builtin real32
+    type real32                                 is builtin real32
+    type real64                                 is builtin real64
+    type real80                                 is builtin real80
+    type real128                                is builtin real128

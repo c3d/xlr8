@@ -1,0 +1,120 @@
+// *****************************************************************************
+// xl.math.xl                                                         XL project
+// *****************************************************************************
+//
+// File description:
+//
+//     Implementation of basic math functionsx
+//
+//
+//
+//
+//
+//
+//
+//
+// *****************************************************************************
+// This software is licensed under the GNU General Public License v3+
+// (C) 2018-2020, Christophe de Dinechin <christophe@dinechin.org>
+// *****************************************************************************
+// This file is part of XL
+//
+// XL is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License,
+// or (at your option) any later version.
+//
+// XL is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with XL, in a file named COPYING.
+// If not, see <https://www.gnu.org/licenses/>.
+// *****************************************************************************
+
+with
+    X:real
+    Y:real
+    Z:real
+    N:natural
+    I:integer
+    Base:real
+
+// Generic implementation of abs and sign
+generic_abs T   is (if T < 0 then -T else T)
+generic_sign T  is (if T < 0 then -1 else if T > 0 then 1 else 0)
+
+abs I           as integer is generic_abs I
+sign I          as integer is generic_sign I
+abs X           as real is generic_abs X
+sign X          as real is generic_sign X
+
+// Nearest integer
+ceil X          as real is native "ceil"
+floor X         as real is native "floor"
+
+// Base functions
+sqrt X          as real is native "sqrt"
+exp X           as real is native "exp"
+exp2 X          as real is native "exp2"
+log X           as real is native "log"
+ln X            as real is log X
+log10 X         as real is native "log10"
+log2 X          as real is native "log2"
+logb X          as integer is native "logb"
+log(Base,X)     as real is (log X / log Base)
+hypot(X,Y)      as real is native "hypot"
+cbrt X          as real is native "cbrt"
+erf X           as real is native "erf"
+lgamma X        as real is native "lgamma"
+fma X,Y,Z       as real is native "fma"
+
+// Circular trigonometry
+sin X           as real is native "sin"
+cos X           as real is native "cos"
+tan X           as real is native "tan"
+asin X          as real is native "asin"
+acos X          as real is native "acos"
+atan X          as real is native "atan"
+atan Y/X        as real is native "atan2"
+
+// Hyperbolic trigonometry
+sinh X          as real is native "sinh"
+cosh X          as real is native "cosh"
+tanh X          as real is native "tanh"
+asinh X         as real is native "asinh"
+acosh X         as real is native "acosh"
+atanh X         as real is native "atanh"
+
+// Bessel functions
+j0 X            as real is native "j0"
+j1 X            as real is native "j1"
+jn I, X         as real is native "jn"
+y0 X            as real is native "y0"
+y1 X            as real is native "y1"
+yn I, X         as real is native "yn"
+
+// Optimized forms
+(exp X) - 1     as real is native "expm1"
+log (1+X)       as real is native "log1p"
+log (X+1)       as real is native "log1p"
+2^X             as real is native "exp2"
+
+// Constants
+pi as real      is 3.1415926535897932384626433
+e  as real      is 2.7182818284590452353602875
+
+// Optimized constant expressions
+log2  [[e]]     as real is 1.442695040888963407359924681001892137
+log10 [[e]]     as real is 0.434294481903251827651128918916605082
+log   2         as real is 0.693147180559945309417232121458176568
+[[pi]]/2        as real is 1.570796326794896619231321691639751442
+[[pi]]/4        as real is 0.785398163397448309615660845819875721
+1/[[pi]]        as real is 0.318309886183790671537767526745028724
+2/[[pi]]        as real is 0.636619772367581343075535053490057448
+2/sqrt [[pi]]   as real is 1.128379167095512573896158903121545172
+sqrt 2          as real is 1.414213562373095048801688724209698079
+1/sqrt 2        as real is 0.707106781186547524400844362104849039
+(sqrt 2) / 2    as real is 0.707106781186547524400844362104849039

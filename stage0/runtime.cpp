@@ -60,6 +60,7 @@
 #include <sstream>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <math.h>
 
 
 XL_BEGIN
@@ -1437,6 +1438,64 @@ Tree *XLCall::operator() (Scope *scope)
     return result;
 }
 
+
+// ============================================================================
+//
+//    Native interface for math.h functions
+//
+// ============================================================================
+
+#define FUNCTION(Name)                                            \
+    static inline double Name(double x) { return ::Name(x); }  \
+    static Native xl_##Name##_native(Name, #Name);
+
+
+FUNCTION(sqrt);
+FUNCTION(cbrt);
+
+FUNCTION(sin);
+FUNCTION(cos);
+FUNCTION(tan);
+FUNCTION(asin);
+FUNCTION(acos);
+FUNCTION(atan);
+
+FUNCTION(sinh);
+FUNCTION(cosh);
+FUNCTION(tanh);
+FUNCTION(asinh);
+FUNCTION(acosh);
+FUNCTION(atanh);
+
+FUNCTION(log1p);
+FUNCTION(expm1);
+FUNCTION(log);
+FUNCTION(log10);
+FUNCTION(log2);
+FUNCTION(exp);
+FUNCTION(exp2);
+FUNCTION(erf);
+FUNCTION(erfc);
+FUNCTION(tgamma);
+FUNCTION(lgamma);
+
+FUNCTION(abs);
+FUNCTION(ceil);
+FUNCTION(floor);
+
+FUNCTION(j0);
+FUNCTION(j1);
+NATIVE(jn);
+FUNCTION(y0);
+FUNCTION(y1);
+NATIVE(yn);
+
+static inline double hypot(double x, double y) { return ::hypot(x, y); }
+static inline double atan2(double x, double y) { return ::atan2(x, y); }
+static inline double fma(double x, double y, double z) { return ::fma(x, y, z); }
+NATIVE(hypot);
+NATIVE(atan2);
+NATIVE(fma);
 
 XL_END
 

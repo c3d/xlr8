@@ -1,0 +1,79 @@
+// *****************************************************************************
+// xl.types.number.xl                                                 XL project
+// *****************************************************************************
+//
+// File description:
+//
+//     Implementation commmon to all numbers
+//
+//
+//
+//
+//
+//
+//
+//
+// *****************************************************************************
+// This software is licensed under the GNU General Public License v3+
+// (C) 2019-2020, Christophe de Dinechin <christophe@dinechin.org>
+// *****************************************************************************
+// This file is part of XL
+//
+// XL is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License,
+// or (at your option) any later version.
+//
+// XL is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with XL, in a file named COPYING.
+// If not, see <https://www.gnu.org/licenses/>.
+// *****************************************************************************
+
+use MEMORY, ENUMERATION, SEQUENCE
+
+module NUMBER[number:type, Size, Align] is
+// ----------------------------------------------------------------------------
+//   Interface for aspects common to all numbers
+// ----------------------------------------------------------------------------
+
+    type number with
+    // ------------------------------------------------------------------------
+    //    Attributes for number types
+    // ------------------------------------------------------------------------
+        Integer                 is Attributes.Integer
+        Signed                  is Attributes.Signed
+        Float                   as boolean
+        Fixed                   as boolean
+        Ordered                 as boolean
+        Unordered               as boolean
+        MantissaBits            as bit_count
+        ExponentBits            as bit_count
+        ScalingBits             as bit_offset
+        MinValue                as number
+        MaxValue                as number
+        Epsilon X:number        as number
+
+        BitSize                 is MEMORY.bit_count(Size)
+        BitAlign                is MEMORY.bit_count(Align)
+        ByteSize                is MEMORY.byte_count(bit_size)
+        ByteAlign               is MEMORY.byte_count(bit_align)
+
+    // Numbers support some kind of arithmetic
+    use ARITHMETIC[number]
+
+    // Bitwise arithmetic for integer numbers
+    use BITWISE[number]         if number.integer
+    use ASSIGN[number]
+    use COPY[number]
+
+    // Comparisons have an order, except for ordered types
+    use COMPARISON[number].EQUALITY
+    use COMPARISON[number]      if number.ordered
+
+    // Numbers have a fixed memory size
+    use MEMORY.SIZE[number, Size, Align]

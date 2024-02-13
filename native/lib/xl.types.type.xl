@@ -1,0 +1,341 @@
+// *****************************************************************************
+// xl.types.type.xl                                                   XL project
+// *****************************************************************************
+//
+// File description:
+//
+//     Implementation for types
+//
+//     This module provides
+//     - the `type` type itself, including key type attributes
+//     - common operations on types
+//     - a number of type constructors, notably to create subtypes
+//
+//
+//
+//
+// *****************************************************************************
+// This software is licensed under the GNU General Public License v3+
+// (C) 2019-2020, Christophe de Dinechin <christophe@dinechin.org>
+// *****************************************************************************
+// This file is part of XL
+//
+// XL is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License,
+// or (at your option) any later version.
+//
+// XL is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with XL, in a file named COPYING.
+// If not, see <https://www.gnu.org/licenses/>.
+// *****************************************************************************
+
+use PARSER = XL.COMPILER.PARSER
+use CONFIG = XL.SYSTEM.CONFIGURATION
+use MEM    = XL.SYSTEM.MEMORY
+use LIFE   = XL.TYPES.LIFETIME
+
+module XL.TYPES.TYPE is
+// ----------------------------------------------------------------------------
+//    A module providing core type operations
+// ----------------------------------------------------------------------------
+
+    type type is
+    // ------------------------------------------------------------------------
+    //  Implementation of a data type in XL
+    // ------------------------------------------------------------------------
+        Pattern         : source
+        Condition       : source
+        Constant        : boolean
+        Mutable         : boolean
+        Lifetime        : lifetime
+
+
+
+    // ************************************************************************
+    //
+    //   Pattern matching rules for the various kinds of types
+    //
+    // ************************************************************************
+    //  We usually do not specify the value of 'Pattern' in the type scope
+    //  because there is a parameter in scope that supplies it
+    //
+    //  The pattern matching is generally implemented by [Val matches Pat],
+    //  but in some cases, there is a need to do some position-dependent
+    //  matching. In that case, the position is indicated by a prefix
+    //  that can be stripped out automatically if not matched directly
+
+    Value in matching Pattern           is Value matches Pattern
+    opcode_pattern Pattern              is Pattern
+
+
+    // ========================================================================
+    //
+    //    Constant patterns (integer, real, text)
+    //
+    // ========================================================================
+
+    macro constant_pattern[type base] is
+    // ------------------------------------------------------------------------
+    //   Implementation for constant patterns
+    // ------------------------------------------------------------------------
+
+        matching Pattern:base as type is
+        // --------------------------------------------------------------------
+        //    A type that matches an integer, real or text constant
+        // --------------------------------------------------------------------
+        //   Such constant values do not use any memory
+            Condition   is true
+            Attributes  is nil
+            Bases       is nil
+            Lifetime    is LIFE.always
+
+        // An integer pattern only matches the exact value
+        Value:base matches Pattern:base         is Pattern = Value
+        OtherValue matches Pattern:base         is false
+
+    constant_pattern integer
+    constant_pattern real
+    constant_pattern text
+
+
+    // ========================================================================
+    //
+    //   Name pattern
+    //
+    // ========================================================================
+
+    matching Pattern:name as type is
+    // --------------------------------------------------------------------
+    //    At top-level, a name matches anything
+    // --------------------------------------------------------------------
+        Condition       is true
+        Attributes      is nil
+        Bases           is nil
+        Lifetime        is LIFE.lifetime(Pattern)
+
+    // A name as prefix/postfix opcode only matches a name with the same value
+    Value:name matches opcode_pattern Pattern:name is (value.Name=Pattern.Name)
+
+    // A name pattern matches anything
+    Value matches Pattern:name                 is true
+
+
+    // ========================================================================
+    //
+    //   Infix patterns
+    //
+    // ========================================================================
+
+    matching Pattern:annotation as type is
+    // --------------------------------------------------------------------
+    //  Matching [X:T]
+    // --------------------------------------------------------------------
+        What            is Pattern.Left
+        RequiredType    is Pattern.Right
+        Condition       is RequiredType.Condition
+        Attributes      is RequiredType.Attributes
+        Bases           is RequiredType.Bases
+        Lifetime        is (LIFE.lifetime(Pattern) and
+                            LIFE.lifetime(RequiredType))
+
+    Value matches Annotation:annotation is
+    // ------------------------------------------------------------------------
+    //    A type annotation contains the value if the required type does
+    // ------------------------------------------------------------------------
+        RequiredType is Annotation.Right
+        RequiredType contains Value
+
+
+    matching Pattern:definition as type is
+    // ------------------------------------------------------------------------
+    //  Matching [X is T]
+    // ------------------------------------------------------------------------
+    //  A definition in a pattern corresponds to a default value
+        What            is Pattern.Left
+        Default         is pattern.Right
+        Condition       is What.Condition
+        Attributes      is default Default
+        Bases           is What.Bases
+        Lifetime        is What.Lifetime and LIFE.lifetime(Pattern)
+
+    Value matches Definition:definition is
+    // ------------------------------------------------------------------------
+    //    A condition contains a value if the condition passes
+    // ------------------------------------------------------------------------
+        What            is Definition.Left
+        What contains Value
+
+
+    matching Pattern:condition as type is
+    // ------------------------------------------------------------------------
+    //    Matching [X when Condition]
+    // ------------------------------------------------------------------------
+        What            is Pattern.Left
+        Condition       is What.Condition and Pattern.Right
+        Attributes      is What.Attributes
+        Bases           is What.Bases
+        Lieftime        is What.Lifetime and LIFE.lifetime(Pattern)
+
+    Value matches Condition:condition is
+    // ------------------------------------------------------------------------
+    //    A condition contains a value if the condition passes
+    // ------------------------------------------------------------------------
+        What            is Condition.Left
+        Test            is Condition.Right
+        What contains Value and Test
+
+
+    matching Pattern:infix as type is
+    // ------------------------------------------------------------------------
+    //    General infix case, e.g. [A,B]
+    // ------------------------------------------------------------------------
+        Condition       is true
+        Attributes      is nil
+        Bases           is nil
+        Lifetime        is LIFE.lifetime(Pattern)
+
+    Value matches Pattern:infix is
+    // ------------------------------------------------------------------------
+    //   An infix pattern matches an infix value with the same name
+    // ------------------------------------------------------------------------
+        (Value in infix                         and
+         Value.name = Pattern.name              and
+         Value.Left  matches Pattern.Left       and
+         Value.Right matches Pattern.Right)
+
+
+    matching Pattern:prefix as type is
+    // ------------------------------------------------------------------------
+    //   Prefix, e.g. [sin A]
+    // ------------------------------------------------------------------------
+        Condition       is true
+        Attributes      is nil
+        Bases           is nil
+        Lifetime        is LIFE.lifetime(Pattern)
+
+    Value matches Pattern:prefix is
+    // ------------------------------------------------------------------------
+    //   A prefix pattern matches a prefix value with the same prefix
+    // ------------------------------------------------------------------------
+        (Value in prefix                                        and
+         Value.Left  matches opcode_pattern Pattern.Left        and
+         Value.Right matches Pattern.Right)
+
+
+    matching Pattern:postfix as type is
+    // ------------------------------------------------------------------------
+    //   Postfix, e.g. [A km]
+    // ------------------------------------------------------------------------
+        Condition       is true
+        Attributes      is nil
+        Bases           is nil
+        Lifetime        is LIFE.lifetime(Pattern)
+
+    Value matches Pattern:postfix is
+    // ------------------------------------------------------------------------
+    //   A postfix pattern matches a postfix value with the same postfix
+    // ------------------------------------------------------------------------
+        (Value in postfix                                       and
+         Value.Right matches opcode_pattern Pattern.Right       and
+         Value.Left  matches Pattern.Left)
+
+
+    matching Pattern:block as type is
+    // ------------------------------------------------------------------------
+    //   Block, e.g. [(A)]
+    // ------------------------------------------------------------------------
+        Condition       is true
+        Attributes      is nil
+        Bases           is nil
+        Lifetime        is LIFE.lifetime(Pattern)
+
+    Value:block matches Pattern is
+    // ------------------------------------------------------------------------
+    //   Strip out the blocks from values during evaluation
+    // ------------------------------------------------------------------------
+        Value.child matches Pattern
+
+    Value matches Pattern:block is
+    // ------------------------------------------------------------------------
+    //   A block pattern matches what its child matches
+    // ------------------------------------------------------------------------
+        Value matches Pattern.Child
+
+
+    // ************************************************************************
+    //
+    //    Types not defined using 'matching'
+    //
+    // ************************************************************************
+
+    type nil is
+    // ------------------------------------------------------------------------
+    //    The 'nil' type matches nothing but 'nil'
+    // ------------------------------------------------------------------------
+        Pattern         is nil
+        Condition       is true
+        Attributes      is nil
+        Bases           is nil
+        Lifetime        is LIFE.always
+
+    // The 'nil' type only contains nil
+    [[nil]] in [[nil]]  is true
+    Other   in [[nil]]  is false
+
+
+    type anything is
+    // ------------------------------------------------------------------------
+    //   The 'anything' type matches anything (and preserve its type)
+    // ------------------------------------------------------------------------
+    //   The internal representation is made of two pointers
+    //   - A pointer to the value
+    //   - A pointer to the type
+        Pattern         is anything
+        Condition       is true
+        Attributes      is nil
+        Bases           is nil
+        Lifetime        is LIFE.always
+
+    // The 'anything' type contains anything
+    Any in [[anything]] is true
+
+
+    Derived:ref type like Base:type as ref type is
+    // ------------------------------------------------------------------------
+    //    Add the given base to the list of bases
+    // ------------------------------------------------------------------------
+        Derived.Bases &= Base
+        Derived
+
+
+    // ************************************************************************
+    //
+    //    Error conditions if not matching one of the above
+    //
+    // ************************************************************************
+
+    matching Pattern as type is
+    // ------------------------------------------------------------------------
+    //   There should be no case beyond those listed above
+    // ------------------------------------------------------------------------
+        error "Unexpected type pattern %1", Pattern
+
+
+    Value matches Pattern is
+    // ------------------------------------------------------------------------
+    //   There should be no case beyond those listed above
+    // ------------------------------------------------------------------------
+        error "Unable to match value %1 against pattern %2", Value, Pattern
+
+
+    Value in Type:type is
+    // ------------------------------------------------------------------------
+    //   There should be no case beyond those listed above
+    // ------------------------------------------------------------------------
+        error "Unable to check if value %1 belongs to type %2", Value, Type

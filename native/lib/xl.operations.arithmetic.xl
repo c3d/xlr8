@@ -1,0 +1,178 @@
+// *****************************************************************************
+// xl.operations.arithmetic.xl                                        XL project
+// *****************************************************************************
+//
+// File description:
+//
+//      Implementation of some arithmetic operations
+//
+//      This only provides defaults for operations that can be implemented
+//      from base operations in the module
+//
+//      Notice that some of these implementation only exist for ordered types
+//      and that some rely on 0 and 1 being valid arithmetic values
+//
+//
+// *****************************************************************************
+// This software is licensed under the GNU General Public License v3+
+// (C) 2019-2020, Christophe de Dinechin <christophe@dinechin.org>
+// *****************************************************************************
+// This file is part of XL
+//
+// XL is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License,
+// or (at your option) any later version.
+//
+// XL is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with XL, in a file named COPYING.
+// If not, see <https://www.gnu.org/licenses/>.
+// *****************************************************************************
+
+use COMPARISON
+use BITWISE
+
+
+module XL.ARITHMETIC[type arithmetic] is
+// ----------------------------------------------------------------------------
+//   Generic implementatoin of some generic arithmetic oeprations
+// ----------------------------------------------------------------------------
+
+    with
+        Value    : arithmetic
+        Left     : arithmetic
+        Right    : arithmetic
+        Changing : in out arithmetic
+
+
+    Left mod Right as arithmetic when Right is ordered is
+    // ------------------------------------------------------------------------
+    //    Default implementation of `mod` operation when there is an order
+    // ------------------------------------------------------------------------
+
+        // Check that the result of `rem` is itself ordered
+        Result : (arithmetic and ordered) := Left rem Right
+
+        // The following is legit because `ordered` provides `<`
+        // and 0 always belongs to arithmetic
+        if Result < 0 then
+            if Right < 0 then
+                Result -= Right
+            else
+                Result += Right
+
+
+    Left ^ Power:natural as arithmetic is
+    // ------------------------------------------------------------------------
+    //   Default implementaiton of exponentiation
+    // ------------------------------------------------------------------------
+
+        Result     : arithmetic := 1
+        Multiplier : arithmetic := Left
+
+        while Power <> 0 loop
+            if (Power and 1) = 1 then
+                Result *= Multiplier
+            Multiplier *= Multiplier
+            Power /= 2
+
+
+    -Left as arithmetic is
+    // ------------------------------------------------------------------------
+    //   Default implementation of negation
+    // ------------------------------------------------------------------------
+        0 - Left
+
+
+    Abs Value as arithmetic when Value is ordered is
+    // ------------------------------------------------------------------------
+    //   Default implementation of absolute value for ordered types
+    // ------------------------------------------------------------------------
+        if Value < 0 then -Value else Value
+
+
+    Sign Value as arithmetic when Value is ordered is
+    // ------------------------------------------------------------------------
+    //   Default implementation of sign for ordered types
+    // ------------------------------------------------------------------------
+        if Value < 0 then -1 else if Value > 0 then 1 else 0
+
+
+    ++Changing as arithmetic is
+    // ------------------------------------------------------------------------
+    //    Default implementation of pre-incrementation
+    // ------------------------------------------------------------------------
+        Changing += 1
+
+
+    --Changing as arithmetic is
+    // ------------------------------------------------------------------------
+    //    Default implementation of pre-decrementation
+    // ------------------------------------------------------------------------
+        Changing -= 1
+        Changing
+
+
+    Changing++ as arithmetic is
+    // ------------------------------------------------------------------------
+    //   Default implementation of post-incrementation
+    // ------------------------------------------------------------------------
+        Result : arithmetic is Changing
+        Changing += 1
+        Result
+
+
+    Changing-- as arithmetic is
+    // ------------------------------------------------------------------------
+    //   Default implementation of post-decrementation
+    // ------------------------------------------------------------------------
+        Result : arithmetic is Changing
+        Changing -= 1
+        Result
+
+
+    Changing += Right as arithmetic is
+    // ------------------------------------------------------------------------
+    //   Default implementation of in-place addition
+    // ------------------------------------------------------------------------
+        Changing := Changing + Right
+
+
+    Changing -= Right as arithmetic is
+    // ------------------------------------------------------------------------
+    //   Default implementation of in-place subtraction
+    // ------------------------------------------------------------------------
+        Changing := Changing - Right
+
+
+    Changing *= Right as arithmetic is
+    // ------------------------------------------------------------------------
+    //   Default implementation of in-place multiplication
+    // ------------------------------------------------------------------------
+        Changing := Changing * Right
+
+
+    Changing /= Right as arithmetic is
+    // ------------------------------------------------------------------------
+    //   Default implementation of in-place division
+    // ------------------------------------------------------------------------
+        Changing := Changing / Right
+
+
+    0 as arithmetic is
+    // ------------------------------------------------------------------------
+    //   Default implementation is to convert using some explicit conversion
+    // ------------------------------------------------------------------------
+        arithmetic 0
+
+
+    1 as arithmetic
+    // ------------------------------------------------------------------------
+    //   Default implementation is to convert using some explicit conversion
+    // ------------------------------------------------------------------------
+        arithmetic 1
