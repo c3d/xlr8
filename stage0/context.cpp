@@ -60,6 +60,7 @@ RECORDER(symbols,        32, "XL symbol table");
 RECORDER(symbols_errors, 32, "Errors running symbol table");
 RECORDER(symbols_sort,   32, "Sorting entries in the symbol table");
 RECORDER(symbols_lookup, 32, "Lookup in symbol table");
+RECORDER(symbols_debug,  32, "Entering data in symbols");
 
 
 XL_BEGIN
@@ -378,7 +379,7 @@ static Tree *MatchParameters(Tree *pattern,
 }
 
 
-inline static Tree *MatchParameters(Tree *pattern, TreeList &parameters)
+static inline Tree *MatchParameters(Tree *pattern, TreeList &parameters)
 // ----------------------------------------------------------------------------
 //   Case for the non-written form
 // ----------------------------------------------------------------------------
@@ -392,7 +393,7 @@ inline static Tree *MatchParameters(Tree *pattern, TreeList &parameters)
 }
 
 
-inline static void ExtractParameters(Tree *pattern, TreeList &types)
+static inline void ExtractParameters(Tree *pattern, TreeList &types)
 // ----------------------------------------------------------------------------
 //    Case for the non-written form
 // ----------------------------------------------------------------------------
@@ -509,11 +510,23 @@ bool Context::ProcessDeclarations(Tree *source, Initializers &inits)
             }
         }
 
+        if (RECORDER_TRACE(symbols_debug))
+        {
+            record(symbols_debug, "Symbol %p after entry of %t", symbols, what);
+            Dump(std::cerr, symbols, false);
+            record(symbols_debug, "End of symbol %p after entry of %t",
+                   symbols, what);
+        }
+
         // Check if we see instructions
         result |= isInstruction;
     }
     if (RECORDER_TRACE(symbols_sort))
+    {
+        record(symbols_sort, "Symbol table %p from %t", symbols, source);
         Dump(std::cerr, symbols, false);
+        record(symbols_sort, "End of symbol table %p", symbols);
+    }
     return result;
 }
 
@@ -1219,6 +1232,8 @@ Rewrite *Context::Enter(Rewrite *rewrite, bool overwrite)
             if (cmpleft > 0)
             {
                 // Here pattern < left < right
+                record(symbols, "In %p insert %t left of %t",
+                       this, rewrite, left);
                 rewrites->right = new Rewrites(rewrite, right);
                 goto done;
             }
@@ -1229,12 +1244,16 @@ Rewrite *Context::Enter(Rewrite *rewrite, bool overwrite)
             if (cmpright > 0)
             {
                 // Here left <= pattern < right: reorder
+                record(symbols, "In %p insert %t between %t and %t",
+                       this, rewrite, left, right);
                 rewrites->left = rewrite;
                 rewrites->right = new Rewrites(left, right);
                 goto done;
             }
 
             // Here, left <= right <= pattern: reorder
+            record(symbols, "In %p insert %t right of %t",
+                   this, rewrite, right);
             rewrites->left = right;
             rewrites->right = new Rewrites(left, rewrite);
             goto done;
