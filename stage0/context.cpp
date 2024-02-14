@@ -903,7 +903,7 @@ static int ISort(Tree *pat, Tree *val, SortMode mode)
         Block *valb = val->AsBlock();
         // A metabox comes before names, is
         if (Tree *valm = valb->IsMetaBox())
-            if (SortInserting(mode))
+            if (SortInserting(mode) || SortRefSearching(mode))
                 return patk == NAME ? 1 : Sort(pat, valm, CONDITIONAL);
         return Sort(pat, valb->child, mode);
     }
