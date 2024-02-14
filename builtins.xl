@@ -199,7 +199,7 @@ max X, Y is { mx is max X; my is max Y; if mx > my then mx else my }
 max Y    is Y
 
 // Interval test
-X:real in A:real..B:real is X >= A and X <= B
+X in A..B is X >= A and X <= B
 
 // Factorial function
 0! is 1
