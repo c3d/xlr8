@@ -35,7 +35,7 @@
 # ******************************************************************************
 
 include version.mk
-SUBDIRS=recorder cboot
+SUBDIRS=recorder runtime
 
 MIQ=make-it-quick/
 include $(MIQ)rules.mk

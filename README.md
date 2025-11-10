@@ -13,3 +13,10 @@ below:
 [art]: https://fosdem.org/2024/events/attachments/fosdem-2024-3485-hactorscript-in-art-bug-free-software-on-unhackable-hardware/slides/22293/Draft2_3QvqGJE.pdf
 
 The first step is to write the compiler and bootstrap it.
+
+
+## Key ideas
+
+The key ideas of XLR8 are:
+
+1. A sandboxed runtime
