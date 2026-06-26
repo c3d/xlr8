@@ -1,0 +1,101 @@
+// ****************************************************************************
+//  runtime.h                                                      xlr8 project
+// ****************************************************************************
+//
+//   File Description:
+//
+//     The runtime for XLR8 represents the execution environment that is
+//     necessary to run XLR8 bytecode.
+//
+//
+//
+//
+//
+//
+//
+//
+// ****************************************************************************
+//   (C) 2025 Christophe de Dinechin <christophe@dinechin.org>
+//   This software is licensed under the terms outlined in LICENSE.txt
+// ****************************************************************************
+//   This file is part of xlr8.
+//
+//   xlr8 is free software: you can redistribute it and/or modify
+//   it under the terms outlined in the LICENSE.txt file
+//
+//   xlr8 is distributed in the hope that it will be useful,
+//   but WITHOUT ANY WARRANTY; without even the implied warranty of
+//   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// ****************************************************************************
+
+OP(end)
+OP(run)
+
+OP(use)
+OP(def)
+
+OP(get)
+OP(set)
+OP(rcl)
+OP(sto)
+OP(enter)
+OP(leave)
+
+OP(ppc)
+OP(jmp)
+
+OP(dispatch)
+OP(bra)
+OP(beq)
+OP(bne)
+OP(blt)
+OP(ble)
+OP(bgt)
+OP(bge)
+
+OP(add)
+OP(sub)
+OP(rsub)
+OP(mul)
+OP(mulu)
+OP(div)
+OP(divu)
+OP(mod)
+OP(modu)
+
+OP(and)
+OP(or)
+OP(xor)
+OP(neg)
+OP(not)
+OP(shl)
+OP(shr)
+OP(shru)
+
+OP(int)
+OP(uint)
+OP(str)
+OP(dup)
+OP(swap)
+OP(drop)
+OP(dupn)
+OP(swapn)
+OP(dropn)
+OP(dupi)
+OP(swapi)
+OP(dropi)
+
+OP(err)
+OP(clear)
+OP(trap)
+OP(eof)
+OP(inpc)
+OP(inpi)
+OP(inpu)
+OP(inpt)
+OP(outc)
+OP(outi)
+OP(outu)
+OP(outt)
+
+#undef OP

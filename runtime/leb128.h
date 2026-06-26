@@ -29,10 +29,9 @@
 //   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // ****************************************************************************
 
-#include <cstddef>
+#include "types.h"
 
-typedef unsigned char byte, *byte_p;
-typedef unsigned int  uint, *uint_p;
+#include <cstddef>
 
 template <typename Int = uint>
 inline Int leb128(byte_p &b)
@@ -58,7 +57,7 @@ inline Int leb128(byte_p &b)
 
 
 template<typename Int = uint>
-inline byte_p leb128(byte_p bp, Int value)
+inline byte *leb128(byte *bp, Int value)
 // ----------------------------------------------------------------------------
 //   Write the LEB value at pointer
 // ----------------------------------------------------------------------------

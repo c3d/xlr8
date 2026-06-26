@@ -1,5 +1,5 @@
 #ifndef RUNTIME_H
-#  define RUNTIME_H
+#define RUNTIME_H
 // ****************************************************************************
 //  runtime.h                                                      xlr8 project
 // ****************************************************************************
@@ -31,32 +31,11 @@
 // ****************************************************************************
 
 #include "leb128.h"
+#include "types.h"
 
-struct runtime;
-typedef const char *cstring;
-typedef const char *utf8;
-typedef byte_p     object_p;
-typedef bool (*run_fn)(runtime &rt);
-typedef size_t op_t;
-
-
-template <typename value_type>
-struct save
-// ----------------------------------------------------------------------------
-//   Save a value and reset it to what it was on scope exit
-// ----------------------------------------------------------------------------
-{
-    save(value_type &ref, value_type value): ref(ref), saved(ref)
-    {
-        ref = value;
-    }
-    ~save()
-    {
-        ref = saved;
-    }
-    value_type  &ref;
-    value_type  saved;
-};
+#include <cassert>
+#include <map>
+#include <cstring>
 
 
 struct runtime
@@ -65,215 +44,372 @@ struct runtime
 // ----------------------------------------------------------------------------
 {
     // Constructor and destructor
-    runtime(byte_p  start,
-            size_t  memsize = 32 * 1024,
-            size_t  opcodes = 0,
-            run_fn *evaluators = nullptr);
+    runtime(size_t sz);
+    runtime(const runtime &rt);
     ~runtime();
 
 
     // ========================================================================
     //
-    //   Opcode evaluation
+    //   Data tyeps
     //
     // ========================================================================
 
-    bool next()
+    // Evaluator function for each opcode, return true to keep going
+    typedef bool (*run_fn)(runtime &rt);
+
+
+    // ========================================================================
+    //
+    // Basic built-in opcodes
+    //
+    // ========================================================================
+
+#  define OP(op) static bool op_##op(runtime &rt);
+#include "runtime.tbl"
+
+
+    // ========================================================================
+    //
+    //   Runtime helpers
+    //
+    // ========================================================================
+
+    template <typename Int = size_t>
+    Int arg()
     // ------------------------------------------------------------------------
-    //    Execute the next instruction
+    //   Read next signed or unsigned argument and skip it
     // ------------------------------------------------------------------------
     {
-        ppc = pc;
-        op = leb128<op_t>(pc) >> 1;
-        return op < opcodes  ? evaluators[op](*this) : false;
+        return leb128<Int>(pc);
+    }
+
+
+    op_t op()
+    // ------------------------------------------------------------------------
+    //   Read next opcode and skip it
+    // ------------------------------------------------------------------------
+    {
+        return leb128<op_t>(pc);
+    }
+
+
+    run_fn evaluator()
+    // ------------------------------------------------------------------------
+    //   Return the evaluator at current PC, moving it forward
+    // ------------------------------------------------------------------------
+    {
+        op_t o = op();
+        if (o >= nopcodes)
+        {
+            error("Invalid opcode");
+            return nullptr;
+        }
+        return opcodes[o];
+    }
+
+
+    bool evaluate()
+    // ------------------------------------------------------------------------
+    //   Evaluate the next opcode
+    // ------------------------------------------------------------------------
+    {
+        if (run_fn e = evaluator())
+            return e(*this);
+        return false;
     }
 
 
     bool run()
     // ------------------------------------------------------------------------
-    //   Run until we reach a successful exit
+    //   Run all instructions at current code pointer
     // ------------------------------------------------------------------------
     {
-        while (next());
-        return !error_message;
+        bool result = true;
+        while (result)
+            result = evaluate();
+        return result;
     }
 
 
-    bool run(byte_p npc)
+    byte *allocate(size_t sz, byte_p init);
+    byte *allocate(size_t sz)
     // ------------------------------------------------------------------------
-    //   Run until we reach a successful exit
-    // ------------------------------------------------------------------------
-    {
-        pc = npc;
-        return run();
-    }
-
-
-
-    // ========================================================================
-    //
-    //   Stack and root pointer growths
-    //
-    // ========================================================================
-
-    bool grow(uint arena, size_t amount)
-    // ------------------------------------------------------------------------
-    //   Grow the given arena by the given number of pointers
+    //   Allocate bytes on the heap
     // ------------------------------------------------------------------------
     {
-        size_t sz = amount * sizeof(object_p);
-        if (available(sz) < sz)
-            return false;
-        for (uint a = 0; a <= arena; a++)
-            root[a] -= amount;
-        object_p *first = root[0];
-        object_p *last = root[arena];
-        for (object_p *p = first; p < last; p++)
-            p[0] = p[amount];
-        return true;
-    }
-
-
-    bool shrink(uint arena, size_t amount)
-    // ------------------------------------------------------------------------
-    //   Shrink the given arena by the given number of pointers
-    // ------------------------------------------------------------------------
-    {
-        for (uint a = 0; a <= arena; a++)
-            root[a] += amount;
-        object_p *first = root[0];
-        object_p *last = root[arena];
-        for (object_p *p = last; p >= first; p--)
-            p[amount] = p[0];
-        return true;
-    }
-
-
-    bool adjust(uint arena, ptrdiff_t delta)
-    // ------------------------------------------------------------------------
-    //   Adjust size of arena up (grow) or down (shrink)
-    // ------------------------------------------------------------------------
-    {
-        if (delta < 0)
-            return shrink(arena, size_t(-delta));
-        if (delta > 0)
-            return grow(arena, size_t(delta));
-        return true;
-    }
-
-
-    bool available(size_t sz)
-    // ------------------------------------------------------------------------
-    //  Check if the available size for dynamic allocation
-    // ------------------------------------------------------------------------
-    {
-        size_t avail = byte_p(root[0]) - byte_p(heap);
-        if (avail < sz)
+        if (heap + sz >= (byte_p) stack)
         {
-            gc();
-            avail = byte_p(root[0]) - byte_p(heap);
-            if (avail < sz)
+            error("No free space on the heap to allocate memory");
+            return nullptr;
+        }
+        byte *result = (byte *) heap;
+        heap += sz;
+        return result;
+    }
+
+
+    bool free(size_t sz)
+    // ------------------------------------------------------------------------
+    //   Free bytes from the heap
+    // ------------------------------------------------------------------------
+    {
+        if (heap - sz <= memory)
+        {
+            error("Attempting to free unallocated memory");
+            return false;
+        }
+        heap -= sz;
+        return true;
+    }
+
+
+    bool push(intptr_t value)
+    // ------------------------------------------------------------------------
+    //   Push an intptr_t sized value on the stack
+    // ------------------------------------------------------------------------
+    {
+        if (stack - 1 <= (stack_p) heap)
+        {
+            error("Out of stack space");
+            return false;
+        }
+        *--stack = value;
+        return true;
+    }
+
+
+    intptr_t pop()
+    // ------------------------------------------------------------------------
+    //   Pop an intptr_t sized value from the stack
+    // ------------------------------------------------------------------------
+    {
+        if (stack + 1 > histack)
+        {
+            error("Popping outside of stack");
+            return 0;
+        }
+        return *stack++;
+    }
+
+
+    bool drop(size_t n = 1)
+    // ------------------------------------------------------------------------
+    //   Pop an intptr_t sized value from the stack
+    // ------------------------------------------------------------------------
+    {
+        if (stack + n > histack)
+        {
+            error("Dropping too many entries from stack");
+            return false;
+        }
+        stack += n;
+        return true;
+    }
+
+
+    bool swap(size_t n = 1)
+    // ------------------------------------------------------------------------
+    //   Swap element at index n with top of stack
+    // ------------------------------------------------------------------------
+    {
+        if (stack + n + 1 > histack)
+        {
+            error("Swapping element outside of stack");
+            return false;
+        }
+        std::swap(stack[0], stack[n]);
+        return true;
+    }
+
+
+    bool dup(size_t n = 1)
+    // ------------------------------------------------------------------------
+    //   Duplicate n elements from the stack
+    // ------------------------------------------------------------------------
+    {
+        if (stack - n  <= (stack_p) heap)
+        {
+            error("Duplicating items on a full stack");
+            return false;
+        }
+        stack -= n;
+        memcpy(stack, stack + n, n * sizeof(*stack));
+        return true;
+    }
+
+
+    intptr_t *top()
+    // ------------------------------------------------------------------------
+    //   Return top of stack in writable form
+    // ------------------------------------------------------------------------
+    {
+        if (stack + 1 > histack)
+        {
+            error("Can't return top of empty stack");
+            return nullptr;
+        }
+        return (intptr_t *) stack;
+    }
+
+
+    intptr_t *at(size_t index)
+    // ------------------------------------------------------------------------
+    //   Return stack pointer at given index
+    // ------------------------------------------------------------------------
+    {
+        if (stack + index < histack)
+            return stack + index;
+        error("Stack index is out of range");
+        return nullptr;
+    }
+
+
+    intptr_t *enter(bool saveheap = false, bool savetoks = false)
+    // ------------------------------------------------------------------------
+    //    Set the frame pointer at the current locals
+    // ------------------------------------------------------------------------
+    {
+        if (stack >= frame)
+        {
+            error("Cannot allocate locals, stack is above frame");
+            return nullptr;
+        }
+        size_t fsz = frame - stack;
+        frame      = stack;
+        if (!push(fsz))
+        {
+            error("Cannot push frame size");
+            return nullptr;
+        }
+        if (saveheap)
+        {
+            if (!push(intptr_t(heap)))
             {
-                out_of_memory_error();
-                return false;
+                error("Cannot save heap pointer");
+                return nullptr;
             }
         }
-        return true;
+        if (savetoks)
+        {
+            if (!push(ntokens))
+            {
+                error("Cannot save number of tokens");
+                return nullptr;
+            }
+        }
+        return frame;
     }
 
 
-    size_t gc();
+    intptr_t *leave(bool saveheap = false, bool savetoks = false)
     // ------------------------------------------------------------------------
-    //   Run garbage collection
-    // ------------------------------------------------------------------------
-
-
-
-    // ========================================================================
-    //
-    //   Error handling
-    //
-    // ========================================================================
-
-    runtime &error(utf8 message)
-    // ------------------------------------------------------------------------
-    //   Set the error message
+    //    Free the number of locals and return to previous frame
     // ------------------------------------------------------------------------
     {
-        error_message = message;
-        return *this;
+        size_t delta = 1 + saveheap + savetoks;
+        if (stack + delta >= frame || stack + delta > histack)
+        {
+            error("Stack is above frame pointer");
+            return nullptr;
+        }
+        if (savetoks)
+            ntokens = pop();
+        if (saveheap)
+            heap = byte_p(pop());
+
+        size_t fsz = pop();
+        frame += fsz;
+        return frame;
+    }
+
+
+    intptr_t *local(size_t index)
+    // ------------------------------------------------------------------------
+    //   Return stack pointer for local at given index
+    // ------------------------------------------------------------------------
+    {
+        if (frame + index < histack)
+            return frame + index;
+        error("Local index is out of range");
+        return nullptr;
     }
 
 
     utf8 error()
     // ------------------------------------------------------------------------
-    //   Get the error message (as currently displayed)
+    //   Return error message
     // ------------------------------------------------------------------------
     {
-        return error_message;
+        return err;
     }
 
 
-    runtime &source(utf8 spos, size_t len = 0)
+    runtime &error(utf8 errmsg)
     // ------------------------------------------------------------------------
-    //   Set the source location for the current error
+    //  Set the error message
     // ------------------------------------------------------------------------
     {
-        error_source = spos;
-        error_source_length = len;
+        err = errmsg;
         return *this;
     }
 
 
-    utf8 source()
+    utf8 tok(tok_t t, size_t *len = nullptr)
     // ------------------------------------------------------------------------
-    //   Get the pointer to the problem
+    //   Return the text for a given token, and optionally its size
     // ------------------------------------------------------------------------
     {
-        return error_source;
+        if (t >= ntokens)
+        {
+            if (len)
+                *len = 0;
+            return nullptr;
+        }
+        byte_p tp = tokens[t];
+        size_t tlen = leb128<size_t>(tp);
+        if (len)
+            *len = tlen;
+        return (utf8) tp;
     }
 
 
-    size_t source_length()
+    tok_t tok(utf8 text, size_t len, bool clone = true);
+    tok_t tok(utf8 text)
     // ------------------------------------------------------------------------
-    //   Get the pointer to the problem
+    //   Return the token for a given text
     // ------------------------------------------------------------------------
     {
-        return error_source_length;
+        return tok(text, strlen(text) + 1); // Include trailing 0 of C strings
     }
-
-
-#define ERROR(name, msg)        runtime &name##_error();
-#include "errors.tbl"
-
 
 
 public:
-    // ========================================================================
+// ========================================================================
     //
     //   Data for the runtime
     //
     // ========================================================================
 
-    // Opcodes
-    run_fn       *evaluators;           // Evaluators for each opcode
-    size_t        opcodes;              // Number of valid opcodes
-    byte_p        pc;                   // Program counter
-    byte_p        ppc;                  // Previous program counter
-    op_t          op;                   // Current opcde
-    utf8          error_message;        // Current error message
-    utf8          error_source;         // Source code for error
-    size_t        error_source_length;  // Length of error for source
+    byte_p              pc;             // Current program pointer
+    run_fn             *opcodes;        // Evaluators for each opcode
+    size_t              nopcodes;       // Number of opcodes
 
-    // Base of the runtime memory (heap)
-    object_p      lomem;                // First byte of runtime memory
-    object_p      globals;              // End of global objects
-    object_p      heap;                 // End of heap
-    object_p      himem;                // First byte past runtime memory
+    byte_p              memory;         // Memory allocated for that runtime
+    byte_p              heap;           // Top of heap (lo marker for stack)
+    stack_p             stack;          // Pointer to current stack
+    stack_p             frame;         // Pointer to locals
+    stack_p             histack;        // High marker for stack
 
-    // Root pointers (growing from top of memory down)
-    enum { STACK, LOCALS, CALLSTACK, HIGHMEM, NUM_ROOTS };
-    object_p *    root[NUM_ROOTS];
+    byte_p             *tokens;         // Table of tokens
+    size_t              ntokens;        // Number of tokens
+    size_t              itokens;        // Incremental tokens when running out
+
+    cstring             err;            // Error message
+
+protected:
+    byte **             retoks(size_t size);
+    byte **             relabel(size_t size);
 };
 
 #endif // RUNTIME_H
