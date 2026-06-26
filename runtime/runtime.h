@@ -133,7 +133,7 @@ struct runtime
         bool result = true;
         while (result)
             result = evaluate();
-        return result;
+        return !error();
     }
 
 
@@ -165,6 +165,20 @@ struct runtime
             return false;
         }
         heap -= sz;
+        return true;
+    }
+
+
+    bool args(size_t count, cstring msg)
+    // ------------------------------------------------------------------------
+    //   Check if we can take count args
+    // ------------------------------------------------------------------------
+    {
+        if (stack + count > histack)
+        {
+            error(msg);
+            return false;
+        }
         return true;
     }
 
@@ -408,7 +422,7 @@ struct runtime
     //   Return the token for a given text
     // ------------------------------------------------------------------------
     {
-        return tok(t.data(), t.size() + 1); // Include trailing 0 of C strings
+        return tok(t.data(), t.size()); // Include trailing 0 of C strings
     }
 
 

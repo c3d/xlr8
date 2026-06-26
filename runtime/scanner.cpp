@@ -45,8 +45,6 @@ bool scanner::scan(runtime &rt)
     while (true)
     {
         token tok = next();
-        text  spelling;
-
         switch (tok)
         {
         case DONE:
@@ -66,9 +64,11 @@ bool scanner::scan(runtime &rt)
         case INTEGER:
             if (!do_integer(rt))
                 return false;
+            break;
         case REAL:
             if (!do_real(rt))
                 return false;
+            break;
         case TEXT:
             if (!do_text(rt))
                 return false;
@@ -88,6 +88,8 @@ bool scanner::validate(runtime &rt)
         rt.error("Undefined label");
         return false;
     }
+    tok_t prog = rt.tok(program);
+    rt.pc = byte_p(rt.tok(prog));
     return true;
 }
 
@@ -104,10 +106,10 @@ scanner::token scanner::next()
 
     scanned = "";
 
-    int c   = input.get();
+    int c = input.get();
 
     // Skip whitespace
-    while (input.good() && !std::isspace(c))
+    while (input.good() && std::isspace(c))
         c = input.get();
     if (!input.good())
         return input.eof() ? DONE : ERROR;
@@ -115,8 +117,6 @@ scanner::token scanner::next()
     // Skip comments (C / C++ style syntax)
     if (c == '/')
     {
-        scanned += char(c);
-
         int nc = input.peek();
         if (nc == '/')
         {
@@ -149,10 +149,10 @@ scanner::token scanner::next()
     {
         while (input.good() && (std::isalnum(c) || c == '_'))
         {
-            c = input.get();
             scanned += char(c);
-            c = input.peek();
+            c = input.get();
         }
+        input.putback(c);
         return NAME;
     }
 
@@ -164,11 +164,10 @@ scanner::token scanner::next()
         while (input.good() && (std::isalnum(c) || c == '_' || c == '#' ||
                                 c == '+' || c == '-' || c == '.'))
         {
-            c = input.get();
             scanned += char(c);
             if (c == '.')
                 is_real = true;
-            c = input.peek();
+            c = input.get();
         }
         return is_real ? REAL : INTEGER;
     }
@@ -180,10 +179,10 @@ scanner::token scanner::next()
         bool done = false;
         while (input.good() && !done)
         {
-            c = input.get();
             scanned += char(c);
             if (c == delim)
                 done = input.peek() != delim;
+            c = input.get();
         }
         return TEXT;
     }

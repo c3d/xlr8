@@ -246,15 +246,15 @@ BRANCH(ble, rt.pop() <= 0)      // Branch if value <= 0
 BRANCH(bge, rt.pop() >= 0)      // Branch if value >= 0
 
 
-#define BINARY(op, code)                        \
-IMPL(op)                                        \
-{                                               \
-    intptr_t x = rt.pop();                      \
-    intptr_t y = rt.pop();                      \
-    if (rt.error())                             \
-        return false;                           \
-    intptr_t r = code;                          \
-    return rt.push(r);                          \
+#define BINARY(op, code)                                \
+    IMPL(op)                                            \
+{                                                       \
+    if (!rt.args(2, "Too few arguments for binary"))    \
+        return false;                                   \
+    intptr_t x = rt.pop();                              \
+    intptr_t &y = *rt.top();                            \
+    y = code;                                           \
+    return true;                                        \
 }
 
 BINARY(add, y+x)
@@ -278,9 +278,8 @@ BINARY(shru, intptr_t(uintptr_t(y) >> uintptr_t(x)))
     {                                           \
         if (intptr_t *s = rt.top())             \
         {                                       \
-            intptr_t x = *s;                    \
-            intptr_t r = code;                  \
-            *s         = r;                     \
+            intptr_t &x = *s;                   \
+            x = code;                           \
             return true;                        \
         }                                       \
         return false;                           \
@@ -310,14 +309,14 @@ IMPL(uint)
 }
 
 
-IMPL(str)
+IMPL(txt)
 // ----------------------------------------------------------------------------
-//  Push a tokenized string
+//  Push a tokenized text
 // ----------------------------------------------------------------------------
 {
-    utf8   str = utf8(rt.pc);
+    utf8   txt = utf8(rt.pc);
     size_t len = rt.arg<size_t>();
-    tok_t  tok = rt.tok(str, len, false);
+    tok_t  tok = rt.tok(txt, len, false);
     rt.pc += len;
     return rt.push(intptr_t(tok));
 }
@@ -524,8 +523,8 @@ IMPL(outi)
 // ----------------------------------------------------------------------------
 {
     intptr_t i = rt.pop();
-    if (std::cin >> i)
-        return rt.push(intptr_t(i));
+    if (!rt.error())
+        return bool(std::cout << i);
     return false;
 }
 
@@ -535,9 +534,9 @@ IMPL(outu)
 //   Read one unsigned integer and put it on the stack
 // ----------------------------------------------------------------------------
 {
-    uintptr_t i;
-    if (std::cin >> i)
-        return rt.push(intptr_t(i));
+    uintptr_t u = uintptr_t(rt.pop());;
+    if (!rt.error())
+        return bool(std::cout << u);
     return false;
 }
 
@@ -547,14 +546,25 @@ IMPL(outt)
 //   Read one integer and put it on the stack
 // ----------------------------------------------------------------------------
 {
-    std::string s;
-    if (std::cin >> s)
+    tok_t tok = rt.pop();
+    if (!rt.error())
     {
-        tok_t tok = rt.tok(s.data(), s.length());
-        return rt.push(tok);
+        size_t len = 0;
+        utf8   txt = rt.tok(tok, &len);
+        return bool(std::cout << text(txt, len));
     }
     return false;
 }
+
+
+IMPL(outl)
+// ----------------------------------------------------------------------------
+//   Write a new line
+// ----------------------------------------------------------------------------
+{
+    return bool(std::cout << std::endl);
+}
+
 
 
 // ============================================================================

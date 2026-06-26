@@ -72,7 +72,7 @@ OP(shru)
 
 OP(int)
 OP(uint)
-OP(str)
+OP(txt)
 OP(dup)
 OP(swap)
 OP(drop)
@@ -95,5 +95,6 @@ OP(outc)
 OP(outi)
 OP(outu)
 OP(outt)
+OP(outl);
 
 #undef OP
