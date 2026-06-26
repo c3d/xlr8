@@ -28,7 +28,7 @@
 #******************************************************************************
 
 SOURCES=runtime.cpp
-PRODUCTS=runtime.dll
+PRODUCTS=xlr8.dll
 
 MIQ=../make-it-quick/
 include $(MIQ)rules.mk
