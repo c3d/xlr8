@@ -27,8 +27,12 @@
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #******************************************************************************
 
-SOURCES=runtime.cpp
+SOURCES=runtime.cpp scanner.cpp
 PRODUCTS=xlr8.dll
+
+INCLUDES=../recorder
+
+CXX_STD=gnu++17
 
 MIQ=../make-it-quick/
 include $(MIQ)rules.mk

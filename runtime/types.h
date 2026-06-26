@@ -44,4 +44,6 @@ typedef size_t               op_t;
 typedef size_t               tok_t;
 typedef intptr_t            *stack_p;
 
+typedef std::string          text;
+
 #endif // TYPES_H

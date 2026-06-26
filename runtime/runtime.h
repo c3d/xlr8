@@ -68,6 +68,10 @@ struct runtime
 #  define OP(op) static bool op_##op(runtime &rt);
 #include "runtime.tbl"
 
+    bool use(text name);
+    bool use(op_t op, run_fn code);
+
+
 
     // ========================================================================
     //
@@ -383,9 +387,17 @@ struct runtime
         return tok(text, strlen(text) + 1); // Include trailing 0 of C strings
     }
 
+    tok_t tok(text t)
+    // ------------------------------------------------------------------------
+    //   Return the token for a given text
+    // ------------------------------------------------------------------------
+    {
+        return tok(t.data(), t.size() + 1); // Include trailing 0 of C strings
+    }
+
 
 public:
-// ========================================================================
+    // ========================================================================
     //
     //   Data for the runtime
     //

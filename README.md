@@ -33,49 +33,56 @@ The key ideas of XLR8 are:
 ## Bytecode
 
 The base execution model is an extensible stack-based bytecode.
-The `is` keyword provides extensibility by adding new concepts.
-The bytecode is scoped.
+
+Operators:
+
+* `/` defines comments
+* `*` imports a predefained opcode or `all` to import all
+* `=` defines a new opcode
+* `;` marks the end of the new opcode
+* `.` defines a local label
+* `:` inserts a delta to the given label
 
 Example 1: Bytecode level factorial:
 
 
 ```xlr8
-// Import some builtin opcodes
-// This could be:
-// use end int sub mul swp jmp
-use end         // opcode 0
-use int         // opcode 1
-use sub         // opcode 2
-use mul         // opcode 3
-use beq         // opcode 4
-use bra         // opcode 5
-use swp         // opcode 6
-use jmp         // opcode 7
-use get         // opcode 8
-use drp         // opcode 9
+// Import some builtin opcodes (we could have used *all)
+*end         // opcode 0
+*int         // opcode 1
+*sub         // opcode 2
+*mul         // opcode 3
+*beq         // opcode 4
+*bra         // opcode 5
+*swp         // opcode 6
+*jmp         // opcode 7
+*get         // opcode 8
+*drp         // opcode 9
 
 // Define `ret` as opcode 10
-ret is
+=ret
     swp 1       // 6 1      stk[0] <-> stk[1], get return PC
     jmp         // 7        jump to stk[0] (return PC)
+;
 
 // Define `fact` as opcode 11
-fact is         // N -> N!
+=fact           // N -> N!
     int 1       // 1 1      push 1                                      1 N
-.loop:          //          label 0                                     P N
+.loop           //          label 0                                     P N
     get 1       // 8 1      push stk[1]                                 N P N
-    beq .exit   // 4 1      Test if stk[0] eq 0, if so branch to .exit  P N
+    beq :exit   // 4 1      Test if stk[0] eq 0, if so branch to .exit  P N
     get 1       // 8 1      push stk[1]                                 N P N
     mul         // 3        stk[0] = N * P                              N*P N
     swp 1       // 6 1      stk[0] <-> stk[1]                           N N*P
     int 1       // 1 1      push 1                                      1 N N*P
     sub         // 2        sub stk[0] from stk[1]                      N-1 N*P
     swp 1       // 6 1      stk[0] <-> stk[1]                           N*P N-1
-    bra .loop   // 5 0      Branch to label 0                           P' N'
-.exit:          //          label 1                                     P N
+    bra :loop   // 5 0      Branch to label 0                           P' N'
+.exit           //          label 1                                     P N
     swp 1       // 6 1      stk[0] <-> stk[1]                           N P
     drp         // 9        Drop stk[0]                                 P
     ret         // 10
+;
 ```
 
 Encoding of the above: 25 bytes
@@ -89,3 +96,7 @@ Layout of runtime:
 * stack[]       native values, uintptr_t, values, locals and activation records
 * opcodes[]     pointer to code execution for opcodes, or to definition
 * labels[]      labels in current opcode
+
+
+
+## Scanning

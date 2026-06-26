@@ -92,26 +92,6 @@ IMPL(run)
 }
 
 
-IMPL(use)
-// ----------------------------------------------------------------------------
-//  Use a given built-in opcode
-// ----------------------------------------------------------------------------
-{
-    rt.error("Opcode 'use' is unimplemented");
-    return false;
-}
-
-
-IMPL(def)
-// ----------------------------------------------------------------------------
-//  Define a new opcode
-// ----------------------------------------------------------------------------
-{
-    rt.error("Opcode 'def' is unimplemented");
-    return false;
-}
-
-
 IMPL(get)
 // ----------------------------------------------------------------------------
 //  Get a stack item and push it on the stack
@@ -573,6 +553,59 @@ IMPL(outt)
 //   Support routines
 //
 // ============================================================================
+
+bool runtime::use(text name)
+// ----------------------------------------------------------------------------
+//  Use a name
+// ----------------------------------------------------------------------------
+{
+    if (name == "all")
+    {
+#define OP(n)                                   \
+        if (!use(#n))                           \
+            return false;
+#include "runtime.tbl"
+        return true;
+    }
+
+#define OP(n)                                   \
+    if (name == #n)                             \
+    {                                           \
+        tok_t t = tok(name);                    \
+        use(op_t(t), op_##n);                   \
+        return true;                            \
+    }
+#include "runtime.tbl"
+
+    error("Invalid built-in opcode");
+    return false;
+}
+
+
+bool runtime::use(op_t op, run_fn run)
+// ----------------------------------------------------------------------------
+//   Set the given opcode for evaluation
+// ----------------------------------------------------------------------------
+{
+    if (op >= nopcodes)
+    {
+        size_t nitems = op + 1;
+        size_t newsize = nitems * sizeof(run_fn);
+        run_fn *resized = (run_fn *) realloc(opcodes, newsize);
+        if (!resized)
+        {
+            error("Failed to grow the opcodes table");
+            return false;
+        }
+        for (size_t o = nopcodes; o < nitems; o++)
+            resized[o] = nullptr;
+        opcodes = resized;
+        nopcodes = nitems;
+    }
+    opcodes[op] = run;
+    return true;
+}
+
 
 byte **runtime::retoks(size_t size)
 // ----------------------------------------------------------------------------

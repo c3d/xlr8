@@ -31,9 +31,6 @@
 OP(end)
 OP(run)
 
-OP(use)
-OP(def)
-
 OP(get)
 OP(set)
 OP(rcl)
