@@ -6,7 +6,7 @@
 #
 #    Dynamic runtime for XLR8
 #
-#    This runtime evaluates the dynamoic bytecode
+#    This runtime evaluates the dynamic bytecode
 #
 #
 #

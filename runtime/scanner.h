@@ -54,6 +54,7 @@ struct scanner
     enum token { DONE, ERROR, COMMENT, NAME, SYMBOL, INTEGER, REAL, TEXT };
 
     bool        scan(runtime &rt);
+    bool        validate(runtime &rt);
 
     token       next();
     text        spelling();

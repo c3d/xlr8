@@ -34,8 +34,15 @@
 # If not, see <https://www.gnu.org/licenses/>.
 # ******************************************************************************
 
+PACKAGE_NAME=xlr8
+PACKAGE_DESCRIPTION=A compact, efficent runtime for the XL programming language
+PACKAGE_URL=http://xlr.sf.net
+PACKAGE_VERSION:=$(shell git describe 2> /dev/null || echo "unkown-version")
+PACKAGE_DIR=
+PACKAGE_REQUIRES=
+
 include version.mk
-SUBDIRS=recorder runtime
+SUBDIRS=recorder runtime cmd
 
 MIQ=make-it-quick/
 include $(MIQ)rules.mk

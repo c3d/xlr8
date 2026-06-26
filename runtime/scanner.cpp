@@ -50,7 +50,7 @@ bool scanner::scan(runtime &rt)
         switch (tok)
         {
         case DONE:
-            return true;
+            return validate(rt);
         case ERROR:
             return false;
         case COMMENT:
@@ -75,6 +75,20 @@ bool scanner::scan(runtime &rt)
             break;
         }
     }
+}
+
+
+bool scanner::validate(runtime &rt)
+// ----------------------------------------------------------------------------
+//   Check if what we scanned is OK
+// ----------------------------------------------------------------------------
+{
+    if (unknown.size())
+    {
+        rt.error("Undefined label");
+        return false;
+    }
+    return true;
 }
 
 
