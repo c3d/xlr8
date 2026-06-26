@@ -37,7 +37,7 @@ runtime::runtime(size_t sz)
 // ----------------------------------------------------------------------------
 //   Initialize the runtime with the given memory size
 // ----------------------------------------------------------------------------
-    : pc(),
+    : pc(), ppc(),
       opcodes(), nopcodes(),
       memory(), heap(), stack(), frame(), histack(),
       tokens(nullptr), ntokens(0), itokens(32),
@@ -143,6 +143,15 @@ IMPL(sto)
         return !rt.error();
     }
     return false;
+}
+
+
+IMPL(call)
+// ----------------------------------------------------------------------------
+//   Call - This is what is used for an opcode extension
+// ----------------------------------------------------------------------------
+{
+    return rt.call();
 }
 
 

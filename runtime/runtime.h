@@ -94,6 +94,7 @@ struct runtime
     //   Read next opcode and skip it
     // ------------------------------------------------------------------------
     {
+        ppc = pc;
         return leb128<op_t>(pc);
     }
 
@@ -269,6 +270,21 @@ struct runtime
     }
 
 
+    bool call()
+    // ------------------------------------------------------------------------
+    //   Call what is at the current PC
+    // ------------------------------------------------------------------------
+    {
+        // Push return address on stack
+        if (!push(intptr_t(pc)))
+            return false;
+        byte_p instr = ppc;
+        op_t callee = leb128<op_t>(instr);
+        pc  = byte_p(tok(callee));
+        return true;
+    }
+
+
     intptr_t *enter(bool saveheap = false, bool savetoks = false)
     // ------------------------------------------------------------------------
     //    Set the frame pointer at the current locals
@@ -404,6 +420,7 @@ public:
     // ========================================================================
 
     byte_p              pc;             // Current program pointer
+    byte_p              ppc;            // Previous program counter
     run_fn             *opcodes;        // Evaluators for each opcode
     size_t              nopcodes;       // Number of opcodes
 

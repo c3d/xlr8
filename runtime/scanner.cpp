@@ -476,6 +476,8 @@ bool scanner::do_define(runtime &rt)
     text    name = scanned;
     scanner child(input);
     bool    result = child.scan(rt);
+    tok_t   callee = rt.tok(child.program);
+    rt.use(callee, runtime::op_call);
     return result;
 }
 
