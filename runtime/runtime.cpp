@@ -314,10 +314,7 @@ IMPL(txt)
 //  Push a tokenized text
 // ----------------------------------------------------------------------------
 {
-    utf8   txt = utf8(rt.pc);
-    size_t len = rt.arg<size_t>();
-    tok_t  tok = rt.tok(txt, len, false);
-    rt.pc += len;
+    tok_t tok = rt.arg<tok_t>();
     return rt.push(intptr_t(tok));
 }
 

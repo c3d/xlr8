@@ -169,6 +169,7 @@ scanner::token scanner::next()
                 is_real = true;
             c = input.get();
         }
+        input.putback(c);
         return is_real ? REAL : INTEGER;
     }
 
@@ -176,14 +177,20 @@ scanner::token scanner::next()
     if (c == '\'' || c == '"')
     {
         char delim = c;
-        bool done = false;
+        bool done  = false;
         while (input.good() && !done)
         {
             scanned += char(c);
-            if (c == delim)
-                done = input.peek() != delim;
             c = input.get();
+            if (c == delim)
+            {
+                scanned += char(c);
+                c = input.get();
+                if (c != delim)
+                    done = true;
+            }
         }
+        input.putback(c);
         return TEXT;
     }
 
@@ -363,7 +370,10 @@ text scanner::as_text()
     for (char c : scanned)
     {
         if (isfirst)
+        {
             delim = c;
+            isfirst = false;
+        }
         if (c != delim || last == delim)
             result += c;
         last = c;
@@ -463,15 +473,12 @@ bool scanner::do_real(runtime &rt)
 
 bool scanner::do_text(runtime &rt)
 // ----------------------------------------------------------------------------
-//   Insert a text directly in the byte code
+//   Insert a token for a text directly in the byte code
 // ----------------------------------------------------------------------------
 {
-    byte   buffer[LEB128_MAXSIZE];
     text   t    = as_text();
-    size_t len  = t.size();
-    byte  *bp   = leb128(buffer, len);
-    program += text((char *) buffer, bp - buffer);
-    program += t;
+    tok_t  tok  = rt.tok(t);
+    append(tok);
     return true;
 }
 
