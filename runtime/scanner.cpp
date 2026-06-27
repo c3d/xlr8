@@ -488,12 +488,13 @@ bool scanner::do_define(runtime &rt)
 //   Define a new opcode
 // ----------------------------------------------------------------------------
 {
-    if (next() != SYMBOL)
+    token t = next();
+    if (t != NAME && t != TEXT)
     {
         rt.error("Invalid opcode definition");
         return false;
     }
-    text    name = scanned;
+    text    name = t == TEXT ? as_text() : scanned;
     scanner child(input);
     bool    result = child.scan(rt);
     tok_t   callee = rt.tok(child.program);
@@ -508,7 +509,7 @@ bool scanner::do_label(runtime &rt)
 // ----------------------------------------------------------------------------
 {
     token t = next();
-    if (t != SYMBOL && t != TEXT)
+    if (t != NAME && t != TEXT)
     {
         rt.error("Label must be a symbol or text");
         return false;
@@ -536,7 +537,7 @@ bool scanner::do_branch_offset(runtime &rt)
 // ----------------------------------------------------------------------------
 {
     token t = next();
-    if (t != SYMBOL && t != TEXT)
+    if (t != NAME && t != TEXT)
     {
         rt.error("Branch target must be a symbol or text");
         return false;
