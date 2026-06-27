@@ -73,6 +73,9 @@ int main(int argc, char **argv)
 {
     size_t memory = 32 * 1024;
 
+    recorder_trace_set(".*(error|warn(ing)?)s?");
+    if (cstring traces = getenv("XLR8_TRACES"))
+        recorder_trace_set(traces);
     recorder_dump_on_common_signals(0, 0);
     record(main, "XLR8 Compiler version %+s starting", XLR8_VERSION);
 
@@ -115,5 +118,5 @@ int main(int argc, char **argv)
     if (RECORDER_TWEAK(main_error) > 1)
         recorder_dump();
 
-    return ok ? 0 : 1;
+    return ok ? 0 : -1;
 }
