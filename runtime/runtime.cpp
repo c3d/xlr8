@@ -230,9 +230,10 @@ IMPL(dispatch)
 #define BRANCH(op, cond)                        \
 IMPL(op)                                        \
 {                                               \
+    byte_p bpc = rt.pc;                         \
     intptr_t delta = rt.arg<intptr_t>();        \
     if (cond)                                   \
-        rt.pc += delta;                         \
+        rt.pc = bpc + delta;                    \
     return !rt.error();                         \
 }
 
