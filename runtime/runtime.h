@@ -87,7 +87,7 @@ struct runtime
     }
 
 
-    bool run(byte_p &pc);
+    bool run(byte_p &pc, std::istream *in, std::ostream *out, std::ostream *err);
     // ------------------------------------------------------------------------
     //   Run all instructions at current code pointer
     // ------------------------------------------------------------------------

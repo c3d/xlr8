@@ -74,38 +74,38 @@ runtime::~runtime()
 //
 // ============================================================================
 
-template<typename T> inline T input()
+template<typename T> inline T input(std::istream &input)
 // ----------------------------------------------------------------------------
 //   Return the next value of given type
 // ----------------------------------------------------------------------------
 {
     T v;
-    std::cin >> v;
+    input >> v;
     return v;
 }
 
 
-template<typename T> inline bool output(T v)
+template<typename T> inline bool output(std::ostream &output, T v)
 // ----------------------------------------------------------------------------
 //   Return the next value of given type
 // ----------------------------------------------------------------------------
 {
-    return (std::cout << v).good();
+    return (output << v).good();
 }
 
 
-inline tok_t input_text(runtime &rt)
+inline tok_t input_text(runtime &rt, std::istream &input)
 // ----------------------------------------------------------------------------
 //   Return the next value of given type
 // ----------------------------------------------------------------------------
 {
     text v;
-    std::cin >> v;
+    input >> v;
     return rt.tok(v);
 }
 
 
-bool output_text(runtime &rt, value_t tok)
+bool output_text(runtime &rt, std::ostream &output, value_t tok)
 // ----------------------------------------------------------------------------
 //   Return the next value of given type
 // ----------------------------------------------------------------------------
@@ -113,20 +113,21 @@ bool output_text(runtime &rt, value_t tok)
     size_t len  = 0;
     utf8   txt  = rt.tok(tok, &len);
     text   tval = text(txt, len);
-    return (std::cout << tval).good();
+    return (output << tval).good();
 }
 
 
-inline bool output_newline()
+inline bool output_newline(std::ostream &output)
 // ----------------------------------------------------------------------------
 //   Return the next value of given type
 // ----------------------------------------------------------------------------
 {
-    return (std::cout << '\n').good();
+    return (output << '\n').good();
 }
 
 
-bool runtime::run(byte_p &pc)
+bool runtime::run(byte_p &pc,
+                  std::istream *in, std::ostream *out, std::ostream *err)
 // ----------------------------------------------------------------------------
 //    The main runtime loop
 // ----------------------------------------------------------------------------
@@ -136,8 +137,7 @@ bool runtime::run(byte_p &pc)
     byte    s, d;
     tok_t   t;
     broff_t b;
-    byte_p  bpc;
-
+    byte_p bpc;
     while (!done)
     {
         op_t op = op_t(*pc++);
