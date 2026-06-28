@@ -59,7 +59,7 @@ static bool run(std::istream &input, size_t memory)
 {
     runtime rt(memory);
     scanner s(input);
-    bool ok = s.scan(rt) && rt.run();
+    bool ok = s.scan(rt) && rt.run(rt.entry);
     if (!ok)
         record(main_error, "%s", rt.error());
     return ok;

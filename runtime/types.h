@@ -40,9 +40,11 @@ typedef unsigned char        byte;
 typedef const byte          *byte_p;
 typedef const uint          *uint_p;
 typedef byte_p               object_p;
-typedef size_t               op_t;
 typedef size_t               tok_t;
-typedef intptr_t            *stack_p;
+typedef intptr_t             value_t;
+typedef uintptr_t            uvalue_t;
+typedef value_t              broff_t;
+typedef value_t             *stack_p;
 
 typedef std::string          text;
 

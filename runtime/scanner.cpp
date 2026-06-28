@@ -89,7 +89,7 @@ bool scanner::validate(runtime &rt)
         return false;
     }
     tok_t prog = rt.tok(program);
-    rt.pc = byte_p(rt.tok(prog));
+    rt.entry = byte_p(rt.tok(prog));
     return true;
 }
 
@@ -426,12 +426,23 @@ bool scanner::do_use(runtime &rt)
 //   Opcode use directive (`*')
 // ----------------------------------------------------------------------------
 {
-    if (next() != NAME)
+    token t = next();
+    if (t != NAME && t != TEXT)
     {
-        rt.error("Invalid opcode import");
+        rt.error("Label must be a symbol or text");
         return false;
     }
-    return rt.use(scanned);
+    text  name = t == TEXT ? as_text() : scanned;
+    tok_t ntok = rt.tok(name);
+    auto  it   = rt.defined.find(ntok);
+    if (it == rt.defined.end())
+    {
+        rt.error("Calling undefined name");
+        return false;
+    }
+    tok_t ctok = (*it).second;
+    append(ctok);
+    return true;
 }
 
 
@@ -495,10 +506,11 @@ bool scanner::do_define(runtime &rt)
         return false;
     }
     text    name = t == TEXT ? as_text() : scanned;
+    tok_t   ntok = rt.tok(name);
     scanner child(input);
     bool    result = child.scan(rt);
     tok_t   callee = rt.tok(child.program);
-    rt.use(callee, runtime::op_call);
+    rt.defined[ntok] = callee;
     return result;
 }
 

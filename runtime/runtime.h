@@ -58,19 +58,15 @@ struct runtime
     // Evaluator function for each opcode, return true to keep going
     typedef bool (*run_fn)(runtime &rt);
 
-
-    // ========================================================================
-    //
-    // Basic built-in opcodes
-    //
-    // ========================================================================
-
-#  define OP(op) static bool op_##op(runtime &rt);
+    enum op_t : byte
+    // ------------------------------------------------------------------------
+    //   Represent all the opcodes
+    // ------------------------------------------------------------------------
+    {
+#define OP(op, code) op_##op,
 #include "runtime.tbl"
-
-    bool use(text name);
-    bool use(op_t op, run_fn code);
-
+        OP_COUNT
+    };
 
 
     // ========================================================================
@@ -80,7 +76,7 @@ struct runtime
     // ========================================================================
 
     template <typename Int = size_t>
-    Int arg()
+    Int arg(byte_p &pc)
     // ------------------------------------------------------------------------
     //   Read next signed or unsigned argument and skip it
     // ------------------------------------------------------------------------
@@ -89,52 +85,10 @@ struct runtime
     }
 
 
-    op_t op()
-    // ------------------------------------------------------------------------
-    //   Read next opcode and skip it
-    // ------------------------------------------------------------------------
-    {
-        ppc = pc;
-        return leb128<op_t>(pc);
-    }
-
-
-    run_fn evaluator()
-    // ------------------------------------------------------------------------
-    //   Return the evaluator at current PC, moving it forward
-    // ------------------------------------------------------------------------
-    {
-        op_t o = op();
-        if (o >= nopcodes)
-        {
-            error("Invalid opcode");
-            return nullptr;
-        }
-        return opcodes[o];
-    }
-
-
-    bool evaluate()
-    // ------------------------------------------------------------------------
-    //   Evaluate the next opcode
-    // ------------------------------------------------------------------------
-    {
-        if (run_fn e = evaluator())
-            return e(*this);
-        return false;
-    }
-
-
-    bool run()
+    bool run(byte_p &pc);
     // ------------------------------------------------------------------------
     //   Run all instructions at current code pointer
     // ------------------------------------------------------------------------
-    {
-        bool result = true;
-        while (result)
-            result = evaluate();
-        return !error();
-    }
 
 
     byte *allocate(size_t sz, byte_p init);
@@ -183,9 +137,9 @@ struct runtime
     }
 
 
-    bool push(intptr_t value)
+    bool push(value_t value)
     // ------------------------------------------------------------------------
-    //   Push an intptr_t sized value on the stack
+    //   Push an value_t sized value on the stack
     // ------------------------------------------------------------------------
     {
         if (stack - 1 <= (stack_p) heap)
@@ -198,9 +152,9 @@ struct runtime
     }
 
 
-    intptr_t pop()
+    value_t pop()
     // ------------------------------------------------------------------------
-    //   Pop an intptr_t sized value from the stack
+    //   Pop an value_t sized value from the stack
     // ------------------------------------------------------------------------
     {
         if (stack + 1 > histack)
@@ -214,7 +168,7 @@ struct runtime
 
     bool drop(size_t n = 1)
     // ------------------------------------------------------------------------
-    //   Pop an intptr_t sized value from the stack
+    //   Pop an value_t sized value from the stack
     // ------------------------------------------------------------------------
     {
         if (stack + n > histack)
@@ -258,7 +212,7 @@ struct runtime
     }
 
 
-    intptr_t *top()
+    value_t *top()
     // ------------------------------------------------------------------------
     //   Return top of stack in writable form
     // ------------------------------------------------------------------------
@@ -268,11 +222,11 @@ struct runtime
             error("Can't return top of empty stack");
             return nullptr;
         }
-        return (intptr_t *) stack;
+        return (value_t *) stack;
     }
 
 
-    intptr_t *at(size_t index)
+    value_t *at(size_t index)
     // ------------------------------------------------------------------------
     //   Return stack pointer at given index
     // ------------------------------------------------------------------------
@@ -284,59 +238,70 @@ struct runtime
     }
 
 
-    bool call()
+    byte_p dispatch(byte_p pc, value_t ref)
     // ------------------------------------------------------------------------
-    //   Call what is at the current PC
+    //   Dispatch branches
     // ------------------------------------------------------------------------
+    //   The first argument gives number of cases
+    //   Then for each case, reference value and branch offset.
+    //   As soon as the value is greater or equal to the test, branch is taken
+    //   For example [dispatch 3 10 lbl1 20 lbl2 40 lbl3] will:
+    //   - branch to lbl1 if the value is >= 10 and < 20
+    //   - branch to lbl2 if the value is >= 20 and < 40
+    //   - branch to lbl3 for values over 40
+    //   - skip to next instruction otherwise
+    //   You can skip to the next instruction with an offset of 0
     {
-        // Push return address on stack
-        if (!push(intptr_t(pc)))
-            return false;
-        byte_p instr = ppc;
-        op_t callee = leb128<op_t>(instr);
-        pc  = byte_p(tok(callee));
-        return true;
+        size_t ncases = arg<size_t>(pc);
+        byte_p target  = nullptr;
+        for (size_t n = 0; n < ncases; n++)
+        {
+            value_t test = arg<value_t>(pc);
+            broff_t offs = arg<broff_t>(pc);
+            if (ref >= test)
+                target = pc + offs;
+        }
+        if (target)
+            pc = target;
+        return pc;
     }
 
 
-    intptr_t *enter(bool saveheap = false, bool savetoks = false)
+    value_t *enter(size_t locals, byte flags = 0)
     // ------------------------------------------------------------------------
     //    Set the frame pointer at the current locals
     // ------------------------------------------------------------------------
     {
-        if (stack >= frame)
+        bool   saveheap = flags & 1;
+        bool   savetoks = flags & 2;
+        size_t delta    = 1 + saveheap + savetoks;
+
+        if (stack > frame)
         {
             error("Cannot allocate locals, stack is above frame");
             return nullptr;
         }
-        size_t fsz = frame - stack;
-        frame      = stack;
-        if (!push(fsz))
+        if (stack - locals - delta <= (stack_p) heap)
         {
-            error("Cannot push frame size");
+            error("Out of stack space entering frame");
             return nullptr;
         }
-        if (saveheap)
+        stack -= locals;
+
+        size_t fsz = frame - stack;
+        frame      = stack;
+        if (!push(fsz)                          ||
+            (saveheap && !push(value_t(heap)))  ||
+            (savetoks && !push(ntokens)))
         {
-            if (!push(intptr_t(heap)))
-            {
-                error("Cannot save heap pointer");
-                return nullptr;
-            }
-        }
-        if (savetoks)
-        {
-            if (!push(ntokens))
-            {
-                error("Cannot save number of tokens");
-                return nullptr;
-            }
+            error("Cannot push frame size - Inernal error");
+            return nullptr;
         }
         return frame;
     }
 
 
-    intptr_t *leave(bool saveheap = false, bool savetoks = false)
+    value_t *leave(bool saveheap = false, bool savetoks = false)
     // ------------------------------------------------------------------------
     //    Free the number of locals and return to previous frame
     // ------------------------------------------------------------------------
@@ -358,7 +323,7 @@ struct runtime
     }
 
 
-    intptr_t *local(size_t index)
+    value_t *local(size_t index)
     // ------------------------------------------------------------------------
     //   Return stack pointer for local at given index
     // ------------------------------------------------------------------------
@@ -433,10 +398,8 @@ public:
     //
     // ========================================================================
 
-    byte_p              pc;             // Current program pointer
-    byte_p              ppc;            // Previous program counter
-    run_fn             *opcodes;        // Evaluators for each opcode
-    size_t              nopcodes;       // Number of opcodes
+    using callmap = std::map<tok_t, tok_t>;
+    callmap             defined;
 
     byte_p              memory;         // Memory allocated for that runtime
     byte_p              heap;           // Top of heap (lo marker for stack)
@@ -449,6 +412,7 @@ public:
     size_t              itokens;        // Incremental tokens when running out
 
     cstring             err;            // Error message
+    byte_p              entry;          // code entry point
 
 protected:
     byte **             retoks(size_t size);
