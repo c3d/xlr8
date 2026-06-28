@@ -509,11 +509,21 @@ bool scanner::do_define(runtime &rt)
     }
     text    name = t == TEXT ? as_text() : scanned;
     tok_t   ntok = rt.tok(name);
+    // Pre-register so the body can call itself recursively
+    text    placeholder;
+    placeholder.push_back(1);
+    placeholder += name;
+    tok_t   callee = rt.tok(placeholder);
+    rt.defined[ntok] = callee;
     scanner child(input);
     bool    result = child.scan(rt);
-    tok_t   callee = rt.tok(child.program);
-    rt.defined[ntok] = callee;
-    return result;
+    if (!result)
+        return false;
+    byte *storage = rt.allocate(child.program.size(), byte_p(child.program.data()));
+    if (!storage)
+        return false;
+    rt.tokens[callee] = byte_p(storage);
+    return true;
 }
 
 
