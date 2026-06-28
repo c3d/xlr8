@@ -1,0 +1,12 @@
+// Decimal exponent on float literals (1.5e2f)
+
+enter 2
+flt 0
+1.5e2f
+flt 1
+0.5f
+fadd 0 1
+txt 1 "1.5e2f+0.5f="
+outt 1
+outf 0
+outl

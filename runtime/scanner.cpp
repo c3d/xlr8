@@ -36,7 +36,8 @@
 
 
 const size_t LEB128_MAXSIZE = 16;
-RECORDER(scanner, 16, "Scanner");
+RECORDER(scanner,       16, "Scanner");
+RECORDER(scanner_error, 16, "Errors during scanner");
 
 
 static tok_t placeholder_token(runtime &rt, text name)
@@ -114,12 +115,18 @@ bool scanner::validate(runtime &rt)
 {
     if (unknown.size())
     {
+        record(scanner_error, "%zu remaining undefined labels", unknown.size());
+        for (auto &it : unknown)
+            record(scanner_error, "  %s", it.first.c_str());
         rt.error("Undefined label");
         return false;
     }
     tok_t prog = rt.tok(program);
     rt.entry = byte_p(rt.tok(prog));
     record(scanner, "Scanned %lu bytes entry %p", program.size(), rt.entry);
+    if (RECORDER_TRACE(scanner) > 1)
+        for (size_t i = 0; i < program.size(); i++)
+            record(scanner, "  [%zu] = %02x", i, (byte) program[i]);
     return true;
 }
 
@@ -132,7 +139,11 @@ scanner::token scanner::next()
     if (input.eof())
         return DONE;
     if (input.bad())
+    {
+        record(scanner_error, "I/O error on scanner input: %s",
+               strerror(errno));
         return ERROR;
+    }
 
     scanned = "";
 
@@ -274,7 +285,10 @@ uintptr_t scanner::as_natural(uint *basep)
         if (c == '#')
         {
             if (value < 2 || value >= 36)
-                break;
+            {
+                record(scanner_error, "Invalid base %llu", value);
+                return 0;
+            }
             base = value;
             value = 0;
             continue;
@@ -288,7 +302,11 @@ uintptr_t scanner::as_natural(uint *basep)
             digit = c - 'A' + 10;
 
         if (digit >= base)
+        {
+            record(scanner_error, "Invalid digit '%c' in base %u, value %u",
+                   c, base, digit);
             break;
+        }
         value = value * base + digit;
     }
 
@@ -311,18 +329,26 @@ intptr_t scanner::as_integer(uint *basep)
 }
 
 
-double scanner::as_real(uint *basep)
+size_t scanner::as_real(double &dval, float &fval, uint *basep)
 // ----------------------------------------------------------------------------
 //   Parse a number as a real number
 // ----------------------------------------------------------------------------
 {
     uint      base    = 10;
+    uint      mbase   = 10;
     uintptr_t value   = 0;
     double    dvalue  = 0.0;
     double    dmult   = 1.0;
-    bool      hasneg  = false;
-    bool      hasdot  = false;
+    float     fvalue  = 0.0;
+    float     fmult   = 1.0;
     bool      isfirst = true;
+    bool      hasneg  = false;
+    bool      hasmneg = false;
+    bool      hasdot  = false;
+    bool      hasbase = false;
+    bool      hasexp  = false;
+    bool      hashash = false;
+    uint      size    = sizeof(double);
 
     for (char c : scanned)
     {
@@ -345,10 +371,29 @@ double scanner::as_real(uint *basep)
         // Based numbers, e.g. 16#FFFF_FFFF
         if (c == '#')
         {
-            if (value < 2 || value >= 36)
-                break;
-            base = value;
-            value = 0;
+            if (!hasbase)
+            {
+                if (value < 2 || value >= 36)
+                {
+                    record(scanner_error, "Invalid fp base %llu", value);
+                    return 0;
+                }
+                base    = value;
+                value   = 0;
+                dvalue  = 0.0;
+                fvalue  = 0.0;
+                dmult   = 1.0;
+                fmult   = 1.0;
+                hasbase = true;
+                continue;
+            }
+            // Case of something like 16#FF.FFFE#E3
+            value   = 0;
+            mbase   = base;
+            base    = 10;
+            hasdot  = false;
+            hashash = true;
+            isfirst = true;
             continue;
         }
 
@@ -356,7 +401,10 @@ double scanner::as_real(uint *basep)
         if (c == '.')
         {
             if (hasdot)
+            {
+                record(scanner_error, "Two dots in %s", scanned.c_str());
                 break;
+            }
             hasdot = true;
             continue;
         }
@@ -369,22 +417,96 @@ double scanner::as_real(uint *basep)
             digit = c - 'A' + 10;
 
         if (digit >= base)
-            break;
+        {
+            char lc = tolower(c);
+            if (lc == 'e')
+            {
+                if (!hasexp)
+                {
+                    hasexp  = true;
+                    hasmneg = hasneg;
+                    value   = 0;
+                    base    = 10;
+                    hasneg  = false;
+                    isfirst = true;
+                    continue;
+                }
+                if (hasbase)
+                    continue;
+            }
+            if (lc == 'f')
+                size = sizeof(float);
+            else if (lc == 'd')
+                size = sizeof(double);
+            if (lc == 'f' || lc == 'd' || lc == 'e')
+                continue;
+            record(scanner_error, "Invalid fp digit '%c' in base %u, value %u",
+                   c, base, digit);
+            return 0;
+        }
         value = value * base + digit;
+        if (hasexp || hashash)
+            continue;
         if (hasdot)
         {
             dmult /= base;
             dvalue += dmult * digit;
+            fmult /= base;
+            fvalue += fmult * digit;
         }
         else
         {
             dvalue = dvalue * base + digit;
+            fvalue = fvalue * base + digit;
         }
     }
 
+    // Check if we had an exponent)
+    if (hasexp)
+    {
+        float  fexp = 1.0;
+        double dexp = 1.0;
+        fmult = mbase;
+        dmult = mbase;
+        while (value)
+        {
+            if (value & 1)
+            {
+                fexp *= fmult;
+                dexp *= dmult;
+            }
+            fmult *= fmult;
+            dmult *= dmult;
+            value >>= 1;
+        }
+
+        if (hasneg)
+        {
+            dvalue /= dexp;
+            fvalue /= dexp;
+        }
+        else
+        {
+            dvalue *= dexp;
+            fvalue *= fexp;
+        }
+        hasneg = hasmneg;
+        base = mbase;
+    }
+
+    if (hasneg)
+    {
+        dvalue = -dvalue;
+        fvalue = -fvalue;
+    }
+    dval = dvalue;
+    fval = fvalue;
+
     if (basep)
         *basep = base;
-    return dvalue;
+    record(scanner, "as_real %s -> d=%g f=%g sz=%zu",
+           scanned.c_str(), dval, fval, size);
+    return size;
 }
 
 
@@ -524,10 +646,13 @@ bool scanner::do_real(runtime &rt)
 // ----------------------------------------------------------------------------
 {
     char buf[sizeof(double)];
-    double d = as_real();
-    memcpy(buf, &d, sizeof(double));
-    program += text(buf, sizeof(double));
-    return true;
+    double d  = 0.0;
+    float  f  = 0.0;
+    size_t sz = as_real(d, f);
+    memcpy(buf, sz == sizeof(float) ? (void *) &f : (void *) &d, sz);
+    program += text(buf, sz);
+    record(scanner, "do_real %s embedded %zu bytes", scanned.c_str(), sz);
+    return sz != 0;
 }
 
 

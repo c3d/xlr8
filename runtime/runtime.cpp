@@ -142,6 +142,7 @@ bool runtime::run(byte_p &pc,
     uvalue_t knat;
     while (!done)
     {
+        static_assert(OP_COUNT < 128);
         op_t op = op_t(*pc++);
         switch (op)
         {

@@ -61,7 +61,7 @@ struct scanner
 
     uintptr_t   as_natural(uint *base = nullptr);
     intptr_t    as_integer(uint *base = nullptr);
-    double      as_real(uint *base = nullptr);
+    size_t      as_real(double &dval, float &fval, uint *base = nullptr);
     text        as_text();
 
     bool        do_name(runtime &rt);

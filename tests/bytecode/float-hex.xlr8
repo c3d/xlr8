@@ -1,0 +1,13 @@
+// Based hex float with f suffix (16#1.0f)
+
+enter 2
+dbl 0 16#1.Af
+txt 1 "16#1.Af="
+outt 1
+outd 0
+outl
+flt 0 16#1.A#f
+txt 1 "16#1.A#f="
+outt 1
+outf 0
+outl

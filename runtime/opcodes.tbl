@@ -96,6 +96,8 @@ OP(ushru,       DST; KNAT; DNAT >>= knat)
 
 OP(int,         DST; DINT = arg< value_t>(pc))
 OP(nat,         DST; DNAT = arg<uvalue_t>(pc))
+OP(flt,         DST; memcpy(&DFLT, pc, sizeof(float)); pc += sizeof(float))
+OP(dbl,         DST; memcpy(&DDBL, pc, sizeof(double)); pc += sizeof(double))
 OP(txt,         DST; DINT = arg<tok_t>(pc))
 OP(swap,        DST; SRC; std::swap(DINT, SINT))
 

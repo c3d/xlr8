@@ -1,0 +1,12 @@
+// Double addition (no f suffix)
+
+enter 4
+dbl 0
+1.5
+dbl 1
+2.5
+dadd 0 1
+txt 1 "1.5+2.5="
+outt 1
+outd 0
+outl

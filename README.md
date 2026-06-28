@@ -89,16 +89,21 @@ registered at the start of its own definition.
 
 The scanner emits a byte stream with this layout:
 
-1. **Opcode** — one byte, the token index of the opcode name (matches the
-   `op_t` enum order in `opcodes.tbl` for built-ins).
+1. **Opcode** — Byte-encoded token index of the opcode name (matches the
+   `op_t` enum order in `opcodes.tbl` for built-ins). Because the scanner
+   encodes names using LEB128, this effectively limits the opcode count to
+   128 (where LEB128 and byte encoding agree). Byte encoding is important
+   since LEB128 decoding here potentially costs us about 12% of performance
+   for the 1-billion iterations test.
 2. **Operands** — encoding depends on the operand kind:
    - **Source and destination registers** — one byte each (indices 0–255).
      This keeps the common `op dst src` form compact and fast to decode.
    - **Variable-size operands** — [LEB128][leb128]-encoded when their size is
      not known ahead of time: branch deltas, immediate constants (`addi`,
-     `nat`, …), token references (`call`, `jmp`, `txt`, …), and similar.
-3. **Floating-point immediates** — an IEEE 754 `double` copied verbatim
-   (8 bytes) when a real literal appears in source.
+     `int`, `nat`, …), token references (`call`, `jmp`, `txt`, …), and similar.
+   - **Integer constants** — see [Integer constants](#integer-constants).
+3. **Floating-point immediates** — see [Floating-point constants](#floating-point-constants)
+   below.
 
 The 256-register limit applies to the byte-encoded `dst` and `src` operands.
 That is enough in practice for local frames allocated with `enter`.
@@ -113,6 +118,57 @@ forward-referenced; the scanner patches offsets once the target is known, and
 re-adjusts other branches when an offset grows and shifts following code.
 
 [leb128]: https://en.wikipedia.org/wiki/LEB128
+
+
+### Integer constants
+
+**`int`** loads a signed integer constant; **`nat`** loads a **natural**
+(unsigned) constant. Both take a destination register and a numeral; the
+scanner appends the value as [LEB128][leb128] after the register byte.
+
+```xlr8
+int 0 -42
+nat 1 1_000_000
+```
+
+Numerals accept XL-style bases and underscores (`16#FF`, `1_000_000`). A leading
+`+` or `-` selects the signed path used with **`int`**; plain numerals are
+treated as naturals and pair with **`nat`**.
+
+
+### Floating-point constants
+
+**`int`** and **`nat`** inline a LEB128-encoded integer after the destination
+register. Floating-point constants work differently: **`flt`** and **`dbl`**
+**`dbl`** take a destination register, then a **real literal** whose IEEE 754
+bit pattern is copied verbatim into the bytecode — **4 bytes** for `flt`,
+**8 bytes** for `dbl`.
+
+The literal may appear on the same line or on the following line:
+
+```xlr8
+flt 0 2.5f
+dbl 1 3.0
+flt 2
+1.5e2f
+```
+
+The scanner chooses the embedded size from the literal suffix:
+
+| Literal suffix | Embedded size | Typical opcode |
+|----------------|---------------|----------------|
+| `f` | 32-bit `float` | `flt` |
+| `d` | 64-bit `double` | `dbl` |
+| *(none)* | 64-bit `double` | `dbl` |
+
+Use the matching arithmetic and I/O opcodes: `fadd` / `outf` for floats,
+`dadd` / `outd` for doubles. Conversion opcodes (`i2f`, `f2i`, `i2d`, `d2i`)
+bridge integers and reals.
+
+Real literals accept decimal and based syntax (`16#1.A#f`, `1.5e2f`, …).
+See [Example 2](#example-2-counting-loop) for based-number rules, including
+exponents in the mantissa base and the `#f` suffix when `f` would otherwise
+be a hex digit.
 
 
 ### Runtime layout
@@ -151,7 +207,7 @@ The full list and semantics live in `runtime/opcodes.tbl`. Summary by group:
 | Integer math | `add`, `sub`, `mul`, `div`, `mod`, `neg`, `incr`, `decr`, `umul`, `udiv`, `umod` | Register arithmetic |
 | Immediate math | `addi`, `subi`, `muli`, `divi`, `modi`, `addu`, `subu`, `mulu`, `divu`, `modu` | Same, with an inline constant |
 | Bitwise | `and`, `or`, `xor`, `shl`, `shr`, `ushr`, `not`, `andu`, `oru`, `xoru`, `shlu`, `shru`, `ushru` | Bit operations |
-| Constants | `int`, `nat`, `txt` | Load a signed, unsigned, or text constant into a register |
+| Constants | `int`, `nat`, `flt`, `dbl`, `txt` | Load a signed integer, natural, float, double, or text constant |
 | Errors | `err`, `clear`, `trap` | Error reporting and traps |
 | I/O | `stdin`, `stdout`, `stderr`, `eof`, `inpc`…`inpt`, `outc`…`outt`, `outl` | Stream binding and typed input/output |
 | Float / double | `i2f`, `i2d`, `f2i`, `d2i`, `fadd`…`fmod`, `dadd`…`dmod`, `ffloor`…`flog2`, `dfloor`…`dlog2` | Conversions and math library |
@@ -204,6 +260,16 @@ outl
 ```
 
 Numbers accept XL-style bases and underscores (`16#FF`, `1_000_000`).
+
+**Based reals** (`16#…`) follow the same rules as numerals for integers: the mantissa is
+read in the given base, and a second `#` starts an exponent in that same
+base. For example `16#1.0#E3` is (1.0)₁₆ × 16³ = 4096, and
+`16#1.FFFF_FFFF#E3` ≈ 2 × 16³ = 8192. Decimal exponent notation uses `e`
+or `E` instead (`1.5e2`).
+
+When the base is hexadecimal, `f` and `F` are valid mantissa digits (15).
+To request a 32-bit float in that case, use the `#f` suffix form, e.g.
+`16#1.A#f` (not `16#1.Af`, where the final `f` is the digit).
 
 
 ### Example 3: extensible opcode (recursive factorial)
@@ -281,16 +347,36 @@ outl
 Output: `foo(5)=7`
 
 
+### Example 5: floating-point constants
+
+```xlr8
+enter 2
+flt 0 2.5f
+flt 1 3.0f
+fadd 0 1
+txt 1 "2.5f+3.0f="
+outt 1
+outf 0
+outl
+```
+
+Output: `2.5f+3.0f=5.5`
+
+
 ## Scanning
 
 The scanner (`runtime/scanner.cpp`) reads a `.xlr8` source stream token by
 token and appends to a bytecode buffer:
 
 1. **Names** — built-in or user opcode; emits the name's token index (one byte).
-2. **Integers** — numerals in source (supports bases like `16#A_F`, `_`
-   separators, optional `+` or `-` for signed values). In the bytecode,
-   register indices are byte-encoded; other integer operands use LEB128.
-3. **Reals** — copied as an 8-byte `double`.
+2. **Numerals** — integer literals in source (bases like `16#A_F`, `_`
+   separators). With a leading `+` or `-`, the value is signed and used with
+   **`int`**; otherwise it is a natural and used with **`nat`**. Register
+   indices in other instructions are byte-encoded; constant operands use LEB128.
+3. **Reals** — floating-point literals. The preceding opcode must be `flt` or
+   `dbl`; the scanner embeds a 4- or 8-byte IEEE 754 value (see
+   [Floating-point constants](#floating-point-constants)). Suffix `f` selects
+   `float`, suffix `d` or no suffix selects `double`.
 4. **Text** — `'…'` or `"…"` strings (double the quote to escape); stored
    in the token pool, referenced by a LEB128 token index.
 5. **Directives** — `*`, `!`, `=`, `.`, and `:` as described above.
