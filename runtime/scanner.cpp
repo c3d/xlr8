@@ -38,6 +38,34 @@
 const size_t LEB128_MAXSIZE = 16;
 RECORDER(scanner, 16, "Scanner");
 
+
+static tok_t placeholder_token(runtime &rt, text name)
+// ----------------------------------------------------------------------------
+//   Allocate a unique placeholder token for a defined name
+// ----------------------------------------------------------------------------
+{
+    text placeholder;
+    placeholder.push_back(1);
+    placeholder += name;
+    return rt.tok(placeholder);
+}
+
+
+static bool register_defined(runtime &rt, text name, tok_t callee)
+// ----------------------------------------------------------------------------
+//   Register a name in the defined table, error if already present
+// ----------------------------------------------------------------------------
+{
+    tok_t ntok = rt.tok(name);
+    if (rt.defined.count(ntok))
+    {
+        rt.error("Name already defined or declared extern");
+        return false;
+    }
+    rt.defined[ntok] = callee;
+    return true;
+}
+
 bool scanner::scan(runtime &rt)
 // ----------------------------------------------------------------------------
 //   Scan input tokens from the stream and build program object
@@ -410,6 +438,8 @@ bool scanner::do_symbol(runtime &rt)
         return do_use(rt);
     case '=':
         return do_define(rt);
+    case '!':
+        return do_extern(rt);
     case '.':
         return do_label(rt);
     case ':':
@@ -420,6 +450,23 @@ bool scanner::do_symbol(runtime &rt)
         rt.error("Unknown symbol");
     }
     return false;
+}
+
+
+bool scanner::do_extern(runtime &rt)
+// ----------------------------------------------------------------------------
+//   Declare a name defined later (`!foo')
+// ----------------------------------------------------------------------------
+{
+    token t = next();
+    if (t != NAME && t != TEXT)
+    {
+        rt.error("Invalid extern declaration");
+        return false;
+    }
+    text  name = t == TEXT ? as_text() : scanned;
+    tok_t callee = placeholder_token(rt, name);
+    return register_defined(rt, name, callee);
 }
 
 
@@ -509,12 +556,17 @@ bool scanner::do_define(runtime &rt)
     }
     text    name = t == TEXT ? as_text() : scanned;
     tok_t   ntok = rt.tok(name);
-    // Pre-register so the body can call itself recursively
-    text    placeholder;
-    placeholder.push_back(1);
-    placeholder += name;
-    tok_t   callee = rt.tok(placeholder);
-    rt.defined[ntok] = callee;
+    auto    it   = rt.defined.find(ntok);
+    tok_t   callee;
+    if (it == rt.defined.end())
+    {
+        callee = placeholder_token(rt, name);
+        rt.defined[ntok] = callee;
+    }
+    else
+    {
+        callee = it->second;
+    }
     scanner child(input);
     bool    result = child.scan(rt);
     if (!result)

@@ -70,6 +70,7 @@ struct scanner
     bool        do_real(runtime &rt);
     bool        do_text(runtime &rt);
     bool        do_use(runtime &rt);
+    bool        do_extern(runtime &rt);
     bool        do_define(runtime &rt);
     bool        do_label(runtime &rt);
     bool        do_branch_offset(runtime &rt);

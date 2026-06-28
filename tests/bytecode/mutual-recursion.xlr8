@@ -1,0 +1,37 @@
+// Mutually recursive foo and bar:
+//   foo(0) = 0,  foo(n) = bar(n-1) + 1
+//   bar(0) = 0,  bar(n) = foo(n-1) + 2
+
+!foo
+!bar
+
+=foo
+ble 0 :done
+subu 0 1
+call *bar
+incr 0
+ret
+.done
+nat 0 0
+ret
+;
+
+=bar
+ble 0 :done
+subu 0 1
+call *foo
+incr 0
+incr 0
+ret
+.done
+nat 0 0
+ret
+;
+
+enter 2
+nat 0 5
+call *foo
+txt 1 "foo(5)="
+outt 1
+outi 0
+outl
