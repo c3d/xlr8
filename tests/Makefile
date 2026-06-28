@@ -1,10 +1,10 @@
 #******************************************************************************
-# Makefile                                                          XL project
+# Makefile                                                          XLR8 project
 #******************************************************************************
 #
 #  File Description:
 #
-#    Testing XL source files using a makefile
+#    Testing XLR8 source files using a makefile
 #
 #    This makes it possible to run tests in paralelle
 #
@@ -17,24 +17,24 @@
 #  (C) 2021 Christophe de Dinechin <christophe@dinechin.org>
 #  This software is licensed under the GNU General Public License v3
 #******************************************************************************
-#  This file is part of XL.
+#  This file is part of XLR8.
 #
-#  XL is free software: you can redistribute it and/or modify
+#  XLR8 is free software: you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
 #  the Free Software Foundation, either version 3 of the License, or
 #  (at your option) any later version.
 #
-#  XL is distributed in the hope that it will be useful,
+#  XLR8 is distributed in the hope that it will be useful,
 #  but WITHOUT ANY WARRANTY; without even the implied warranty of
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 #  GNU General Public License for more details.
 #
 #  You should have received a copy of the GNU General Public License
-#  along with XL.  If not, see <https://www.gnu.org/licenses/>.
+#  along with XLR8.  If not, see <https://www.gnu.org/licenses/>.
 #******************************************************************************
 
-XL=./xl $(OPTLEVEL) -I../native/lib
-TESTS=$(wildcard */*.xl)
+XLR8=./xlr8 $(OPTLEVEL)
+TESTS=$(wildcard */*.xlr8)
 RUN_TESTS=yes
 TIMEOUT=30
 
@@ -44,7 +44,7 @@ MIQ=../make-it-quick/
 export LANG=C
 export LC_ALL=C
 export LC_CTYPE=C
-export XL
+export XLR8
 export LD_LIBRARY_PATH=..
 export DYLD_LIBRARY_PATH=..
 
@@ -54,9 +54,9 @@ BASELINE=baseline$(OPTLEVEL).txt
 
 base rebase baseline: $(BASELINE)
 run-%:
-	$(PRINT_COMMAND) $(MAKE) TESTS="$(wildcard */*$**.xl)" .tests
+	$(PRINT_COMMAND) $(MAKE) TESTS="$(wildcard */*$**.xlr8)" .tests
 ref-%:
-	$(PRINT_COMMAND) $(MAKE) TESTS="$(wildcard */*$**.xl)" UPDATE_REFS=yes .tests
+	$(PRINT_COMMAND) $(MAKE) TESTS="$(wildcard */*$**.xlr8)" UPDATE_REFS=yes .tests
 
 # Check a command, and set the result accordingly
 # $1 = pattern
@@ -100,22 +100,21 @@ UPDATE_CMD_yes=					\
 # $1 = timeout
 # $2 = pattern
 # $3 = command
-TIMEOUT_CMD:=$(shell which timeout > /dev/null 2>&1 && echo "timeout $(TIMEOUT) ")
 define timeout
   (					\
     echo "TIMEOUT" > $2.result;		\
-    $(call command,$2,$(TIMEOUT_CMD)$3)	\
+    $(call command,$2,timeout $1 $3)	\
   )
 endef
 
-XL_CMD= $(if $($1.CMD),$($1.CMD),$(XL) $($1.OPT) $1.xl)
-XL_FILT=$(if $($1.FILTER),| ($($1.FILTER) || true))
+XLR8_CMD= $(if $($1.CMD),$($1.CMD),$(XLR8) $($1.OPT) $1.xlr8)
+XLR8_FILT=$(if $($1.FILTER),| ($($1.FILTER) || true))
 
 # Run a simple test
 # $1 = pattern
-XL_TIMEOUT=$(if $($*.TIMEOUT),$($*,TIMEOUT),$(TIMEOUT))
+XLR8_TIMEOUT=$(if $($*.TIMEOUT),$($*.TIMEOUT),$(TIMEOUT))
 define test
-	$(call timeout,$(TIMEOUT),$*,$(XL_CMD)) $(XL_FILT) > $1.output
+	$(call timeout,$(XLR8_TIMEOUT),$*,$(XLR8_CMD)) $(XLR8_FILT) > $1.output
 endef
 
 
@@ -192,53 +191,47 @@ REPORT_FAILURES=						\
 
 GENERATE_BASELINE=						\
   grep "=== .* FAILED .* ===" $< |				\
-  sed -e 's/=== \(.*\) FAILED\(.*\) ===/\1.xl/g' > $@
+  sed -e 's/=== \(.*\) FAILED\(.*\) ===/\1.xlr8/g' > $@
 
 
-failures.log: $(TESTS:%.xl=%.diff)
+failures.log: $(TESTS:%.xlr8=%.diff)
 	$(PRINT_GENERATE) $(GENERATE_FAILURES_LOG) $(COLORIZE)
 $(BASELINE): failures.log
 	$(PRINT_GENERATE) $(GENERATE_BASELINE) $(COLORIZE)
 
-%.xl$(OPTLEVEL).mk: %.xl ./alltests-make.awk # Makefile
+%.xlr8$(OPTLEVEL).mk: %.xlr8 ./alltests-make.awk # Makefile
 	$(PRINT_GENERATE) ./alltests-make.awk $< > $@
 
-%.xl.test: %.diff
+%.xlr8.test: %.diff
 	$(PRINT_RESULT)
 
 %.diff: %.output %.ref
 	$(PRINT_COMMAND) $(call diff,$*)
 
-%.output: %.xl .products
+%.output: %.xlr8 .products
 	$(PRINT_COMMAND) $(call test,$*)
 
-XL_NOREF_MSG=$(if $(UPDATE_REFS),"OK","REF?")
-XL_NOREF=							\
-	echo $(XL_NOREF_MSG) > $*.result	;		\
+XLR8_NOREF_MSG=$(if $(UPDATE_REFS),"OK","REF?")
+XLR8_NOREF=							\
+	echo $(XLR8_NOREF_MSG) > $*.result	;		\
 	$(INFO) "[WARNING]" "No reference for $*" "[REF?]"
 
 %.ref:
-	$(PRINT_COMMAND) $(XL_NOREF) $(COLORIZE)
+	$(PRINT_COMMAND) $(XLR8_NOREF) $(COLORIZE)
 
-xl.exe=		$(PFX.exe)xl$(EXT.exe)
-xl.dll=		$(PFX.dll)xl$(EXT.dll)
+xlr8.exe=	$(PFX.exe)xlr8$(EXT.exe)
+xlr8.dll=	$(PFX.dll)xlr8$(EXT.dll)
 recorder.dll=	$(PFX.dll)recorder$(EXT.dll)
 
-XL_BINARIES=				\
-	$(xl.exe)			\
-	$(xl.dll)			\
+XLR8_BINARIES=				\
+	$(xlr8.exe)			\
+	$(xlr8.dll)			\
 	$(recorder.dll)
 
-XL_FILES=				\
-	xl.syntax 			\
-	C.syntax			\
-	builtins.xl			\
-	xl.stylesheet			\
-	html.stylesheet			\
-	debug.stylesheet		\
-	dbghtml.stylesheet
+# XLR8_FILES= 				\
+#	syntax.xlr8
 
-.products:	$(XL_BINARIES) $(XL_FILES)
+.products:	$(XLR8_BINARIES) $(XLR8_FILES)
 
 define link
 
@@ -247,13 +240,13 @@ $1: $2/$1
 
 endef
 
-$(eval $(foreach b,$(XL_BINARIES),$(call link,$b,..)))
-$(eval $(foreach f,$(XL_FILES),$(call link,$f,../src)))
+$(eval $(foreach b,$(XLR8_BINARIES),$(call link,$b,..)))
+$(eval $(foreach f,$(XLR8_FILES),$(call link,$f,../src)))
 
-../$(xl.dll)		: ../$(xl.exe)
-../$(recorder.dll)	: ../$(xl.exe)
-../$(xl.exe):
+../$(xlr8.dll)		: ../$(xlr8.exe)
+../$(recorder.dll)	: ../$(xlr8.exe)
+../$(xlr8.exe):
 	$(PRINT_BUILD) cd .. && make
 
 .PRECIOUS: %.diff %.output %.ref
-.PHONY: %.xl.test
+.PHONY: %.xlr8.test

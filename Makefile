@@ -54,5 +54,5 @@ RECURSE_FLAGS_recorder=RUN_TESTS=
 
 ref-% run-%:
 	$(PRINT_COMMAND) cd tests; make $@
-base rebase baseline:
+test tests base rebase baseline:
 	$(PRINT_COMMAND) cd tests; make $@

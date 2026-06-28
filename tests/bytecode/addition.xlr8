@@ -1,0 +1,10 @@
+// Very simple output: compute 1 + 1
+
+enter 2
+nat 0 1
+nat 1 1
+add 0 1
+txt 1 "1+1="
+outt 1
+outi 0
+outl

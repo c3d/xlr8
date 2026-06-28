@@ -2,18 +2,18 @@
 BEGIN {
     FS="=";
     file=ARGV[1];
-    xl=ENVIRON["XL"];
+    xlr8=ENVIRON["XLR8"];
     base=file;
-    sub("[.]xl", "", base);
+    sub("[.]xlr8", "", base);
     csource=file;
-    sub("[.]xl", ".c", csource);
+    sub("[.]xlr8", ".c", csource);
     subdir=file;
     sub("/[^/]*$", "", subdir);
 }
 /\/\/ +[A-Z]+=/ {
     name=substr($1, match($1, "[A-Z]"));
     value=substr($0, index($0, "=") + 1);
-    gsub("%x", xl, value);
+    gsub("%x", xlr8, value);
     gsub("%f", file, value);
     gsub("%b", base, value);
     gsub("%c", csource, value);
