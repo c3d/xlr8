@@ -30,12 +30,13 @@
 #include "scanner.h"
 #include "runtime.h"
 #include "leb128.h"
+#include "recorder.h"
 
 #include <cctype>
 
 
 const size_t LEB128_MAXSIZE = 16;
-
+RECORDER(scanner, 16, "Scanner");
 
 bool scanner::scan(runtime &rt)
 // ----------------------------------------------------------------------------
@@ -90,6 +91,7 @@ bool scanner::validate(runtime &rt)
     }
     tok_t prog = rt.tok(program);
     rt.entry = byte_p(rt.tok(prog));
+    record(scanner, "Scanned %lu bytes entry %p", program.size(), rt.entry);
     return true;
 }
 
