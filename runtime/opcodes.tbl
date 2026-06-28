@@ -1,11 +1,10 @@
 // ****************************************************************************
-//  runtime.h                                                      xlr8 project
+//  opcodes.tbl                                                    xlr8 project
 // ****************************************************************************
 //
 //   File Description:
 //
-//     The runtime for XLR8 represents the execution environment that is
-//     necessary to run XLR8 bytecode.
+//     Built-in opcode definitions for the XLR8 runtime.
 //
 //
 //

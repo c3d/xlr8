@@ -53,7 +53,7 @@ runtime::runtime(size_t sz)
     histack = stack;
 
 #define OP(op, code)            tok(text(#op));
-#include "runtime.tbl"
+#include "opcodes.tbl"
 }
 
 
@@ -167,7 +167,7 @@ bool runtime::run(byte_p &pc,
 #define KNAT            (knat = arg<uvalue_t>(pc))
 
 #define OP(op, code)    case op_##op: { code; } break;
-#include "runtime.tbl"
+#include "opcodes.tbl"
 #undef uframe
         default:
             error("Invalid opcode");

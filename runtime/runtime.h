@@ -66,7 +66,7 @@ struct runtime
     // ------------------------------------------------------------------------
     {
 #define OP(op, code) op_##op,
-#include "runtime.tbl"
+#include "opcodes.tbl"
         OP_COUNT
     };
 
@@ -87,7 +87,8 @@ struct runtime
     }
 
 
-    bool run(byte_p &pc, std::istream *in, std::ostream *out, std::ostream *err);
+    bool run(byte_p &pc,
+             std::istream *in, std::ostream *out, std::ostream *err);
     // ------------------------------------------------------------------------
     //   Run all instructions at current code pointer
     // ------------------------------------------------------------------------

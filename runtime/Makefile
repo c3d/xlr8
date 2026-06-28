@@ -31,6 +31,7 @@ SOURCES=runtime.cpp scanner.cpp
 PRODUCTS=xlr8.dll
 
 INCLUDES=../recorder
+LIBRARIES=../recorder/recorder.dll
 
 CXX_STD=gnu++17
 
