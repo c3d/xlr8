@@ -132,12 +132,14 @@ bool runtime::run(byte_p &pc,
 //    The main runtime loop
 // ----------------------------------------------------------------------------
 {
-    bool    done = false;
-    bool    ok   = true;
-    byte    s, d;
-    tok_t   t;
-    broff_t b;
-    byte_p bpc;
+    bool     done = false;
+    bool     ok   = true;
+    byte     s, d;
+    tok_t    t;
+    broff_t  b;
+    byte_p   bpc;
+    value_t  kint;
+    uvalue_t knat;
     while (!done)
     {
         op_t op = op_t(*pc++);
@@ -145,22 +147,25 @@ bool runtime::run(byte_p &pc,
         {
 #define uframe          ((uvalue_t *) frame)
 #define uvalue          ((uvalue_t) value)
-#define DST             d = *pc++
-#define SRC             s = *pc++
-#define DINT            frame[d]
-#define SINT            frame[s]
-#define DNAT            uframe[d]
-#define SNAT            uframe[s]
+#define DST             (d = *pc++)
+#define SRC             (s = *pc++)
+#define DINT            (frame[d])
+#define SINT            (frame[s])
+#define DNAT            (uframe[d])
+#define SNAT            (uframe[s])
 #define DTYPE(T)        (*(T *) &frame[d])
 #define STYPE(T)        (*(T *)&frame[s])
 #define DFLT            DTYPE(float)
 #define SFLT            STYPE(float)
 #define DDBL            DTYPE(double)
 #define SDBL            STYPE(double)
-#define TOK             t = arg<tok_t>(pc)
-#define JMP_TOK         pc = byte_p(tok(t))
-#define BR_OFF          bpc = pc; b = arg<broff_t>(pc)
-#define BRANCH          pc = bpc + b;
+#define TOK             (t = arg<tok_t>(pc))
+#define JMP_TOK         (pc = byte_p(tok(t)))
+#define BR_OFF          (bpc = pc, b = arg<broff_t>(pc))
+#define BRANCH          (pc = bpc + b)
+#define KINT            (kint = arg<value_t>(pc))
+#define KNAT            (knat = arg<uvalue_t>(pc))
+
 #define OP(op, code)    case op_##op: { code; } break;
 #include "runtime.tbl"
 #undef uframe
