@@ -48,6 +48,8 @@ struct runtime
     runtime(const runtime &rt);
     ~runtime();
 
+    const uint regs_per_double = sizeof(double) / sizeof(value_t);
+
 
     // ========================================================================
     //

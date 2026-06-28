@@ -77,7 +77,8 @@ int main(int argc, char **argv)
     if (cstring traces = getenv("XLR8_TRACES"))
         recorder_trace_set(traces);
     recorder_dump_on_common_signals(0, 0);
-    record(main, "XLR8 Compiler version %+s starting", XLR8_VERSION);
+    record(main, "XLR8 Compiler version %+s starting (%u opcodes)",
+           XLR8_VERSION, runtime::OP_COUNT);
 
     bool ok = true;
 

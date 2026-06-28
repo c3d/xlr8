@@ -31,6 +31,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <locale>
+#include <cmath>
 
 
 runtime::runtime(size_t sz)
@@ -150,6 +151,12 @@ bool runtime::run(byte_p &pc)
 #define SINT            frame[s]
 #define DNAT            uframe[d]
 #define SNAT            uframe[s]
+#define DTYPE(T)        (*(T *) &frame[d])
+#define STYPE(T)        (*(T *)&frame[s])
+#define DFLT            DTYPE(float)
+#define SFLT            STYPE(float)
+#define DDBL            DTYPE(double)
+#define SDBL            STYPE(double)
 #define TOK             t = arg<tok_t>(pc)
 #define JMP_TOK         pc = byte_p(tok(t))
 #define BR_OFF          bpc = pc; b = arg<broff_t>(pc)

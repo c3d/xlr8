@@ -45,7 +45,6 @@ typedef intptr_t             value_t;
 typedef uintptr_t            uvalue_t;
 typedef value_t              broff_t;
 typedef value_t             *stack_p;
-
 typedef std::string          text;
 
 #endif // TYPES_H
