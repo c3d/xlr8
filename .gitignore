@@ -1,0 +1,14 @@
+.build/
+.logs/
+*.so*
+*.dylib*
+*.dll*
+*.exe*
+*~
+/xlr8
+/tests/xlr8
+/tests/**/*.diff
+/tests/**/*.output
+/tests/**/*.result
+/tests/**/*.xlr8.mk
+/tests/failures.log
