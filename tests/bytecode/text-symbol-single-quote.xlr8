@@ -1,0 +1,14 @@
+// User opcode with a single-quoted name
+
+!'Hello, World'
+='Hello, World'
+nat 0 99
+ret
+;
+
+enter 2
+call *'Hello, World'
+txt 1 "Hello, World="
+outt 1
+outi 0
+outl

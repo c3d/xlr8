@@ -1,0 +1,14 @@
+// User opcode with a quoted name containing spaces
+
+!"foo bar zoo"
+="foo bar zoo"
+nat 0 42
+ret
+;
+
+enter 2
+call *"foo bar zoo"
+txt 1 "foo bar zoo="
+outt 1
+outi 0
+outl

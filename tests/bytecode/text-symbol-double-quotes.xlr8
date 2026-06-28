@@ -1,0 +1,14 @@
+// User opcode with embedded double quotes in the name
+
+!"this is a ""function"""
+="this is a ""function"""
+nat 0 7
+ret
+;
+
+enter 2
+call *"this is a ""function"""
+txt 1 "this is a ""function""="
+outt 1
+outi 0
+outl
