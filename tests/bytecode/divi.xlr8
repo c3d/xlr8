@@ -1,0 +1,9 @@
+// Very simple output: compute 10 / 2
+
+enter 2
+nat 0 10
+divi 0 2
+txt 1 "10/2="
+outt 1
+outi 0
+outl

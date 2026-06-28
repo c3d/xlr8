@@ -1,0 +1,9 @@
+// Very simple output: compute 5 ^ 3
+
+enter 2
+nat 0 5
+xoru 0 3
+txt 1 "5^3="
+outt 1
+outu 0
+outl

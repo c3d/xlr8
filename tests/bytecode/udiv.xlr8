@@ -1,0 +1,10 @@
+// Very simple output: compute 10 / 2 (unsigned)
+
+enter 2
+nat 0 10
+nat 1 2
+udiv 0 1
+txt 1 "10/2="
+outt 1
+outu 0
+outl

@@ -1,0 +1,9 @@
+// Very simple output: compute 8 >> 2 (unsigned)
+
+enter 2
+nat 0 8
+ushru 0 2
+txt 1 "8>>2="
+outt 1
+outu 0
+outl

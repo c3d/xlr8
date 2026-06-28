@@ -1,0 +1,10 @@
+// Very simple output: compute 3 * 4
+
+enter 2
+nat 0 3
+nat 1 4
+mul 0 1
+txt 1 "3*4="
+outt 1
+outi 0
+outl

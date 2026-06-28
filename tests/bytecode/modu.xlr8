@@ -1,0 +1,9 @@
+// Very simple output: compute 10 % 3 (unsigned)
+
+enter 2
+nat 0 10
+modu 0 3
+txt 1 "10%3="
+outt 1
+outu 0
+outl
