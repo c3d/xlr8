@@ -47,6 +47,7 @@ OP(pop,         DST; DINT = pop())
 
 OP(dispatch,    SRC; pc = dispatch(pc, SINT))
 
+OP(dbra,        DST; BR_OFF; if (--DNAT) BRANCH)
 OP(bra,         BR_OFF; BRANCH)
 OP(beq,         SRC; BR_OFF; if (SINT == 0) BRANCH)
 OP(bne,         SRC; BR_OFF; if (SINT != 0) BRANCH)
