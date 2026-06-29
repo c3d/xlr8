@@ -134,12 +134,6 @@ bool runtime::run(byte_p &pc,
 {
     bool     done = false;
     bool     ok   = true;
-    byte     s, d;
-    tok_t    t;
-    broff_t  b;
-    byte_p   bpc;
-    value_t  kint;
-    uvalue_t knat;
     while (!done)
     {
         static_assert(OP_COUNT < 128);
@@ -148,8 +142,8 @@ bool runtime::run(byte_p &pc,
         {
 #define uframe          ((uvalue_t *) frame)
 #define uvalue          ((uvalue_t) value)
-#define DST             (d = *pc++)
-#define SRC             (s = *pc++)
+#define DST             byte d = *pc++
+#define SRC             byte s = *pc++
 #define DINT            (frame[d])
 #define SINT            (frame[s])
 #define DNAT            (uframe[d])
@@ -160,12 +154,13 @@ bool runtime::run(byte_p &pc,
 #define SFLT            STYPE(float)
 #define DDBL            DTYPE(double)
 #define SDBL            STYPE(double)
-#define TOK             (t = arg<tok_t>(pc))
+#define TOK             tok_t t = arg<tok_t>(pc)
 #define JMP_TOK         (pc = byte_p(tok(t)))
-#define BR_OFF          (bpc = pc, b = arg<broff_t>(pc))
+#define BR_OFF          byte_p bpc = pc; broff_t b = arg<broff_t>(pc)
 #define BRANCH          (pc = bpc + b)
-#define KINT            (kint = arg<value_t>(pc))
-#define KNAT            (knat = arg<uvalue_t>(pc))
+#define KINT            value_t kint = arg<value_t>(pc)
+#define KNAT            uvalue_t knat = arg<uvalue_t>(pc)
+#define KSHIFT          byte kshift = *pc++
 
 #define OP(op, code)    case op_##op: { code; } break;
 #include "opcodes.tbl"
