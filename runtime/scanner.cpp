@@ -725,7 +725,7 @@ bool scanner::do_label(runtime &rt)
         // Patch all the branches we already have
         patches &plist = (*it).second;
         for (size_t &branch : plist)
-            patch_branch(branch, pc());
+            patch_branch(branch, known[name]);
         unknown.erase(it);
     }
     return true;
@@ -819,6 +819,8 @@ void scanner::patch_branch(size_t &branch, size_t target)
 
         // Update byte pointer for final patching
         bp = (byte *) program.data() + branch;
+        if (target > branch)
+            delta += intptr_t(added);
     }
 
     leb128(bp, delta);

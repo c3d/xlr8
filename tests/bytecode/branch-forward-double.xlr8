@@ -1,0 +1,31 @@
+// Two forward branches to the same distant label
+// R0 must stay 99: falling through any addi would change the output
+
+enter 2
+nat 0 99
+bra :target
+bra :target
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+addi 0 1
+.target
+outi 0
+outl
