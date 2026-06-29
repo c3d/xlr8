@@ -52,14 +52,17 @@ void help(char *progname)
 }
 
 
-static bool run(std::istream &input, size_t memory)
+static bool run(runtime &rt, std::istream &input)
 // ----------------------------------------------------------------------------
 //   Run a given input stream
 // ----------------------------------------------------------------------------
 {
-    runtime rt(memory);
     scanner s(input);
-    bool ok = s.scan(rt) && rt.run(rt.entry, &input, &std::cout, &std::cerr);
+    bool ok = (s.scan(rt)                    &&
+               rt.iosetup(0, input)          &&
+               rt.iosetup(1, std::cout)      &&
+               rt.iosetup(2, std::cerr)      &&
+               rt.run());
     if (!ok)
         record(main_error, "%s", rt.error());
     return ok;
@@ -77,11 +80,6 @@ int main(int argc, char **argv)
     if (cstring traces = getenv("XLR8_TRACES"))
         recorder_trace_set(traces);
     recorder_dump_on_common_signals(0, 0);
-    record(main, "XLR8 Compiler version %+s starting (%u opcodes)",
-           XLR8_VERSION, runtime::OP_COUNT);
-
-    bool ok = true;
-
     for (int a = 1; a < argc; a++)
     {
         cstring arg = argv[a];
@@ -89,10 +87,7 @@ int main(int argc, char **argv)
         {
             switch (arg[1])
             {
-            case 0:
-                if (!run(std::cin, memory))
-                    ok = false;
-                break;
+            default:
             case 'h':
                 help(argv[0]);
                 exit(0);
@@ -104,13 +99,29 @@ int main(int argc, char **argv)
                 arg = arg[2] ? arg+2 : a+1 < argc ? argv[++a] : "";
                 recorder_trace_set(arg);
                 break;
+            case 0:
+                break;
             }
+        }
+    }
+
+    record(main, "XLR8 Compiler version %+s starting (%u opcodes, %zuK)",
+           XLR8_VERSION, runtime::OP_COUNT, memory / 1024);
+    runtime rt(memory);
+    bool ok = true;
+    for (int a = 1; ok && a < argc; a++)
+    {
+        cstring arg = argv[a];
+        if (arg[0] == '-')
+        {
+            // Read from standard input
+            ok = run(rt, std::cin);
         }
         else
         {
+            // Read from a file
             std::ifstream input(arg);
-            if (!run(input, memory))
-                ok = false;
+            ok = run(rt, input);
         }
     }
 

@@ -123,6 +123,7 @@ bool scanner::validate(runtime &rt)
     }
     tok_t prog = rt.tok(program);
     rt.entry = byte_p(rt.tok(prog));
+    rt.pc = rt.entry;
     record(scanner, "Scanned %lu bytes entry %p", program.size(), rt.entry);
     if (RECORDER_TRACE(scanner) > 1)
         for (size_t i = 0; i < program.size(); i++)

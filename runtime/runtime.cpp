@@ -28,25 +28,42 @@
 // ****************************************************************************
 
 #include "runtime.h"
+#include "recorder.h"
+
 #include <cstdlib>
 #include <iostream>
 #include <locale>
 #include <cmath>
 
 
+RECORDER(runtime,       16, "Runtime");
+RECORDER(runtime_error, 16, "Runtime errors");
+
+
 runtime::runtime(size_t sz)
-// ----------------------------------------------------------------------------
-//   Initialize the runtime with the given memory size
-// ----------------------------------------------------------------------------
-    : defined(),
-      memory(), heap(), stack(), frame(), histack(),
-      tokens(nullptr), ntokens(0), itokens(32),
-      err(), entry()
+    // ----------------------------------------------------------------------------
+    //   Initialize the runtime with the given memory size
+    // ----------------------------------------------------------------------------
+    : pc(),
+      memory(),
+      heap(),
+      stack(),
+      frame(),
+      histack(),
+      err(),
+      entry(),
+      tokens(),
+      defined(),
+      inputs(),
+      outputs()
 {
     // Allocate space for the heap and stack
     memory = (byte_p) std::malloc(sz);
     if (!memory)
+    {
         error("Not enough memory for heap");
+        record(runtime_error, "Not enough memory for %zu bytes", sz);
+    }
     heap = memory;
     stack = (stack_p) (memory + sz);
     frame = stack;
@@ -63,14 +80,37 @@ runtime::~runtime()
 // ----------------------------------------------------------------------------
 {
     std::free((void *) memory);
-    std::free(tokens);
+}
+
+
+bool runtime::iosetup(size_t index, std::ostream &stream)
+// ----------------------------------------------------------------------------
+//   Setup the given I/O channel
+// ----------------------------------------------------------------------------
+{
+    if (index >= outputs.size())
+        outputs.resize(index + 1);
+    outputs[index] = &stream;
+    return true;
+}
+
+
+bool runtime::iosetup(size_t index, std::istream &stream)
+// ----------------------------------------------------------------------------
+//   Setup the given I/O channel
+// ----------------------------------------------------------------------------
+{
+    if (index >= inputs.size())
+        inputs.resize(index + 1);
+    inputs[index] = &stream;
+    return true;
 }
 
 
 
 // ============================================================================
 //
-//   Main runtime loop
+//   I/O helpers for opcode table
 //
 // ============================================================================
 
@@ -126,20 +166,13 @@ inline bool output_newline(std::ostream &output)
 }
 
 
-bool runtime::run(byte_p &pc,
-                  std::istream *in, std::ostream *out, std::ostream *err)
-// ----------------------------------------------------------------------------
-//    The main runtime loop
-// ----------------------------------------------------------------------------
-{
-    bool     done = false;
-    bool     ok   = true;
-    while (!done)
-    {
-        static_assert(OP_COUNT < 128);
-        op_t op = op_t(*pc++);
-        switch (op)
-        {
+
+// ============================================================================
+//
+//   Main runtime loop
+//
+// ============================================================================
+
 #define uframe          ((uvalue_t *) frame)
 #define uvalue          ((uvalue_t) value)
 #define DST             byte d = *pc++
@@ -162,6 +195,25 @@ bool runtime::run(byte_p &pc,
 #define KNAT            uvalue_t knat = arg<uvalue_t>(pc)
 #define KSHIFT          byte kshift = *pc++
 
+
+bool runtime::run()
+// ----------------------------------------------------------------------------
+//    The main runtime loop
+// ----------------------------------------------------------------------------
+{
+    bool           done   = false;
+    bool           ok     = true;
+    byte_p         pc     = this->pc;
+    std::istream *stdin  = inputs.size()  > 1 ?  inputs[0] : nullptr;
+    std::ostream *stdout = outputs.size() > 2 ? outputs[1] : nullptr;
+    std::ostream *stderr = outputs.size() > 3 ? outputs[2] : nullptr;
+    while (!done)
+    {
+        static_assert(OP_COUNT < 128);
+        op_t op = op_t(*pc++);
+        switch (op)
+        {
+
 #define OP(op, code)    case op_##op: { code; } break;
 #include "opcodes.tbl"
 #undef uframe
@@ -172,6 +224,15 @@ bool runtime::run(byte_p &pc,
             break;
         }
     }
+
+    // Pass state down to next runtime execution if any
+    this->pc = pc;
+    if (stdin)
+        iosetup(0, *stdin);
+    if (stdout)
+        iosetup(1, *stdout);
+    if (stderr)
+        iosetup(2, *stderr);
     return ok;
 }
 
@@ -182,35 +243,6 @@ bool runtime::run(byte_p &pc,
 //   Support routines
 //
 // ============================================================================
-
-byte **runtime::retoks(size_t size)
-// ----------------------------------------------------------------------------
-//   Resize the number of tokens
-// ----------------------------------------------------------------------------
-{
-    if (size <= ntokens)
-    {
-        error("Cannot shrink tokens table");
-        return nullptr;
-    }
-
-    // We ran out of token, make pool bigger
-    size_t newsz = size * sizeof(*tokens);
-    byte_p *retok = (byte_p *) realloc(tokens, newsz);
-    if (!retok)
-    {
-        error("Out of memory growing tokens table");
-        return nullptr;
-    }
-
-    tokens = retok;
-    for (size_t i = ntokens; i < size; i++)
-        tokens[i] = nullptr;
-    byte **result = (byte **) (tokens + ntokens);
-    ntokens = size;
-    return result;
-}
-
 
 byte *runtime::allocate(size_t len, byte_p data)
 // ----------------------------------------------------------------------------
@@ -237,6 +269,7 @@ tok_t runtime::tok(utf8 text, size_t len, bool clone)
 //   Hash the input token based on number of bits in tokens
 // ----------------------------------------------------------------------------
 {
+    size_t ntokens = tokens.size();
     for (tok_t t = 0; t < ntokens; t++)
     {
         // Check if we reached an empty slot
@@ -250,6 +283,7 @@ tok_t runtime::tok(utf8 text, size_t len, bool clone)
                 return t;
             }
             error("Unable to allocate token");
+            record(runtime_error, "Unable to allocate token %zu bytes", len);
             return 0;
         }
 
@@ -259,20 +293,17 @@ tok_t runtime::tok(utf8 text, size_t len, bool clone)
             return t;
     }
 
-    // We need some additional room
-    size_t nt = ntokens;
-    if (utf8 *newtoks = (utf8 *) retoks(ntokens + itokens))
+    // Add one ore token
+    tok_t result = tokens.size();
+    if (utf8 storage = clone ? utf8(allocate(len, byte_p(text))) : text)
     {
-        if (utf8 storage = clone ? utf8(allocate(len, byte_p(text))) : text)
-        {
-            *newtoks = storage;
-            return nt;
-        }
-        error("Unable to allocate additional token");
+        tokens.push_back(byte_p(storage));
+        return result;
     }
-    else
-    {
-        error("Unable to grow tokens table");
-    }
+
+    error("Unable to allocate new token");
+    record(runtime_error,
+           "Unable to allocate %zu bytes for togen %u", len, result);
+
     return 0;
 }

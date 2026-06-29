@@ -50,6 +50,13 @@ struct runtime
 
     const uint regs_per_double = sizeof(double) / sizeof(value_t);
 
+    bool iosetup(size_t index, std::ostream &output);
+    bool iosetup(size_t index, std::istream &input);
+    // ------------------------------------------------------------------------
+    //    Setup an I/O stream for this runtime
+    // ------------------------------------------------------------------------
+
+
 
     // ========================================================================
     //
@@ -71,6 +78,7 @@ struct runtime
     };
 
 
+
     // ========================================================================
     //
     //   Runtime helpers
@@ -87,8 +95,7 @@ struct runtime
     }
 
 
-    bool run(byte_p &pc,
-             std::istream *in, std::ostream *out, std::ostream *err);
+    bool run();
     // ------------------------------------------------------------------------
     //   Run all instructions at current code pointer
     // ------------------------------------------------------------------------
@@ -295,7 +302,7 @@ struct runtime
         frame      = stack;
         if (!push(fsz)                          ||
             (saveheap && !push(value_t(heap)))  ||
-            (savetoks && !push(ntokens)))
+            (savetoks && !push(tokens.size())))
         {
             error("Cannot push frame size - Inernal error");
             return nullptr;
@@ -316,7 +323,10 @@ struct runtime
             return nullptr;
         }
         if (savetoks)
-            ntokens = pop();
+        {
+            size_t ntokens = size_t(pop());
+            tokens.resize(ntokens);
+        }
         if (saveheap)
             heap = byte_p(pop());
 
@@ -362,7 +372,7 @@ struct runtime
     //   Return the text for a given token, and optionally its size
     // ------------------------------------------------------------------------
     {
-        if (t >= ntokens)
+        if (t >= tokens.size())
         {
             if (len)
                 *len = 0;
@@ -401,25 +411,25 @@ public:
     //
     // ========================================================================
 
-    using callmap = std::map<tok_t, tok_t>;
-    callmap             defined;
-
+    byte_p              pc;             // Current PC
     byte_p              memory;         // Memory allocated for that runtime
     byte_p              heap;           // Top of heap (lo marker for stack)
     stack_p             stack;          // Pointer to current stack
-    stack_p             frame;         // Pointer to locals
+    stack_p             frame;          // Pointer to locals
     stack_p             histack;        // High marker for stack
-
-    byte_p             *tokens;         // Table of tokens
-    size_t              ntokens;        // Number of tokens
-    size_t              itokens;        // Incremental tokens when running out
-
     cstring             err;            // Error message
-    byte_p              entry;          // code entry point
+    byte_p              entry;          // Main code entry point
 
-protected:
-    byte **             retoks(size_t size);
-    byte **             relabel(size_t size);
+    using pointers = std::vector<byte_p>;
+    pointers            tokens;         // Table of tokens
+
+    using callees= std::map<tok_t, tok_t>;
+    callees             defined;        // Table of callees
+
+    using istreams = std::vector<std::istream *>;
+    using ostreams = std::vector<std::ostream *>;
+    istreams            inputs;        // Table of I/O streams
+    ostreams            outputs;       // Table of I/O streams
 };
 
 #endif // RUNTIME_H
