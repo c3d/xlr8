@@ -1,6 +1,6 @@
 // User opcode with an escaped single quote in the name
 
-!'Hello, ''Zorglub'''
+?'Hello, ''Zorglub'''
 ='Hello, ''Zorglub'''
 nat 0 88
 ret

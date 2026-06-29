@@ -1,6 +1,8 @@
 // User opcode with a quoted name containing spaces
+// Also case where we redefine an opcode after setting it to something
 
-!"foo bar zoo"
+?"foo bar zoo"
+
 ="foo bar zoo"
 nat 0 42
 ret

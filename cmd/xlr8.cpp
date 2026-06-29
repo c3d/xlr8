@@ -57,8 +57,8 @@ static bool run(runtime &rt, std::istream &input)
 //   Run a given input stream
 // ----------------------------------------------------------------------------
 {
-    scanner s(input);
-    bool ok = (s.scan(rt)                    &&
+    scanner s(input, rt);
+    bool ok = (s.scan()                      &&
                rt.iosetup(0, input)          &&
                rt.iosetup(1, std::cout)      &&
                rt.iosetup(2, std::cerr)      &&
@@ -114,8 +114,9 @@ int main(int argc, char **argv)
         cstring arg = argv[a];
         if (arg[0] == '-')
         {
-            // Read from standard input
-            ok = run(rt, std::cin);
+            if (arg[1] == 0)
+                // Read from standard input
+                ok = run(rt, std::cin);
         }
         else
         {

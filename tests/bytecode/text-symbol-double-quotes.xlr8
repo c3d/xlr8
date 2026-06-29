@@ -1,6 +1,5 @@
 // User opcode with embedded double quotes in the name
 
-!"this is a ""function"""
 ="this is a ""function"""
 nat 0 7
 ret

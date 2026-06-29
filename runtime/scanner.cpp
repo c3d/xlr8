@@ -40,34 +40,7 @@ RECORDER(scanner,       16, "Scanner");
 RECORDER(scanner_error, 16, "Errors during scanner");
 
 
-static tok_t placeholder_token(runtime &rt, text name)
-// ----------------------------------------------------------------------------
-//   Allocate a unique placeholder token for a defined name
-// ----------------------------------------------------------------------------
-{
-    text placeholder;
-    placeholder.push_back(1);
-    placeholder += name;
-    return rt.tok(placeholder);
-}
-
-
-static bool register_defined(runtime &rt, text name, tok_t callee)
-// ----------------------------------------------------------------------------
-//   Register a name in the defined table, error if already present
-// ----------------------------------------------------------------------------
-{
-    tok_t ntok = rt.tok(name);
-    if (rt.defined.count(ntok))
-    {
-        rt.error("Name already defined or declared extern");
-        return false;
-    }
-    rt.defined[ntok] = callee;
-    return true;
-}
-
-bool scanner::scan(runtime &rt)
+bool scanner::scan()
 // ----------------------------------------------------------------------------
 //   Scan input tokens from the stream and build program object
 // ----------------------------------------------------------------------------
@@ -78,29 +51,29 @@ bool scanner::scan(runtime &rt)
         switch (tok)
         {
         case DONE:
-            return validate(rt);
+            return validate();
         case ERROR:
             return false;
         case COMMENT:
             break;
         case SYMBOL:
-            if (!do_symbol(rt))
+            if (!do_symbol())
                 return false;
             break;
         case NAME:
-            if (!do_name(rt))
+            if (!do_name())
                 return false;
             break;
         case INTEGER:
-            if (!do_integer(rt))
+            if (!do_integer())
                 return false;
             break;
         case REAL:
-            if (!do_real(rt))
+            if (!do_real())
                 return false;
             break;
         case TEXT:
-            if (!do_text(rt))
+            if (!do_text())
                 return false;
             break;
         }
@@ -108,19 +81,30 @@ bool scanner::scan(runtime &rt)
 }
 
 
-bool scanner::validate(runtime &rt)
+bool scanner::validate()
 // ----------------------------------------------------------------------------
 //   Check if what we scanned is OK
 // ----------------------------------------------------------------------------
 {
-    if (unknown.size())
+    if (ulabels.size())
     {
-        record(scanner_error, "%zu remaining undefined labels", unknown.size());
-        for (auto &it : unknown)
+        record(scanner_error, "%zu remaining undefined labels", ulabels.size());
+        for (auto &it : ulabels)
             record(scanner_error, "  %s", it.first.c_str());
         rt.error("Undefined label");
         return false;
     }
+    if (uconstants.size())
+    {
+        record(scanner_error, "%zu remaining undefined symbols",
+               uconstants.size());
+        for (auto &it : uconstants)
+            record(scanner_error, "  %s", it.first.c_str());
+        rt.error("Undefined symbols");
+        return false;
+    }
+
+    program += text(char(runtime::op_end), 1);
     tok_t prog = rt.tok(program);
     rt.entry = byte_p(rt.tok(prog));
     rt.pc = rt.entry;
@@ -239,15 +223,6 @@ scanner::token scanner::next()
     // Anything else is a symbol
     scanned += char(c);
     return c == ';' ? DONE : SYMBOL;
-}
-
-
-text scanner::spelling()
-// ----------------------------------------------------------------------------
-//  Return the spelling for the last scanned token
-// ----------------------------------------------------------------------------
-{
-    return scanned;
 }
 
 
@@ -535,90 +510,7 @@ text scanner::as_text()
 }
 
 
-bool scanner::do_name(runtime &rt)
-// ----------------------------------------------------------------------------
-//   Process a name by adding the token to the token table
-// ----------------------------------------------------------------------------
-{
-    tok_t rtok = rt.tok(scanned.data(), scanned.length());
-    append(rtok);
-    return !rt.error();
-}
-
-
-bool scanner::do_symbol(runtime &rt)
-// ----------------------------------------------------------------------------
-//   Process a name by adding the token to the token table
-// ----------------------------------------------------------------------------
-{
-    if (!scanned.size())
-        return false;
-
-    char c = scanned[0];
-    switch (c)
-    {
-    case '*':
-        return do_use(rt);
-    case '=':
-        return do_define(rt);
-    case '!':
-        return do_extern(rt);
-    case '.':
-        return do_label(rt);
-    case ':':
-        return do_branch_offset(rt);
-    case ';':
-        return false;
-    default:
-        rt.error("Unknown symbol");
-    }
-    return false;
-}
-
-
-bool scanner::do_extern(runtime &rt)
-// ----------------------------------------------------------------------------
-//   Declare a name defined later (`!foo')
-// ----------------------------------------------------------------------------
-{
-    token t = next();
-    if (t != NAME && t != TEXT)
-    {
-        rt.error("Invalid extern declaration");
-        return false;
-    }
-    text  name = t == TEXT ? as_text() : scanned;
-    tok_t callee = placeholder_token(rt, name);
-    return register_defined(rt, name, callee);
-}
-
-
-bool scanner::do_use(runtime &rt)
-// ----------------------------------------------------------------------------
-//   Opcode use directive (`*')
-// ----------------------------------------------------------------------------
-{
-    token t = next();
-    if (t != NAME && t != TEXT)
-    {
-        rt.error("Label must be a symbol or text");
-        return false;
-    }
-    text  name = t == TEXT ? as_text() : scanned;
-    tok_t ntok = rt.tok(name);
-    auto  it   = rt.defined.find(ntok);
-    if (it == rt.defined.end())
-    {
-        rt.error("Calling undefined name");
-        return false;
-    }
-    tok_t ctok = (*it).second;
-    append(ctok);
-    return true;
-}
-
-
-bool scanner::do_integer(runtime &rt)
+bool scanner::do_integer()
 // ----------------------------------------------------------------------------
 //   Process an integer value. If + or - treat it as signed, otherwise unsigned
 // ----------------------------------------------------------------------------
@@ -641,7 +533,7 @@ bool scanner::do_integer(runtime &rt)
 }
 
 
-bool scanner::do_real(runtime &rt)
+bool scanner::do_real()
 // ----------------------------------------------------------------------------
 //  Insert a real number
 // ----------------------------------------------------------------------------
@@ -657,7 +549,7 @@ bool scanner::do_real(runtime &rt)
 }
 
 
-bool scanner::do_text(runtime &rt)
+bool scanner::do_text()
 // ----------------------------------------------------------------------------
 //   Insert a token for a text directly in the byte code
 // ----------------------------------------------------------------------------
@@ -669,71 +561,119 @@ bool scanner::do_text(runtime &rt)
 }
 
 
-bool scanner::do_define(runtime &rt)
+bool scanner::do_name()
 // ----------------------------------------------------------------------------
-//   Define a new opcode
+//   Process a name by adding the token to the token table
 // ----------------------------------------------------------------------------
+{
+    tok_t rtok = rt.tok(scanned);
+    append(rtok);
+    return !rt.error();
+}
+
+
+bool scanner::do_symbol()
+// ----------------------------------------------------------------------------
+//   Process a name by adding the token to the token table
+// ----------------------------------------------------------------------------
+{
+    if (!scanned.size())
+        return false;
+
+    char c = scanned[0];
+    switch (c)
+    {
+    case '=':
+        return do_define();
+    case '?':
+        return do_extern();
+    case '!':
+        return do_set();
+    case '.':
+        return do_label();
+    case ':':
+        return do_branch_offset();
+    case '*':
+        return do_use();
+    case ';':
+        return false;
+    default:
+        record(scanner_error, "Unknown symbol %s", scanned.c_str());
+        rt.error("Unknownsymbol");
+    }
+    return false;
+}
+
+
+bool scanner::do_extern()
+// ----------------------------------------------------------------------------
+//   Declare a name that will be defined later ("extern")
+// ----------------------------------------------------------------------------
+//   In the bytecode, ?foo reserves token foo without using it in the stream
 {
     token t = next();
     if (t != NAME && t != TEXT)
     {
-        rt.error("Invalid opcode definition");
+        rt.error("Invalid extern declaration");
         return false;
     }
-    text    name = t == TEXT ? as_text() : scanned;
-    tok_t   ntok = rt.tok(name);
-    auto    it   = rt.defined.find(ntok);
-    tok_t   callee;
-    if (it == rt.defined.end())
+    text  name = t == TEXT ? as_text() : scanned;
+    tok_t callee = rt.tok(name);
+    if (!rt.defined.count(callee))
+        rt.defined[callee] = undef(callee);
+    return true;
+}
+
+
+bool scanner::do_set()
+// ----------------------------------------------------------------------------
+//   Declare a name for a constant (assignment)
+// ----------------------------------------------------------------------------
+//   In the bytecode, !foo defines value in runtime to whatever is coming next
+//   For example, !foo 2 will define *foo as being 2
+{
+    token t = next();
+    if (t != NAME && t != TEXT)
     {
-        callee = placeholder_token(rt, name);
-        rt.defined[ntok] = callee;
+        rt.error("Invalid assignment");
+        return false;
     }
+    text  name = t == TEXT ? as_text() : scanned;
+    setting = rt.tok(name);
+    return true;
+}
+
+
+bool scanner::do_use()
+// ----------------------------------------------------------------------------
+//   Using the value defined in the runtime for a given name
+// ----------------------------------------------------------------------------
+//   After using !foo 2, *foo will be the same as insert 2
+{
+    token t = next();
+    if (t != NAME && t != TEXT)
+    {
+        rt.error("Can only use a symbol or text");
+        return false;
+    }
+    text      name  = t == TEXT ? as_text() : scanned;
+    tok_t     ntok  = rt.tok(name);
+    tok_t     value = 0;
+    size_t    pos   = pc();
+
+    if (constants.count(name))
+        value = constants[name];
+    else if (rt.defined.count(ntok))
+        value = rt.defined[ntok];
     else
-    {
-        callee = it->second;
-    }
-    scanner child(input);
-    bool    result = child.scan(rt);
-    if (!result)
-        return false;
-    byte *storage = rt.allocate(child.program.size(), byte_p(child.program.data()));
-    if (!storage)
-        return false;
-    rt.tokens[callee] = byte_p(storage);
+        uconstants[name].push_back(pos);
+    cstrefs.push_back(pos);
+    append(value);
     return true;
 }
 
 
-bool scanner::do_label(runtime &rt)
-// ----------------------------------------------------------------------------
-//   Insert a label in the labels table
-// ----------------------------------------------------------------------------
-{
-    token t = next();
-    if (t != NAME && t != TEXT)
-    {
-        rt.error("Label must be a symbol or text");
-        return false;
-    }
-    text name = t == TEXT ? as_text() : scanned;
-    known[name] = pc();
-
-    // Check if this label was previously unkown, if so adjust branches
-    auto it = unknown.find(name);
-    if (it != unknown.end())
-    {
-        // Patch all the branches we already have
-        patches &plist = (*it).second;
-        for (size_t &branch : plist)
-            patch_branch(branch, known[name]);
-        unknown.erase(it);
-    }
-    return true;
-}
-
-
-bool scanner::do_branch_offset(runtime &rt)
+bool scanner::do_branch_offset()
 // ----------------------------------------------------------------------------
 //   Insert a branch offset for the label
 // ----------------------------------------------------------------------------
@@ -745,21 +685,126 @@ bool scanner::do_branch_offset(runtime &rt)
         return false;
     }
     text     name   = t == TEXT ? as_text() : scanned;
-    auto     it     = known.find(name);
-    bool     seen   = it != known.end();
+    auto     it     = labels.find(name);
+    bool     seen   = it != labels.end();
     intptr_t delta  = 0;
     size_t   branch = pc();
     if (seen)
         delta = intptr_t((*it).second - branch);
     else
-        unknown[name].push_back(branch);
+        ulabels[name].push_back(branch);
     branches.push_back(branch);
     append(delta);
     return true;
 }
 
 
-void scanner::patch_branch(size_t &branch, size_t target)
+bool scanner::do_define()
+// ----------------------------------------------------------------------------
+//   Record a new definition
+// ----------------------------------------------------------------------------
+{
+    token t = next();
+    if (t != NAME && t != TEXT)
+    {
+        rt.error("Invalid name for definition");
+        return false;
+    }
+    text    name = t == TEXT ? as_text() : scanned;
+    if (labels.count(name))
+    {
+        record(scanner_error, "Redefining label %s from %u to definition %u",
+               name.c_str(), labels[name], pc());
+        rt.error("Symbol / label redefinition");
+        return false;
+    }
+
+    tok_t ntok = rt.tok(name);
+    if (rt.defined.count(ntok))
+    {
+        if (rt.defined[ntok] != undef(ntok))
+        {
+            record(scanner_error, "Redefinition of %s, previously %zu",
+                   name.c_str(), rt.defined[ntok]);
+            rt.error("Symbol redefinition");
+            return false;
+        }
+    }
+    else
+    {
+        rt.defined[ntok] = undef(ntok);
+    }
+
+    scanner child(input, rt);
+    bool    result = child.scan();
+    if (!result)
+        return false;
+    text &cpgm = child.program;
+    tok_t callee = rt.tok(cpgm);
+    rt.defined[ntok] = callee;
+    return set(constants, name, callee);
+}
+
+
+bool scanner::do_label()
+// ----------------------------------------------------------------------------
+//   Insert a label in the labels table
+// ----------------------------------------------------------------------------
+{
+    token t = next();
+    if (t != NAME && t != TEXT)
+    {
+        rt.error("Label must be a symbol or text");
+        return false;
+    }
+    text name = t == TEXT ? as_text() : scanned;
+    return set(labels, name, pc());
+}
+
+
+bool scanner::set(symbols &syms, text name, size_t target)
+// ----------------------------------------------------------------------------
+//  Set a label with a new value
+// ----------------------------------------------------------------------------
+{
+    if (syms.count(name))
+    {
+        record(scanner_error, "Redefining %s from %u to %u",
+               name.c_str(), syms[name], pc());
+        rt.error("Label redefinition");
+        return false;
+    }
+
+    size_t *value = &syms[name];
+    *value = target;
+
+    // Check if this label was previously unkown in relative branches
+    auto ulabel = ulabels.find(name);
+    if (ulabel != ulabels.end())
+    {
+        // Patch all the branches we already have
+        patches &plist = (*ulabel).second;
+        for (size_t &branch : plist)
+            patch_branch(branch, target);
+        ulabels.erase(ulabel);
+    }
+
+    // Check if this label was previously unkown in absolute values
+    auto uconstant = uconstants.find(name);
+    if (uconstant != uconstants.end())
+    {
+        // Patch all the constant refs we already have
+        patches &plist = (*uconstant).second;
+        for (size_t &cstref : plist)
+            patch_cstref(cstref, target);
+        uconstants.erase(uconstant);
+    }
+
+    return true;
+}
+
+
+void scanner::patch_branch(size_t branch, size_t target)
 // ----------------------------------------------------------------------------
 //   Patch a branch to point to the target
 // ----------------------------------------------------------------------------
@@ -769,62 +814,132 @@ void scanner::patch_branch(size_t &branch, size_t target)
 //   and recompute all impacted branch targets
 {
     // Location of branch delta in the program
-    byte    *bp     = (byte *) program.data() + branch;
-    byte_p   b      = byte_p(bp);
-    intptr_t edelta = leb128<intptr_t>(b);
-    size_t   esize  = b - byte_p(bp);
+    byte    *bp    = (byte *) program.data() + branch;
+    size_t   esize = leb128size<intptr_t>(bp);
 
     // Compute new delta and new size
-    intptr_t delta  = intptr_t(target - branch);
-    size_t   dsize  = leb128size(delta);
-    size_t   added  = dsize - esize;
+    intptr_t delta = intptr_t(target - branch);
+retry:
+    size_t dsize = leb128size(delta);
+    size_t added = dsize - esize;
+    if (added)
+    {
+        if (target > branch)
+        {
+            delta += added;
+            if (leb128size(delta) > dsize)
+                goto retry;
+        }
+
+        // Ouch complicated case: We need to insert bytes
+        program.insert(branch, added, 0);
+        bp = (byte *) program.data() + branch;
+        leb128(bp, delta);
+        patch_label_references(branch, added);
+    }
+    else
+    {
+        leb128(bp, delta);
+    }
+}
+
+
+void scanner::patch_cstref(size_t cstref, tok_t value)
+// ----------------------------------------------------------------------------
+//   Patch a constant reference to a new value
+// ----------------------------------------------------------------------------
+//   The simple and frequent case is when the patched branch has the same size
+//   However, since branch distance is encoded using LEB128, a branch delta may
+//   end up being 2 or 3 bytes instead of 1, in which case we need to adjust
+//   and recompute all impacted branch targets
+{
+    // Location of branch delta in the program
+    byte  *bp    = (byte *) program.data() + cstref;
+    size_t esize = leb128size<tok_t>(bp);
+
+    // Compute new delta and new size
+    size_t nsize = leb128size(value);
+    size_t added = nsize - esize;
     if (added)
     {
         // Ouch complicated case: We need to insert bytes
-        program.insert(branch, added, 0);
-
-        // Loop over all existng branches to adjust them
-        for (size_t &ib : branches)
-        {
-            bp     = (byte *) program.data() + ib;
-            b      = byte_p(bp);
-            edelta = leb128<intptr_t>(b);
-
-            // Check if the branch address itself needs to be patched
-            if (ib > branch)
-                ib += added;
-
-            // Check branches that cross over
-            if (ib < branch && edelta > 0 && ib + edelta > branch)
-            {
-                // Forward branch crossing over
-                patch_branch(ib, ib + edelta + added);
-            }
-            else if (ib > branch && edelta < 0 && ib - edelta < branch)
-            {
-                // Backward branch crossing over
-                patch_branch(ib, ib + edelta - added);
-            }
-        }
-
-        // Change all labels that point beyond current
-        for (auto &l : known)
-            if (l.second > branch)
-                l.second += added;
-
-        // Change all unknown labels that point beyond current branch
-        for (auto &p : unknown)
-            for (size_t &ub : p.second)
-                if (ub > branch)
-                    ub += added;
-
-        // Update byte pointer for final patching
-        bp = (byte *) program.data() + branch;
-        if (target > branch)
-            delta += intptr_t(added);
+        program.insert(cstref, added, 0);
+        bp = (byte *) program.data() + cstref;
+        leb128(bp, value);
+        patch_label_references(cstref, added);
     }
+    else
+    {
+        leb128(bp, value);
+    }
+}
 
-    leb128(bp, delta);
+
+void scanner::patch_label_references(size_t pos, size_t added)
+// ----------------------------------------------------------------------------
+//   Patch all possible references to a label that are above pc
+// ----------------------------------------------------------------------------
+{
+    // Change all existing cstrefs that are after branch
+    for (size_t &ic : cstrefs)
+        if (ic > pos)
+            ic += added;
+
+    // Change all labels that point beyond current
+    for (auto &l : labels)
+        if (l.second > pos)
+            l.second += added;
+
+    // Change all unknown labels that point beyond current branch
+    for (auto &p : ulabels)
+        for (size_t &ub : p.second)
+            if (ub > pos)
+                ub += added;
+
+    // Change all constant references that point beyond current branch
+    for (auto &p : uconstants)
+        for (size_t &uc : p.second)
+            if (uc > pos)
+                uc += added;
+
+    // Loop over all existng branches to adjust them
+    for (size_t &ib : branches)
+    {
+        byte    *bp     = (byte *) program.data() + ib;
+        byte_p   b      = byte_p(bp);
+        intptr_t edelta = leb128<intptr_t>(b);
+
+        // Check if the branch address itself needs to be patched
+        if (ib > pos)
+            ib += added;
+
+        // Check branches that cross over
+        if (ib < pos && edelta > 0 && ib + edelta > pos)
+        {
+            // Forward branch crossing over
+            patch_branch(ib, ib + edelta + added);
+        }
+        else if (ib > pos && edelta < 0 && ib + edelta < pos)
+        {
+            // Backward branch crossing over
+            patch_branch(ib, ib + edelta - added);
+        }
+    }
+}
+
+
+bool scanner::set(uintptr_t u)
+// ----------------------------------------------------------------------------
+//   Set the value of a symbol
+// ----------------------------------------------------------------------------
+{
+    if (setting)
+    {
+        rt.defined[setting] = u;
+        setting = 0;
+        return true;
+    }
+    return false;
 }
 
 
@@ -833,10 +948,13 @@ void scanner::append(intptr_t i)
 //   Append a signed integer to the program
 // ----------------------------------------------------------------------------
 {
-    byte   buffer[LEB128_MAXSIZE];
-    byte  *bp = buffer;
-    bp = leb128(bp, i);
-    program += text((char *) buffer, bp - buffer);
+    if (!set(uintptr_t(i)))
+    {
+        byte   buffer[LEB128_MAXSIZE];
+        byte  *bp = buffer;
+        bp = leb128(bp, i);
+        program += text((char *) buffer, bp - buffer);
+    }
 }
 
 
@@ -845,8 +963,24 @@ void scanner::append(uintptr_t u)
 //  Append an unsigned integer to the program
 // ----------------------------------------------------------------------------
 {
-    byte   buffer[LEB128_MAXSIZE];
-    byte  *bp = buffer;
-    bp = leb128(bp, u);
-    program += text((char *) buffer, bp - buffer);
+    if (!set(u))
+    {
+        byte   buffer[LEB128_MAXSIZE];
+        byte  *bp = buffer;
+        bp = leb128(bp, u);
+        program += text((char *) buffer, bp - buffer);
+    }
+}
+
+
+tok_t scanner::undef(tok_t id)
+// ----------------------------------------------------------------------------
+//   Generate an opcode to trap undefined externals
+// ----------------------------------------------------------------------------
+{
+    byte buffer[16];
+    byte *bp = buffer;
+    bp       = leb128(bp, runtime::op_undef);
+    bp       = leb128(bp, id);
+    return rt.tok(utf8(buffer), bp - buffer);
 }

@@ -27,9 +27,12 @@
 //   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // ****************************************************************************
 
+OP(undef,       TOK; ok = resolve(t, pc))
 OP(end,         done = ok = true)
 
 OP(copy,        DST; SRC; DINT = SINT)
+OP(swap,        DST; SRC; std::swap(DINT, SINT))
+
 OP(jmp,         TOK; JMP_TOK)
 OP(call,        TOK; done = !push(value_t(pc)); JMP_TOK)
 OP(ijmp,        SRC; pc = byte_p(SNAT))
@@ -99,7 +102,6 @@ OP(nat,         DST; DNAT = arg<uvalue_t>(pc))
 OP(flt,         DST; memcpy(&DFLT, pc, sizeof(float)); pc += sizeof(float))
 OP(dbl,         DST; memcpy(&DDBL, pc, sizeof(double)); pc += sizeof(double))
 OP(txt,         DST; DINT = arg<tok_t>(pc))
-OP(swap,        DST; SRC; std::swap(DINT, SINT))
 
 OP(err,         if (utf8 msg = error()) if (!(*stderr << msg)) ok = false)
 OP(clear,       error(nullptr))
@@ -140,6 +142,7 @@ OP(dmul,        DST; SRC; DDBL = DDBL * SDBL)
 OP(ddiv,        DST; SRC; DDBL = DDBL / SDBL)
 OP(dmod,        DST; SRC; DDBL = std::fmod(DDBL, SDBL))
 
+#if 0
 #define ROP(name)                                       \
 OP(f##name,     DST; SRC; DFLT = std::name(SFLT))       \
 OP(d##name,     DST; SRC; DDBL = std::name(SDBL))
@@ -158,6 +161,7 @@ ROP(exp)
 ROP(log)
 ROP(exp2)
 ROP(log2)
+#endif
 
 #undef OP
 #undef ROP

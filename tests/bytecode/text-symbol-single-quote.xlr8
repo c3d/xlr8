@@ -1,6 +1,5 @@
 // User opcode with a single-quoted name
 
-!'Hello, World'
 ='Hello, World'
 nat 0 99
 ret

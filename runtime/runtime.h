@@ -395,13 +395,20 @@ struct runtime
         return tok(text, strlen(text) + 1); // Include trailing 0 of C strings
     }
 
-    tok_t tok(text t)
+    tok_t tok(const text &t)
     // ------------------------------------------------------------------------
     //   Return the token for a given text
     // ------------------------------------------------------------------------
     {
         return tok(t.data(), t.size()); // Include trailing 0 of C strings
     }
+
+
+    bool resolve(tok_t id, byte_p &pc);
+    // ------------------------------------------------------------------------
+    //   Check if we have resolved an external symbol
+    // ------------------------------------------------------------------------
+
 
 
 public:
@@ -424,7 +431,7 @@ public:
     pointers            tokens;         // Table of tokens
 
     using callees= std::map<tok_t, tok_t>;
-    callees             defined;        // Table of callees
+    callees             defined;        // Table of callees and globals
 
     using istreams = std::vector<std::istream *>;
     using ostreams = std::vector<std::ostream *>;

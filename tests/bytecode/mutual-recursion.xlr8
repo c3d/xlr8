@@ -2,8 +2,8 @@
 //   foo(0) = 0,  foo(n) = bar(n-1) + 1
 //   bar(0) = 0,  bar(n) = foo(n-1) + 2
 
-!foo
-!bar
+?foo
+?bar
 
 =foo
 ble 0 :done

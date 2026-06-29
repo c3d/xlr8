@@ -45,51 +45,62 @@ struct scanner
 {
     using istream = std::istream;
     using pos_t   = std::streampos;
-    using labels  = std::map<text, size_t>;
+    using symbols = std::map<text, size_t>;
     using patches = std::vector<size_t>;
     using pending = std::map<text, patches>;
 
-    scanner(istream &input) : input(input), scanned(), program() { }
+    scanner(istream &input, runtime &rt)
+        : input(input), rt(rt),scanned(), program(), setting() { }
 
     enum token { DONE, ERROR, COMMENT, NAME, SYMBOL, INTEGER, REAL, TEXT };
 
-    bool        scan(runtime &rt);
-    bool        validate(runtime &rt);
+    bool        scan();
+    bool        validate();
 
     token       next();
-    text        spelling();
 
     uintptr_t   as_natural(uint *base = nullptr);
     intptr_t    as_integer(uint *base = nullptr);
     size_t      as_real(double &dval, float &fval, uint *base = nullptr);
     text        as_text();
 
-    bool        do_name(runtime &rt);
-    bool        do_symbol(runtime &rt);
-    bool        do_integer(runtime &rt);
-    bool        do_real(runtime &rt);
-    bool        do_text(runtime &rt);
-    bool        do_use(runtime &rt);
-    bool        do_extern(runtime &rt);
-    bool        do_define(runtime &rt);
-    bool        do_label(runtime &rt);
-    bool        do_branch_offset(runtime &rt);
+    bool        do_integer();
+    bool        do_real();
+    bool        do_text();
+    bool        do_name();
+    bool        do_symbol();
+    bool        do_extern();
+    bool        do_set();
+    bool        do_use();
+    bool        do_branch_offset();
+    bool        do_define();
+    bool        do_label();
 
-    void        patch_branch(size_t &branch, size_t target);
+    bool        set(symbols &syms, text name, size_t target);
+    void        patch_branch(size_t branch, size_t target);
+    void        patch_cstref(size_t cstref, tok_t target);
+    void        patch_label_references(size_t pos, size_t added);
 
+    bool        set(uintptr_t u);
     void        append(intptr_t i);
     void        append(uintptr_t u);
+    tok_t       undef(tok_t id);
 
     pos_t       position()      { return input.tellg(); }
     size_t      pc()            { return program.size(); }
 
 public:
     istream &   input;          // Input stream
-    text        scanned;        // Last token scaned
+    runtime &   rt;             // Runtime to use
+    text        scanned;        // Last token scanned
     text        program;        // Bytecode being built
+    symbols     labels;         // Labels where we already know the address
+    pending     ulabels;        // Labels with unknown address
     patches     branches;       // Branch points in the code
-    labels      known;          // Labels where we already know the address
-    pending     unknown;        // Labels with unknown address
+    symbols     constants;      // Constant values we already know
+    pending     uconstants;     // Labels with unknown address
+    patches     cstrefs;        // Reference to constants
+    tok_t       setting;        // Value being set
 };
 
 RECORDER_DECLARE(scanner);

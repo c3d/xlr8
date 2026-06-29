@@ -41,9 +41,9 @@ RECORDER(runtime_error, 16, "Runtime errors");
 
 
 runtime::runtime(size_t sz)
-    // ----------------------------------------------------------------------------
-    //   Initialize the runtime with the given memory size
-    // ----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
+//   Initialize the runtime with the given memory size
+// ----------------------------------------------------------------------------
     : pc(),
       memory(),
       heap(),
@@ -293,7 +293,7 @@ tok_t runtime::tok(utf8 text, size_t len, bool clone)
             return t;
     }
 
-    // Add one ore token
+    // Add one mxore token
     tok_t result = tokens.size();
     if (utf8 storage = clone ? utf8(allocate(len, byte_p(text))) : text)
     {
@@ -306,4 +306,21 @@ tok_t runtime::tok(utf8 text, size_t len, bool clone)
            "Unable to allocate %zu bytes for togen %u", len, result);
 
     return 0;
+}
+
+
+bool runtime::resolve(tok_t id, byte_p &pc)
+// ----------------------------------------------------------------------------
+//   Check if we have resolved the given external
+// ----------------------------------------------------------------------------
+{
+    auto it = defined.find(id);
+    if (it != defined.end())
+    {
+        tok_t impl = (*it).second;
+        pc = byte_p(tok(impl));
+        return true;
+    }
+    error("Undefined operation");
+    return false;
 }
