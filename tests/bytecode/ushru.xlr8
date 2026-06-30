@@ -4,6 +4,6 @@ enter 2
 nat 0 8
 ushru 0 2
 txt 1 "8>>2="
-outt 1
-outu 0
-outl
+sys write_text 1 1
+sys write_natural 0 1
+sys write_newline 1

@@ -47,14 +47,9 @@ struct runtime
     runtime(size_t sz);
     runtime(const runtime &rt);
     ~runtime();
+    void setup();
 
     const uint regs_per_double = sizeof(double) / sizeof(value_t);
-
-    bool iosetup(size_t index, std::ostream &output);
-    bool iosetup(size_t index, std::istream &input);
-    // ------------------------------------------------------------------------
-    //    Setup an I/O stream for this runtime
-    // ------------------------------------------------------------------------
 
 
 
@@ -392,6 +387,17 @@ struct runtime
     }
 
 
+    text as_text(tok_t t)
+    // ------------------------------------------------------------------------
+    //   Return the text for a given token
+    // ------------------------------------------------------------------------
+    {
+        size_t len = 0;
+        utf8 txt = tok(t, &len);
+        return text(txt, len);
+    }
+
+
     tok_t tok(utf8 text, size_t len, bool clone = true);
     tok_t tok(utf8 text)
     // ------------------------------------------------------------------------
@@ -416,6 +422,13 @@ struct runtime
     // ------------------------------------------------------------------------
 
 
+
+    // ========================================================================
+    //
+    //   Native and I/O interface
+    //
+    // ========================================================================
+
     typedef bool (*native_fn)(runtime &rt);
     void native(tok_t tok, native_fn call)
     // ------------------------------------------------------------------------
@@ -438,6 +451,41 @@ struct runtime
             return false;
         }
         return callee(*this);
+    }
+
+
+    bool iosetup(size_t index, std::ostream &output);
+    bool iosetup(size_t index, std::istream &input);
+    // ------------------------------------------------------------------------
+    //    Setup an I/O stream for this runtime
+    // ------------------------------------------------------------------------
+
+
+    std::istream *istream(tok_t id)
+    // ------------------------------------------------------------------------
+    //   Return an input stream
+    // ------------------------------------------------------------------------
+    {
+        if (id >= inputs.size())
+        {
+            error("Invalid input stream");
+            return nullptr;
+        }
+        return inputs[id];
+    }
+
+
+    std::ostream *ostream(tok_t id)
+    // ------------------------------------------------------------------------
+    //   Return an output stream
+    // ------------------------------------------------------------------------
+    {
+        if (id >= outputs.size())
+        {
+            error("Invalid output stream");
+            return nullptr;
+        }
+        return outputs[id];
     }
 
 
@@ -467,10 +515,15 @@ struct runtime
     using native_map = std::map<tok_t, native_fn>;
     native_map          natives;        // Native functions
 
-        using istreams = std::vector<std::istream *>;
+    using globals_list = std::vector<value_t>;
+    globals_list        globals;        // Global environment
+
+    using istreams = std::vector<std::istream *>;
+    istreams            inputs;        // Output streams for the runtime
+
     using ostreams = std::vector<std::ostream *>;
-    istreams            inputs;        // Table of I/O streams
-    ostreams            outputs;       // Table of I/O streams
+    ostreams            outputs;        // Output streams for the runtime
+
 };
 
 #endif // RUNTIME_H

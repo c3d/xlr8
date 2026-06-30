@@ -23,12 +23,12 @@ subi 1 10                       // Exit when n > 10
 bgt 1 :done
 call *fact                      // R0 = n!
 txt 1 "Factorial "
-outt 1
-outi 3
+sys write_text 1 1
+sys write_integer 3 1
 txt 1 " is "
-outt 1
-outi 0
-outl
+sys write_text 1 1
+sys write_integer 0 1
+sys write_newline 1
 incr 3                          // n++
 copy 0 3                        // R0 = n for next iteration
 bra :loop

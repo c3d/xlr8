@@ -6,10 +6,10 @@ flt 0
 dbl 2
 3.0
 txt 3 "float="
-outt 3
-outf 0
-outl
+sys write_text 3 1
+sys write_float 0 1
+sys write_newline 1
 txt 3 "double="
-outt 3
-outd 2
-outl
+sys write_text 3 1
+sys write_double 2 1
+sys write_newline 1

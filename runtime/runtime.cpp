@@ -29,6 +29,7 @@
 
 #include "runtime.h"
 #include "recorder.h"
+#include "scanner.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -68,9 +69,7 @@ runtime::runtime(size_t sz)
     stack = (stack_p) (memory + sz);
     frame = stack;
     histack = stack;
-
-#define OP(op, code)            tok(text(#op));
-#include "opcodes.tbl"
+    setup();
 }
 
 
@@ -187,13 +186,24 @@ inline bool output_newline(std::ostream &output)
 #define SFLT            STYPE(float)
 #define DDBL            DTYPE(double)
 #define SDBL            STYPE(double)
-#define TOK             tok_t t = arg<tok_t>(pc)
+#define TOK             tok_t t = rt.arg<tok_t>(pc)
 #define JMP_TOK         (pc = byte_p(tok(t)))
-#define BR_OFF          byte_p bpc = pc; broff_t b = arg<broff_t>(pc)
+#define BR_OFF          byte_p bpc = pc; broff_t b = rt.arg<broff_t>(pc)
 #define BRANCH          (pc = bpc + b)
-#define KINT            value_t kint = arg<value_t>(pc)
-#define KNAT            uvalue_t knat = arg<uvalue_t>(pc)
+#define KINT            value_t kint = rt.arg<value_t>(pc)
+#define KNAT            uvalue_t knat = rt.arg<uvalue_t>(pc)
 #define KSHIFT          byte kshift = *pc++
+#define FLUSH           this->pc = pc; this->frame = frame
+#define RESYNC          pc = this->pc; frame = this->frame; args = arguments()
+
+// For native code
+#define NATIVE_PC       byte_p &pc = rt.pc
+#define NATIVE_FRAME    stack_p &frame = rt.frame
+#define NATIVE_ARGS     stack_p args = rt.arguments()
+#define ISTREAM         TOK; std::istream *in  = rt.istream(t)
+#define OSTREAM         TOK; std::ostream *out = rt.ostream(t)
+#define ISTREAM_RD(t,v) t value; if (in && ((*in) >> value)) v = value
+#define OSTREAM_WR(val) (out && ((*out) << (val)))
 
 
 bool runtime::run()
@@ -202,9 +212,10 @@ bool runtime::run()
 // ----------------------------------------------------------------------------
 {
     bool          done   = false;
-    byte_p        pc     = this->pc;
-    stack_p       frame  = this->frame;
-    stack_p       args   = this->frame;
+    runtime      &rt     = *this;
+    byte_p        pc     = rt.pc;
+    stack_p       frame  = rt.frame;
+    stack_p       args   = rt.frame;
     std::istream *stdin  = inputs.size() > 1 ? inputs[0] : nullptr;
     std::ostream *stdout = outputs.size() > 2 ? outputs[1] : nullptr;
     std::ostream *stderr = outputs.size() > 3 ? outputs[2] : nullptr;
@@ -218,7 +229,6 @@ bool runtime::run()
 
 #define OP(op, code)    case op_##op: { code; } break;
 #include "opcodes.tbl"
-#undef uframe
         default:
             error("Invalid opcode");
             done = true;
@@ -236,6 +246,42 @@ bool runtime::run()
         iosetup(2, *stderr);
     return error() == nullptr;
 }
+
+
+
+// ============================================================================
+//
+//   Initialize native and opcode tables
+//
+// ============================================================================
+
+#define NATIVE(op, code)                        \
+    static bool xlr8_native_##op(runtime &rt)   \
+    {                                           \
+        byte_p  &pc    = rt.pc;                 \
+        stack_p &frame = rt.frame;              \
+        bool     done  = false;                 \
+        (void) pc, frame, done;                 \
+        code;                                   \
+        return !done;                           \
+    }
+#include "native.tbl"
+
+
+void runtime::setup()
+// ----------------------------------------------------------------------------
+//   Setup the runtime
+// ----------------------------------------------------------------------------
+{
+    // Initialize the opcode tokens (must come first so that tok == op_##op
+#define OP(op, code)            tok(text(#op));
+#include "opcodes.tbl"
+
+    // Initialize the native tokens
+#define NATIVE(op, code)        { native(tok(text(#op)), xlr8_native_##op); }
+#include "native.tbl"
+}
+
 
 
 

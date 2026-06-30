@@ -4,6 +4,6 @@ enter 2
 nat 0 3
 mulu 0 4
 txt 1 "3*4="
-outt 1
-outu 0
-outl
+sys write_text 1 1
+sys write_natural 0 1
+sys write_newline 1

@@ -4,6 +4,6 @@ enter 2
 nat 0 10
 modu 0 3
 txt 1 "10%3="
-outt 1
-outu 0
-outl
+sys write_text 1 1
+sys write_natural 0 1
+sys write_newline 1

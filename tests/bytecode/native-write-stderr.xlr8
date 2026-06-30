@@ -1,0 +1,23 @@
+// Check that we can use sys functions to write stuff to standard error
+
+enter 1
+
+int 0 42
+sys write_integer 0 2
+sys write_newline 2
+
+nat 0 4547
+sys write_natural 0 2
+sys write_newline 2
+
+flt 0 42.4547f
+sys write_float   0 2
+sys write_newline 2
+
+dbl 0 3.1415926
+sys write_double  0 2
+sys write_newline 2
+
+txt 0 "Hello, did the test succeed?"
+sys write_text    0 2
+sys write_newline 2

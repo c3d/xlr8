@@ -25,5 +25,5 @@ addi 0 1
 addi 0 1
 addi 0 1
 .target
-outi 0
-outl
+sys write_integer 0 1
+sys write_newline 1

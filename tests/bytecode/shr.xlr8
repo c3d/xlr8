@@ -5,6 +5,6 @@ nat 0 8
 nat 1 2
 shr 0 1
 txt 1 "8>>2="
-outt 1
-outi 0
-outl
+sys write_text 1 1
+sys write_integer 0 1
+sys write_newline 1

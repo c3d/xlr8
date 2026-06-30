@@ -1,0 +1,111 @@
+// ****************************************************************************
+//  native.tbl                                                     XLR8 project
+// ****************************************************************************
+//
+//   File Description:
+//
+//     Native interface for the various operations
+//
+//
+//
+//
+//
+//
+//
+//
+// ****************************************************************************
+//   (C) 2026 Christophe de Dinechin <christophe@dinechin.org>
+//   This software is licensed under the terms outlined in LICENSE.txt
+// ****************************************************************************
+//   This file is part of XLR8.
+//
+//   XLR8 is free software: you can redistribute it and/or modify
+//   it under the terms outlined in the LICENSE.txt file
+//
+//   XLR8 is distributed in the hope that it will be useful,
+//   but WITHOUT ANY WARRANTY; without even the implied warranty of
+//   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// ****************************************************************************
+
+NATIVE(branch_on_eof,   BR_OFF; ISTREAM; if (in && (*in).eof()) BRANCH)
+NATIVE(branch_on_bad,   BR_OFF; ISTREAM; if (in && (*in).bad()) BRANCH)
+
+NATIVE(read_char,       DST; ISTREAM; ISTREAM_RD(char,     DINT))
+NATIVE(read_integer,    DST; ISTREAM; ISTREAM_RD(value_t,  DINT))
+NATIVE(read_natural,    DST; ISTREAM; ISTREAM_RD(uvalue_t, DNAT))
+NATIVE(read_float,      DST; ISTREAM; ISTREAM_RD(float,    DFLT))
+NATIVE(read_double,     DST; ISTREAM; ISTREAM_RD(double,   DDBL))
+
+NATIVE(write_char,      SRC; OSTREAM; OSTREAM_WR(char(SINT)))
+NATIVE(write_integer,   SRC; OSTREAM; OSTREAM_WR(SINT))
+NATIVE(write_natural,   SRC; OSTREAM; OSTREAM_WR(SNAT))
+NATIVE(write_float,     SRC; OSTREAM; OSTREAM_WR(SFLT))
+NATIVE(write_double,    SRC; OSTREAM; OSTREAM_WR(SDBL))
+NATIVE(write_text,      SRC; OSTREAM; OSTREAM_WR(rt.as_text(SNAT)))
+NATIVE(write_newline,        OSTREAM; OSTREAM_WR('\n'))
+
+NATIVE(read_scanner,    DST; ISTREAM;
+       if (in)
+       {
+           scanner s(*in, rt);
+           scanner::token tok = s.next();
+           DNAT               = tok;
+           d++;
+           switch(tok)
+           {
+           case scanner::DONE:
+           case scanner::ERROR:
+               break;
+           case scanner::COMMENT:
+           case scanner::NAME:
+           case scanner::SYMBOL:
+               DNAT = rt.tok(s.scanned);
+               break;
+           case scanner::INTEGER:
+               DINT = s.as_integer();
+               break;
+           case scanner::REAL:
+           {
+               double dval = 0.0;
+               float  fval = 0.0;
+               done        = s.as_real(dval, fval) == 0;
+               DDBL        = dval;
+               break;
+           }
+           case scanner::TEXT:
+               DNAT = rt.tok(s.scanned);
+               break;
+           }
+       })
+
+NATIVE(print_error,     OSTREAM; if (out) if (utf8 e = rt.error()) *out << e)
+NATIVE(clear_error,     rt.error(nullptr))
+NATIVE(trap_error,      BR_OFF; if (rt.error()) BRANCH)
+
+NATIVE(i2f,             DST; SRC; DFLT = SINT)
+NATIVE(i2d,             DST; SRC; DDBL = SINT)
+NATIVE(f2i,             DST; SRC; DINT = value_t(SFLT))
+NATIVE(d2i,             DST; SRC; DINT = value_t(SDBL))
+
+#define REAL_OP(name)                                           \
+NATIVE(f##name,         DST; SRC; DFLT = std::name(SFLT))       \
+NATIVE(d##name,         DST; SRC; DDBL = std::name(SDBL))
+
+REAL_OP(floor)
+REAL_OP(ceil)
+REAL_OP(sqrt)
+REAL_OP(cbrt)
+REAL_OP(sin)
+REAL_OP(cos)
+REAL_OP(tan)
+REAL_OP(asin)
+REAL_OP(acos)
+REAL_OP(atan)
+REAL_OP(exp)
+REAL_OP(log)
+REAL_OP(exp2)
+REAL_OP(log2)
+
+#undef REAL_OP
+
+#undef NATIVE

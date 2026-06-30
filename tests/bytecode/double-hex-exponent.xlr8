@@ -4,13 +4,13 @@ enter 4
 dbl 0
 16#1.FFFF_FFFF#E3
 txt 1 "16#1.FFFF_FFFF#E3="
-outt 1
-outd 0
-outl
+sys write_text 1 1
+sys write_double 0 1
+sys write_newline 1
 
 dbl 0
 16#1.A#E3
 txt 1 "16#1.A#E3="
-outt 1
-outd 0
-outl
+sys write_text 1 1
+sys write_double 0 1
+sys write_newline 1

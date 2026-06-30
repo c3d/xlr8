@@ -1,0 +1,23 @@
+// Check that we can use sys functions to write stuff
+
+enter 1
+
+int 0 42
+sys write_integer 0 1
+sys write_newline 1
+
+nat 0 4547
+sys write_natural 0 1
+sys write_newline 1
+
+flt 0 42.4547f
+sys write_float   0 1
+sys write_newline 1
+
+dbl 0 3.1415926
+sys write_double  0 1
+sys write_newline 1
+
+txt 0 "Hello, did the test succeed?"
+sys write_text    0 1
+sys write_newline 1

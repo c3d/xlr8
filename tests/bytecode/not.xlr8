@@ -4,6 +4,6 @@ enter 2
 nat 0 0
 not 0
 txt 1 "~0="
-outt 1
-outi 0
-outl
+sys write_text 1 1
+sys write_integer 0 1
+sys write_newline 1

@@ -7,6 +7,6 @@ dbl 1
 2.5
 dadd 0 1
 txt 1 "1.5+2.5="
-outt 1
-outd 0
-outl
+sys write_text 1 1
+sys write_double 0 1
+sys write_newline 1
