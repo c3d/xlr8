@@ -202,8 +202,9 @@ bool runtime::run()
 // ----------------------------------------------------------------------------
 {
     bool          done   = false;
-    bool          ok     = true;
     byte_p        pc     = this->pc;
+    stack_p       frame  = this->frame;
+    stack_p       args   = this->frame;
     std::istream *stdin  = inputs.size() > 1 ? inputs[0] : nullptr;
     std::ostream *stdout = outputs.size() > 2 ? outputs[1] : nullptr;
     std::ostream *stderr = outputs.size() > 3 ? outputs[2] : nullptr;
@@ -221,7 +222,6 @@ bool runtime::run()
         default:
             error("Invalid opcode");
             done = true;
-            ok   = false;
             break;
         }
     }
@@ -234,7 +234,7 @@ bool runtime::run()
         iosetup(1, *stdout);
     if (stderr)
         iosetup(2, *stderr);
-    return ok;
+    return error() == nullptr;
 }
 
 

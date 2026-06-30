@@ -277,32 +277,25 @@ struct runtime
     }
 
 
-    value_t *enter(size_t locals, byte flags = 0)
+    stack_p enter(byte locals)
     // ------------------------------------------------------------------------
     //    Set the frame pointer at the current locals
     // ------------------------------------------------------------------------
     {
-        bool   saveheap = flags & 1;
-        bool   savetoks = flags & 2;
-        size_t delta    = 1 + saveheap + savetoks;
-
         if (stack > frame)
         {
             error("Cannot allocate locals, stack is above frame");
             return nullptr;
         }
-        if (stack - locals - delta <= (stack_p) heap)
+        if (stack - locals - 1 <= (stack_p) heap)
         {
             error("Out of stack space entering frame");
             return nullptr;
         }
         stack -= locals;
-
-        size_t fsz = frame - stack;
-        frame      = stack;
-        if (!push(fsz)                          ||
-            (saveheap && !push(value_t(heap)))  ||
-            (savetoks && !push(tokens.size())))
+        size_t finfo = (frame - stack) << 8 | locals;
+        frame        = stack;
+        if (!push(finfo))
         {
             error("Cannot push frame size - Inernal error");
             return nullptr;
@@ -311,28 +304,31 @@ struct runtime
     }
 
 
-    value_t *leave(bool saveheap = false, bool savetoks = false)
+    stack_p leave(bool saveheap = false)
     // ------------------------------------------------------------------------
     //    Free the number of locals and return to previous frame
     // ------------------------------------------------------------------------
     {
-        size_t delta = 1 + saveheap + savetoks;
-        if (stack + delta >= frame || stack + delta > histack)
+        if (stack + 1 > frame)
         {
             error("Stack is above frame pointer");
             return nullptr;
         }
-        if (savetoks)
-        {
-            size_t ntokens = size_t(pop());
-            tokens.resize(ntokens);
-        }
-        if (saveheap)
-            heap = byte_p(pop());
-
-        size_t fsz = pop();
-        frame += fsz;
+        size_t finfo  = pop();
+        size_t locals = byte(finfo);
+        frame += finfo >> 8;
+        stack += locals;
         return frame;
+    }
+
+
+    stack_p arguments()
+    // ------------------------------------------------------------------------
+    //   Return address of argugments
+    // ------------------------------------------------------------------------
+    {
+        size_t finfo = frame[-1];
+        return frame + (finfo >> 8);
     }
 
 

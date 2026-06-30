@@ -27,8 +27,8 @@
 //   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // ****************************************************************************
 
-OP(undef,       TOK; ok = resolve(t, called, pc))
-OP(end,         done = ok = true)
+OP(undef,       TOK; done = !resolve(t, called, pc))
+OP(end,         done = true)
 
 OP(copy,        DST; SRC; DINT = SINT)
 OP(swap,        DST; SRC; std::swap(DINT, SINT))
@@ -41,10 +41,10 @@ OP(ret,         pc = byte_p(pop()))
 OP(ppc,         push(value_t(pc)))
 OP(pc,          DST; DNAT = uvalue_t(pc))
 OP(pca,         DST; BR_OFF; DNAT = uvalue_t(bpc + b))
-OP(enter,       DST; done = !enter(d))
-OP(leave,       leave())
-OP(save,        DST; SRC; done = !enter(d, s))
-OP(restore,     SRC; leave(s))
+OP(enter,       DST; args = frame; frame = enter(d); done = !frame)
+OP(leave,       frame = leave(); done = !frame; args = arguments())
+OP(get,         DST; SRC; DINT = args[s])
+OP(set,         DST; SRC; args[d] = SINT)
 OP(push,        SRC; done = !push(SINT))
 OP(pop,         DST; DINT = pop())
 
@@ -103,7 +103,7 @@ OP(flt,         DST; memcpy(&DFLT, pc, sizeof(float)); pc += sizeof(float))
 OP(dbl,         DST; memcpy(&DDBL, pc, sizeof(double)); pc += sizeof(double))
 OP(txt,         DST; DINT = arg<tok_t>(pc))
 
-OP(err,         if (utf8 msg = error()) if (!(*stderr << msg)) ok = false)
+OP(err,         if (utf8 msg = error()) if (!(*stderr << msg)) done = true)
 OP(clear,       error(nullptr))
 OP(trap,        BR_OFF; if (error()) BRANCH)
 
