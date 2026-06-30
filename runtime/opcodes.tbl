@@ -27,14 +27,14 @@
 //   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // ****************************************************************************
 
-OP(undef,       TOK; ok = resolve(t, pc))
+OP(undef,       TOK; ok = resolve(t, called, pc))
 OP(end,         done = ok = true)
 
 OP(copy,        DST; SRC; DINT = SINT)
 OP(swap,        DST; SRC; std::swap(DINT, SINT))
 
 OP(jmp,         TOK; JMP_TOK)
-OP(call,        TOK; done = !push(value_t(pc)); JMP_TOK)
+OP(call,        TOK; called = t; done = !push(value_t(pc)); JMP_TOK)
 OP(ijmp,        SRC; pc = byte_p(SNAT))
 OP(icall,       SRC; done = !push(value_t(pc)); pc = byte_p(SNAT))
 OP(ret,         pc = byte_p(pop()))

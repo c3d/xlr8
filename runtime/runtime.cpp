@@ -201,12 +201,13 @@ bool runtime::run()
 //    The main runtime loop
 // ----------------------------------------------------------------------------
 {
-    bool           done   = false;
-    bool           ok     = true;
-    byte_p         pc     = this->pc;
-    std::istream *stdin  = inputs.size()  > 1 ?  inputs[0] : nullptr;
+    bool          done   = false;
+    bool          ok     = true;
+    byte_p        pc     = this->pc;
+    std::istream *stdin  = inputs.size() > 1 ? inputs[0] : nullptr;
     std::ostream *stdout = outputs.size() > 2 ? outputs[1] : nullptr;
     std::ostream *stderr = outputs.size() > 3 ? outputs[2] : nullptr;
+    tok_t         called = 0;
     while (!done)
     {
         static_assert(OP_COUNT < 128);
@@ -309,7 +310,7 @@ tok_t runtime::tok(utf8 text, size_t len, bool clone)
 }
 
 
-bool runtime::resolve(tok_t id, byte_p &pc)
+bool runtime::resolve(tok_t id, tok_t called, byte_p &pc)
 // ----------------------------------------------------------------------------
 //   Check if we have resolved the given external
 // ----------------------------------------------------------------------------
@@ -317,8 +318,12 @@ bool runtime::resolve(tok_t id, byte_p &pc)
     auto it = defined.find(id);
     if (it != defined.end())
     {
+        // Find the actual implementation
         tok_t impl = (*it).second;
         pc = byte_p(tok(impl));
+
+        // Patch the called token to match the implementation, no longer undef
+        tokens[called] = tokens[impl];
         return true;
     }
     error("Undefined operation");
