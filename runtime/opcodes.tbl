@@ -48,6 +48,8 @@ OP(set,         DST; SRC; args[d] = SINT)
 OP(push,        SRC; done = !push(SINT))
 OP(pop,         DST; DINT = pop())
 OP(sys,         TOK; FLUSH; done = !native(t); RESYNC)
+OP(sto,         DST; SRC; globals[d] = SINT)
+OP(rcl,         DST; SRC; DINT = globals[s])
 
 OP(dbra,        DST; BR_OFF; if (--DNAT) BRANCH)
 OP(bra,         BR_OFF; BRANCH)

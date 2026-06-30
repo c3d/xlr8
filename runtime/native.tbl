@@ -27,6 +27,11 @@
 //   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // ****************************************************************************
 
+NATIVE(globals,         rt.globals.resize(rt.arg<size_t>()))
+NATIVE(malloc,          DST; SRC; DNAT = value_t(malloc(SNAT)))
+NATIVE(realloc,         DST; SRC; DNAT = value_t(realloc((void *) DNAT, SNAT)))
+NATIVE(free,            DST; free((void *) DNAT))
+
 NATIVE(branch_on_eof,   BR_OFF; ISTREAM; if (in && (*in).eof()) BRANCH)
 NATIVE(branch_on_bad,   BR_OFF; ISTREAM; if (in && (*in).bad()) BRANCH)
 
@@ -107,5 +112,19 @@ REAL_OP(exp2)
 REAL_OP(log2)
 
 #undef REAL_OP
+
+NATIVE(ld8,     DST; SRC; DNAT = *((volatile uint64_t *) SNAT))
+NATIVE(ld4,     DST; SRC; DNAT = *((volatile uint32_t *) SNAT))
+NATIVE(ld2,     DST; SRC; DNAT = *((volatile uint16_t *) SNAT))
+NATIVE(ld1,     DST; SRC; DNAT = *((volatile uint8_t  *) SNAT))
+NATIVE(ldf,     DST; SRC; DFLT = *((volatile float    *) SNAT))
+NATIVE(ldd,     DST; SRC; DDBL = *((volatile double   *) SNAT))
+NATIVE(st8,     DST; SRC; *((volatile uint64_t *) DNAT) = SNAT)
+NATIVE(st4,     DST; SRC; *((volatile uint32_t *) DNAT) = SNAT)
+NATIVE(st2,     DST; SRC; *((volatile uint16_t *) DNAT) = SNAT)
+NATIVE(st1,     DST; SRC; *((volatile uint8_t  *) DNAT) = SNAT)
+NATIVE(stf,     DST; SRC; *((volatile float    *) DNAT) = SFLT)
+NATIVE(std,     DST; SRC; *((volatile double   *) DNAT) = SDBL)
+
 
 #undef NATIVE
