@@ -58,12 +58,15 @@ run-%:
 ref-%:
 	$(PRINT_COMMAND) $(MAKE) TESTS="$(wildcard */*$**.xlr8)" UPDATE_REFS=yes .tests
 
+XLR8_CHECK=$(if $($1.CHECK), $($1.CHECK) &&)
+
 # Check a command, and set the result accordingly
 # $1 = pattern
 # $2 = command
 define result
-( $2 && ( echo "OK" > $1.result )|| ( echo "NO" > $1.result) )
+( $2 && $(XLR8_CHECK) ( echo "OK" > $1.result )|| ( echo "NO" > $1.result) )
 endef
+
 
 # Check a command, and set the result accordingly
 # $1 = pattern
@@ -184,6 +187,7 @@ REPORT_FAILURES=						\
   $(INFO) "[SUMMARY]" "  Failed tests:      $$failures";	\
   $(INFO) "[SUMMARY]" "  Improved tests:    $$improved";	\
   $(INFO) "[SUMMARY]" "  Expected failures: $$expected";	\
+  ./timing-results;						\
   if [ "$$failures" -ne "0" ]; then				\
     head -20 $@ ;						\
     exit 41 ;							\

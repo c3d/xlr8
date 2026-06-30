@@ -1,15 +1,16 @@
 // Example counting to 1 billion
+// CMD=/usr/bin/time %x %f 2>&1 | ./filter-time %f
+// CHECK=./check-time %f
 
 // Reserve four registers
 enter 4
 
 // Prepare registers
 nat 0 2                         // R0 = 2, counter
-nat 1 1                         // R1 = 1, increment
-nat 2 1_000_000_000             // R2 = 1 billion, limit
+nat 2 100_000_000               // R2 = 1 billion, limit
 
 .loop                           // Loop
-add 0 1                         // Add R1 to R0
+addi 0 1                        // Add constant 1 to R0
 copy 3 0                        // Copy counter in temporary R3
 sub 3 2                         // Counter - 1M
 blt 3 :loop                     // If not zero, loop

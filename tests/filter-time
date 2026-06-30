@@ -1,0 +1,3 @@
+#!/bin/bash
+TIMEFILE=$1.$TARGET.time awk '/.*real/ { print $1 > ENVIRON["TIMEFILE"]; next } { print }'
+[ -f $1.$TARGET.timeref ] || cp $1.$TARGET.time $1.$TARGET.timeref

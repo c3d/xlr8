@@ -10,5 +10,7 @@
 /tests/**/*.diff
 /tests/**/*.output
 /tests/**/*.result
+/tests/**/*.time
+/tests/**/*.timeref
 /tests/**/*.xlr8.mk
 /tests/failures.log

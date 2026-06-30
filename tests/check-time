@@ -1,0 +1,4 @@
+#!/bin/bash
+TIME=$(cat $1.$TARGET.time)
+REF=$(cat $1.$TARGET.timeref)
+exit $(echo "( $TIME > 1.15 * $REF ) + ( $TIME < 0.90 * $REF )" | bc)

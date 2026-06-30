@@ -523,7 +523,6 @@ struct runtime
 
     using ostreams = std::vector<std::ostream *>;
     ostreams            outputs;        // Output streams for the runtime
-
 };
 
 #endif // RUNTIME_H

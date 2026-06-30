@@ -1,0 +1,9 @@
+#!/bin/bash
+printf "%5s %-30s %8s %8s\n" "OPT" "TEST" "TIME" "REF"
+for I in $(find . -name '*.time');
+do
+    base=$(echo $I | sed 's|.*/performance/||g')
+    name=$(echo $base | sed 's/[.]xlr8.*time//g')
+    opt=$(echo $base | sed -e 's/.*[.]xlr8[.]//g' -e 's/[.]time//g')
+    printf "%5s %-30s %8s %8s\n" $opt $name $(cat $I) $(cat ${I}ref)
+done | sort
