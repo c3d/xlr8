@@ -95,6 +95,16 @@ struct runtime
     }
 
 
+    template <typename Int = size_t>
+    Int arg()
+    // ------------------------------------------------------------------------
+    //   Read an argument from the current PC
+    // ------------------------------------------------------------------------
+    {
+        return leb128<Int>(pc);
+    }
+
+
     bool run();
     // ------------------------------------------------------------------------
     //   Run all instructions at current code pointer
@@ -406,8 +416,33 @@ struct runtime
     // ------------------------------------------------------------------------
 
 
+    typedef bool (*native_fn)(runtime &rt);
+    void native(tok_t tok, native_fn call)
+    // ------------------------------------------------------------------------
+    //   Enter a native interface in the runtime
+    // ------------------------------------------------------------------------
+    {
+        natives[tok] = call;
+    }
 
-public:
+
+    bool native(tok_t tok)
+    // ------------------------------------------------------------------------
+    //   Call a native function
+    // ------------------------------------------------------------------------
+    {
+        native_fn callee = natives[tok];
+        if (!callee)
+        {
+            error("Nonexistent native call");
+            return false;
+        }
+        return callee(*this);
+    }
+
+
+
+  public:
     // ========================================================================
     //
     //   Data for the runtime
@@ -429,7 +464,10 @@ public:
     using callees= std::map<tok_t, tok_t>;
     callees             defined;        // Table of callees and globals
 
-    using istreams = std::vector<std::istream *>;
+    using native_map = std::map<tok_t, native_fn>;
+    native_map          natives;        // Native functions
+
+        using istreams = std::vector<std::istream *>;
     using ostreams = std::vector<std::ostream *>;
     istreams            inputs;        // Table of I/O streams
     ostreams            outputs;       // Table of I/O streams

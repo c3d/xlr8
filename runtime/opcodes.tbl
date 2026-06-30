@@ -47,6 +47,7 @@ OP(get,         DST; SRC; DINT = args[s])
 OP(set,         DST; SRC; args[d] = SINT)
 OP(push,        SRC; done = !push(SINT))
 OP(pop,         DST; DINT = pop())
+OP(native,      TOK; done = !native(t))
 
 OP(dbra,        DST; BR_OFF; if (--DNAT) BRANCH)
 OP(bra,         BR_OFF; BRANCH)
