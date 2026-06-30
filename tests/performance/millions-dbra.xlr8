@@ -1,13 +1,14 @@
 // Example counting to 1 billion
-// CMD=/usr/bin/time %x %f 2>&1 | ./filter-time %f
+// CMD=./time %x %f 2>&1 | ./filter-time %f
 // CHECK=./check-time %f
+// TIMEOUT=50
 
 // Reserve four registers
-enter 2
+enter 4
 
 // Prepare registers
 nat 0 2                         // R0 = 2, counter
-nat 1 100_000_000             // R2 = 1 billion, limit
+nat 1 1_000_000_000             // R2 = 1 billion, limit
 
 .loop                           // Loop
 dbra 1 :loop                    // Decrement and if not zero, loop
@@ -17,3 +18,5 @@ txt 3 "I="                      // Put token for "I=" in R3
 sys write_text 3 1              // Emit text on std::cout
 sys write_integer 0 1           // Emit counter
 sys write_newline 1             // Emit end of line
+
+end

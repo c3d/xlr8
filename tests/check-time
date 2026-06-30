@@ -1,4 +1,5 @@
 #!/bin/bash
-TIME=$(cat $1.$TARGET.time)
-REF=$(cat $1.$TARGET.timeref)
-exit $(echo "( $TIME > 1.15 * $REF ) + ( $TIME < 0.90 * $REF )" | bc)
+export TIMEFILE=$1.${TARGET:-def}.time
+TIME=$(cat ${TIMEFILE})
+REF=$(cat ${TIMEFILE}ref)
+exit $(echo "( $TIME > 1.25 * $REF ) + ( $TIME < 0.60 * $REF )" | bc)

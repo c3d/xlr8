@@ -1,0 +1,37 @@
+// Test recursive definition of fibonacci, displaying fib(40)
+// CMD=./time %x %f 2>&1 | ./filter-time %f
+// CHECK=./check-time %f
+// TIMEOUT=500
+
+=fib
+ble 0 :return0
+decr 0
+ble 0 :return1
+enter 2
+get 0 0
+decr 0
+call *fib
+copy 1 0
+get 0 0
+call *fib
+add 0 1
+set 0 0
+leave
+ret
+
+.return1
+nat 0 1
+.return0
+ret
+;
+
+enter 4
+nat 0 40                       // R0 = n, starts at 0
+call *fib                      // R0 = n!
+txt 1 "Fibonacci of "
+sys write_text 1 1
+sys write_integer 3 1
+txt 1 " is "
+sys write_text 1 1
+sys write_integer 0 1
+sys write_newline 1

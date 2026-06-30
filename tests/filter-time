@@ -1,3 +1,5 @@
 #!/bin/bash
-TIMEFILE=$1.$TARGET.time awk '/.*real/ { print $1 > ENVIRON["TIMEFILE"]; next } { print }'
-[ -f $1.$TARGET.timeref ] || cp $1.$TARGET.time $1.$TARGET.timeref
+export TIMEFILE=$1.${TARGET:-def}.time
+awk -f $(dirname $0)/filter-time.awk
+[ -n "${UPDATE_REFS}" ] && cp ${TIMEFILE} ${TIMEFILE}ref
+[ -f ${TIMEFILE}ref ] || cp ${TIMEFILE} ${TIMEFILE}ref

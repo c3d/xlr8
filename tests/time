@@ -1,0 +1,4 @@
+#!/bin/bash
+# Make sure we use the bash built-in time
+# Variants of time otherwise vary wildly in how they output time
+time "$@"

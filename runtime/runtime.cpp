@@ -261,7 +261,7 @@ bool runtime::run()
         byte_p  &pc    = rt.pc;                 \
         stack_p &frame = rt.frame;              \
         bool     done  = false;                 \
-        (void) pc, frame, done;                 \
+        (void) pc; (void) frame; (void) done;   \
         code;                                   \
         return !done;                           \
     }
