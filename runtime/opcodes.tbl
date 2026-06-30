@@ -48,8 +48,6 @@ OP(set,         DST; SRC; args[d] = SINT)
 OP(push,        SRC; done = !push(SINT))
 OP(pop,         DST; DINT = pop())
 
-OP(dispatch,    SRC; pc = dispatch(pc, SINT))
-
 OP(dbra,        DST; BR_OFF; if (--DNAT) BRANCH)
 OP(bra,         BR_OFF; BRANCH)
 OP(beq,         SRC; BR_OFF; if (SINT == 0) BRANCH)
@@ -58,6 +56,8 @@ OP(blt,         SRC; BR_OFF; if (SINT <  0) BRANCH)
 OP(bgt,         SRC; BR_OFF; if (SINT >  0) BRANCH)
 OP(ble,         SRC; BR_OFF; if (SINT <= 0) BRANCH)
 OP(bge,         SRC; BR_OFF; if (SINT >= 0) BRANCH)
+
+OP(dispatch,    SRC; pc = dispatch(pc, SINT))
 
 OP(add,         DST; SRC; DINT += SINT)
 OP(sub,         DST; SRC; DINT -= SINT)
@@ -102,6 +102,15 @@ OP(nat,         DST; DNAT = arg<uvalue_t>(pc))
 OP(flt,         DST; memcpy(&DFLT, pc, sizeof(float)); pc += sizeof(float))
 OP(dbl,         DST; memcpy(&DDBL, pc, sizeof(double)); pc += sizeof(double))
 OP(txt,         DST; DINT = arg<tok_t>(pc))
+
+OP(ld8,         DST; SRC; DNAT = *((uint64_t *) SNAT))
+OP(ld4,         DST; SRC; DNAT = *((uint32_t *) SNAT))
+OP(ld2,         DST; SRC; DNAT = *((uint16_t *) SNAT))
+OP(ld1,         DST; SRC; DNAT = *((uint8_t  *) SNAT))
+OP(st8,         DST; SRC; *((uint64_t *) DNAT) = SNAT)
+OP(st4,         DST; SRC; *((uint32_t *) DNAT) = SNAT)
+OP(st2,         DST; SRC; *((uint16_t *) DNAT) = SNAT)
+OP(st1,         DST; SRC; *((uint8_t *)  DNAT) = SNAT)
 
 OP(err,         if (utf8 msg = error()) if (!(*stderr << msg)) done = true)
 OP(clear,       error(nullptr))
