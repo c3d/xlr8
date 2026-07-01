@@ -215,16 +215,31 @@ bool runtime::run()
     bool          done   = false;
     runtime      &rt     = *this;
     byte_p        pc     = rt.pc;
+    byte_p        pc0    = pc; (void) pc0;
     stack_p       frame  = rt.frame;
     stack_p       args   = rt.frame;
     std::istream *stdin  = inputs.size() > 1 ? inputs[0] : nullptr;
     std::ostream *stdout = outputs.size() > 2 ? outputs[1] : nullptr;
     std::ostream *stderr = outputs.size() > 3 ? outputs[2] : nullptr;
     tok_t         called = 0;
+
+    record(runtime, "Running from pc=%p frame=%p", pc, frame);
+
     while (!done)
     {
         static_assert(OP_COUNT < 128);
         op_t op = op_t(*pc++);
+
+#ifdef DEBUG
+        static const cstring op_names[] = {
+#define OP(op, code) #op,
+#include "opcodes.tbl"
+        };
+        record(runtime, "%4u: %p %02X %+s",
+               pc - pc0, frame,
+               op, op < OP_COUNT ? op_names[op] : "INVALID");
+#endif
+
         switch (op)
         {
 
@@ -245,6 +260,9 @@ bool runtime::run()
         iosetup(1, *stdout);
     if (stderr)
         iosetup(2, *stderr);
+
+    record(runtime, "Done pc=%p frame=%p %s",
+           pc, frame, error() ? error() : "SUCCESS");
     return error() == nullptr;
 }
 
