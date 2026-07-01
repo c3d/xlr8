@@ -389,6 +389,15 @@ struct runtime
     }
 
 
+    value_t tokaddr(tok_t t)
+    // ------------------------------------------------------------------------
+    //   Return pointer to token or nullptr
+    // ------------------------------------------------------------------------
+    {
+        return value_t(t < tokens.size() ? tokens[t] : nullptr);
+    }
+
+
     text as_text(tok_t t)
     // ------------------------------------------------------------------------
     //   Return the text for a given token

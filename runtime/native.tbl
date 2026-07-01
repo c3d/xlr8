@@ -129,7 +129,7 @@ NATIVE(st1,     DST; SRC; *((volatile uint8_t  *) DNAT) = SNAT)
 NATIVE(stf,     DST; SRC; *((volatile float    *) DNAT) = SFLT)
 NATIVE(std,     DST; SRC; *((volatile double   *) DNAT) = SDBL)
 
-NATIVE(tok,     DST; SRC; DNAT = (value_t) rt.tokens[SNAT])
+NATIVE(tok,     DST; SRC; DNAT = rt.tokaddr(SNAT))
 NATIVE(leb2i,   DST; SRC; DINT = leb128<value_t>(SRPTR))
 NATIVE(leb2u,   DST; SRC; DNAT = leb128<uvalue_t>(SRPTR))
 NATIVE(i2leb,   DST; SRC; DWPTR = leb128(DWPTR, SINT))
