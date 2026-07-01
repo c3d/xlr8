@@ -73,6 +73,7 @@ struct scanner
     bool        do_set();
     bool        do_use();
     bool        do_branch_offset();
+    bool        do_bytes();
     bool        do_define();
     bool        do_label();
 

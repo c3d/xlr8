@@ -595,6 +595,8 @@ bool scanner::do_symbol()
         return do_branch_offset();
     case '*':
         return do_use();
+    case '#':
+        return do_bytes();
     case ';':
         return false;
     default:
@@ -641,6 +643,47 @@ bool scanner::do_set()
     text  name = t == TEXT ? as_text() : scanned;
     setting = rt.tok(name);
     return true;
+}
+
+
+bool scanner::do_bytes()
+// ----------------------------------------------------------------------------
+//   Emit a byte directly
+// ----------------------------------------------------------------------------
+//   In general, the bytecode generates LEB128 values. So 128 is two bytes
+//   The `#` operator makes it possible to emit a byte directly
+//   So #128 is a one-byte 128, and #16#FF is a one-byte all-bits-set value
+//   Names are accepted as long as the associated token is 1-byte
+//   Text is turned into a sequence of bytes
+{
+    token t = next();
+    uintptr_t b = 0;
+
+    switch (t)
+    {
+    case INTEGER:
+        b = as_natural();
+        break;
+    case NAME:
+        b = rt.tok(scanned);
+        break;
+    case TEXT:
+        program += as_text();
+        return true;
+    default:
+        record(scanner_error, "Invalid byte token %u: %+s", t, scanned.c_str());
+        rt.error("Invalid byte syntax");
+        return false;
+    }
+
+    if (b < 256)
+    {
+        program += char(b);
+        return true;
+    }
+    record(scanner_error, "Invalid byte value %lu", b);
+    rt.error("Invalid byte value");
+    return false;
 }
 
 
