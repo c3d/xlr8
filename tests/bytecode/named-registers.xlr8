@@ -1,0 +1,26 @@
+// This tests if we can used named registers
+
+!INDEX          0
+!TEXT           1
+!TMP            2
+!REGS           3
+!STDOUT         1
+!LOOPS          42
+!MULTIPLIER     21
+
+enter *REGS
+
+nat *INDEX *LOOPS
+.loop
+    sys write_integer *INDEX *STDOUT
+    txt *TEXT "x"
+    sys write_text *TEXT *STDOUT
+    nat *TEXT *MULTIPLIER
+    sys write_integer *TEXT *STDOUT
+    txt *TEXT "="
+    sys write_text *TEXT *STDOUT
+    copy *TMP *INDEX
+    mulu *TMP *MULTIPLIER
+    sys write_integer *TMP *STDOUT
+    sys write_newline *STDOUT
+    dbra *INDEX :loop
