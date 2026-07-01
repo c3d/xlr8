@@ -45,7 +45,7 @@ struct runtime
 // ----------------------------------------------------------------------------
 {
     // Constructor and destructor
-    runtime(size_t sz);
+    runtime(size_t sz, size_t argc, char *argv[]);
     runtime(const runtime &rt);
     ~runtime();
     void setup();
@@ -490,6 +490,28 @@ struct runtime
     }
 
 
+    tok_t argv(size_t index)
+    // ------------------------------------------------------------------------
+    //   Return a text token for the given argument
+    // ------------------------------------------------------------------------
+    {
+        if (index < cmdline.size())
+            return tok(cmdline[index]);
+        return op_undef;
+    }
+
+
+    tok_t env(tok_t t)
+    // ------------------------------------------------------------------------
+    //   Return a text token for the given argument
+    // ------------------------------------------------------------------------
+    {
+        text name = as_text(t);
+        if (cstring env = getenv(name.c_str()))
+            return tok(text(env));
+        return op_undef;
+    }
+
 
   public:
     // ========================================================================
@@ -524,6 +546,9 @@ struct runtime
 
     using ostreams = std::vector<std::ostream *>;
     ostreams            outputs;        // Output streams for the runtime
+
+    using argument_list = std::vector<text>;
+    argument_list       cmdline;
 };
 
 #endif // RUNTIME_H

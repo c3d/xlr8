@@ -1,0 +1,28 @@
+// Check that we can read the environment
+// CMD=bash -c "HELLO=Hello WORLD="World!" %x -m 40 %f -- hello world"
+
+=showenv
+  txt 1 "env["
+  sys write_text 1 1
+  sys write_text 0 1
+  txt 1 "]='"
+  sys write_text 1 1
+  sys env 1 0
+  sys write_text 1 1
+  txt 1 "'"
+  sys write_text 1 1
+  sys write_newline 1
+  ret
+;
+
+
+enter 4
+
+txt 0 "HELLO"
+call *showenv
+
+txt 0 "WORLD"
+call *showenv
+
+txt 0 "SOME_UNDEFINED_ENVIRONMENT_VARIABLE"
+call *showenv

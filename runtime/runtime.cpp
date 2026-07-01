@@ -41,7 +41,7 @@ RECORDER(runtime,       16, "Runtime");
 RECORDER(runtime_error, 16, "Runtime errors");
 
 
-runtime::runtime(size_t sz)
+runtime::runtime(size_t sz, size_t argc, char *argv[])
 // ----------------------------------------------------------------------------
 //   Initialize the runtime with the given memory size
 // ----------------------------------------------------------------------------
@@ -56,7 +56,8 @@ runtime::runtime(size_t sz)
       tokens(),
       defined(),
       inputs(),
-      outputs()
+      outputs(),
+      cmdline(argv, argv + argc)
 {
     // Allocate space for the heap and stack
     memory = (byte_p) std::malloc(sz);

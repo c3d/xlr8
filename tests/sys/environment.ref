@@ -1,0 +1,3 @@
+env[HELLO]='Hello'
+env[WORLD]='World!'
+env[SOME_UNDEFINED_ENVIRONMENT_VARIABLE]='undef'

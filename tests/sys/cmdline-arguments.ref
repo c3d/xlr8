@@ -1,0 +1,8 @@
+arg[0]='./xlr8'
+arg[1]='-m'
+arg[2]='40'
+arg[3]='sys/cmdline-arguments.xlr8'
+arg[4]='--'
+arg[5]='hello'
+arg[6]='world'
+arg[7]='undef'

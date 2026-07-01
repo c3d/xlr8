@@ -80,7 +80,10 @@ int main(int argc, char **argv)
     if (cstring traces = getenv("XLR8_TRACES"))
         recorder_trace_set(traces);
     recorder_dump_on_common_signals(0, 0);
-    for (int a = 1; a < argc; a++)
+
+    int rtargs = 0;
+    runtime::argument_list files;
+    for (int a = 1; a < argc && !rtargs; a++)
     {
         cstring arg = argv[a];
         if (arg[0] == '-')
@@ -95,33 +98,40 @@ int main(int argc, char **argv)
             case 'm':
                 arg = arg[2] ? arg+2 : a+1 < argc ? argv[++a] : "";
                 memory = atoi(arg) * 1024;
+                break;
             case 't':
                 arg = arg[2] ? arg+2 : a+1 < argc ? argv[++a] : "";
                 recorder_trace_set(arg);
                 break;
+            case '-':
+                rtargs = a + 1;
+                break;
             case 0:
+                files.push_back(arg);
                 break;
             }
+        }
+        else
+        {
+            files.push_back(arg);
         }
     }
 
     record(main, "XLR8 Compiler version %+s starting (%u opcodes, %zuK)",
            XLR8_VERSION, runtime::OP_COUNT, memory / 1024);
-    runtime rt(memory);
-    bool ok = true;
-    for (int a = 1; ok && a < argc; a++)
+    runtime rt(memory, argc, argv);
+    bool    ok = true;
+    for (auto file : files)
     {
-        cstring arg = argv[a];
-        if (arg[0] == '-')
+        if (file == "-")
         {
-            if (arg[1] == 0)
-                // Read from standard input
-                ok = run(rt, std::cin);
+            // Read from standard input
+            ok = run(rt, std::cin);
         }
         else
         {
             // Read from a file
-            std::ifstream input(arg);
+            std::ifstream input(file);
             ok = run(rt, input);
         }
     }
