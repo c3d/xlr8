@@ -452,7 +452,7 @@ bool runtime::trace()
 
         char obuf[32];
         snprintf(obuf, sizeof(obuf), "%s%ld", pc >= ppc ? "+" : "", pc - ppc);
-        record(runtime, "%p: %02X %6+s %6s %s",
+        record(runtime, "%p: %02X %6s %6s %s",
                pc, op, op < OP_COUNT ? op_names[op] : "INVALID",
                obuf, tbuffer);
     }
