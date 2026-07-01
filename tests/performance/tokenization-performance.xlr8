@@ -1,0 +1,32 @@
+// Check that we can read the command line arguments
+// CMD=./time %x %f 2>&1 | ./filter-time %f
+// CHECK=./check-time %f
+// TIMEOUT=50
+
+enter 4
+
+nat 0 0
+
+.loop
+  txt 1 "arg["
+  sys write_text 1 1
+  sys write_integer 0 1
+  txt 1 "]='"
+  sys write_text 1 1
+  sys cmdline 2 0
+  sys write_text 2 1
+  txt 1 "'"
+  sys write_text 1 1
+  sys write_newline 1
+  incr 0
+ bne 2 :loop
+
+nat 0 0
+nat 1 50_000_000
+.perfloop
+  sys cmdline 2 0
+ dbra 1 :perfloop
+
+txt 1 "Done!"
+sys write_text 1 1
+sys write_newline 1
