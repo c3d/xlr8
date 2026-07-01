@@ -1,0 +1,12 @@
+// This checks if we can emit messages using a user-defined opcode
+// CMD=%x -d 199 %f
+
+   enter 1
+   nat 0 32
+
+// The user-defined opcode 199 should now emit a debug message
+
+.loop
+  sys write_integer 0 1
+  #199 #": Hello, I just executed a user-defined opcode" #16#0A #0
+  dbra 0 :loop

@@ -239,12 +239,11 @@ bool runtime::run()
         op_t op = op_t(*pc++);
         switch (op)
         {
-
 #define OP(op, code)    case op_##op: { code; } break;
 #include "opcodes.tbl"
         default:
-            error("Invalid opcode");
-            done = true;
+            // Check if we have a user-defined op that matches
+            FLUSH; done = !user_operation(op); RESYNC;
             break;
         }
     }
@@ -393,6 +392,7 @@ bool runtime::resolve(tok_t id, tok_t called, byte_p &pc)
 }
 
 
+
 // ============================================================================
 //
 //   Main tracing loop
@@ -432,29 +432,26 @@ bool runtime::trace()
     while (!done)
     {
         static_assert(OP_COUNT < 128);
-        byte_p ppc   = pc;
-        op_t   op    = op_t(*pc++);
+        byte_p ppc = pc;
+        op_t op = op_t(*pc++);
         size_t toffs = 0;
-
-        record(runtime, "%p: %02X %6s",
-               ppc, op, op < OP_COUNT ? op_names[op] : "INVALID");
-
+        cstring opname = op < OP_COUNT     ? op_names[op]
+                         : user_opcode(op) ? "USER"
+                                           : "INVALID";
+        record(runtime, "%p: %02X %6s", ppc, op, opname);
         switch (op)
         {
-
 #define OP(op, code)    case op_##op: { code; } break;
 #include "opcodes.tbl"
         default:
-            error("Invalid opcode");
-            done = true;
+            // Check if we have a user-defined op that matches
+            FLUSH; done = !user_operation(op); RESYNC;
             break;
         }
 
         char obuf[32];
         snprintf(obuf, sizeof(obuf), "%s%ld", pc >= ppc ? "+" : "", pc - ppc);
-        record(runtime, "%p: %02X %6s %6s %s",
-               pc, op, op < OP_COUNT ? op_names[op] : "INVALID",
-               obuf, tbuffer);
+        record(runtime, "%p: %02X %6s %6s %s", pc, op, opname, obuf, tbuffer);
     }
 
     // Pass state down to next runtime execution if any

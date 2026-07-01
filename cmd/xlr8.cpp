@@ -52,6 +52,19 @@ void help(char *progname)
 }
 
 
+static bool debug_message(runtime &rt)
+// ----------------------------------------------------------------------------
+//   This is an example opcode extension
+// ----------------------------------------------------------------------------
+{
+    byte_p text = rt.pc;
+    while (char c = *text++)
+        std::cout << c;
+    rt.pc = text;
+    return true;
+}
+
+
 static bool run(runtime &rt, std::istream &input)
 // ----------------------------------------------------------------------------
 //   Run a given input stream
@@ -82,6 +95,7 @@ int main(int argc, char **argv)
     recorder_dump_on_common_signals(0, 0);
 
     int rtargs = 0;
+    byte debug_opcode = 0;
     runtime::argument_list files;
     for (int a = 1; a < argc && !rtargs; a++)
     {
@@ -90,6 +104,11 @@ int main(int argc, char **argv)
         {
             switch (arg[1])
             {
+            case 'd':
+                arg = arg[2] ? arg+2 : a+1 < argc ? argv[++a] : "";
+                debug_opcode = atoi(arg);
+                break;
+
             default:
             case 'h':
                 help(argv[0]);
@@ -120,7 +139,9 @@ int main(int argc, char **argv)
     record(main, "XLR8 Compiler version %+s starting (%u opcodes, %zuK)",
            XLR8_VERSION, runtime::OP_COUNT, memory / 1024);
     runtime rt(memory, argc, argv);
-    bool    ok = true;
+    bool ok = true;
+    if (debug_opcode)
+        rt.user_opcode(debug_opcode, debug_message);
     for (auto file : files)
     {
         if (file == "-")
