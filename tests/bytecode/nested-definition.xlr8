@@ -1,0 +1,33 @@
+.label
+  enter 3
+  int 0 :label
+  sys write_integer 0 1
+  sys write_newline   1
+  int 0 *stuff
+  sys write_integer 0 1
+  sys write_newline   1
+  txt 1 "Outer "
+  txt 2 "Inner "
+
+=stuff
+  =staff
+  addi 0 1
+  sys write_text    1 1
+  sys write_text    2 1
+  sys write_integer 0 1
+  sys write_newline   1
+  ret
+  ;
+txt 2 "staff[1] "
+call *staff
+txt 2 "staff[2] "
+call *staff
+ret
+;
+
+txt 1 "Staff[1] "
+call *staff
+txt 1 "Stuff[2] "
+call *stuff
+txt 1 "Staff[3] "
+call *staff
