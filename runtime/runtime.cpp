@@ -173,10 +173,11 @@ inline bool output_newline(std::ostream &output)
 //
 // ============================================================================
 
+#define TRACE(s,x)
 #define uframe          ((uvalue_t *) frame)
 #define uvalue          ((uvalue_t) value)
-#define DST             byte d = *pc++
-#define SRC             byte s = *pc++
+#define DST             byte d = *pc++                  TRACE("D%u", d)
+#define SRC             byte s = *pc++                  TRACE("S%u", s)
 #define DINT            (frame[d])
 #define SINT            (frame[s])
 #define DNAT            (uframe[d])
@@ -191,13 +192,14 @@ inline bool output_newline(std::ostream &output)
 #define SRPTR           STYPE(byte_p)
 #define DWPTR           DTYPE(byte *)
 #define SWPTR           STYPE(byte *)
-#define TOK             tok_t t = rt.arg<tok_t>(pc)
-#define JMP_TOK         (pc = byte_p(tok(t)))
-#define BR_OFF          byte_p bpc = pc; broff_t b = rt.arg<broff_t>(pc)
-#define BRANCH          (pc = bpc + b)
-#define KINT            value_t kint = rt.arg<value_t>(pc)
-#define KNAT            uvalue_t knat = rt.arg<uvalue_t>(pc)
-#define KSHIFT          byte kshift = *pc++
+#define TOK             tok_t t = rt.arg<tok_t>(pc)     TRACE("T%lu", t)
+#define JMP_TOK         (pc = byte_p(tok(t)))           TRACE("=%p", pc)
+#define BR_OFF          byte_p bpc = pc;                                \
+                        broff_t b = rt.arg<broff_t>(pc) TRACE("O%ld", b)
+#define BRANCH          (pc = bpc + b)                  TRACE(">%p", pc)
+#define KINT            value_t kint  = rt.arg<value_t>(pc)  TRACE("I%ld", kint)
+#define KNAT            uvalue_t knat = rt.arg<uvalue_t>(pc) TRACE("N%lu", knat)
+#define KSHIFT          byte kshift = *pc++                  TRACE("#%u", kshift)
 #define FLUSH           this->pc = pc; this->frame = frame
 #define RESYNC          pc = this->pc; frame = this->frame; args = arguments()
 
@@ -216,10 +218,12 @@ bool runtime::run()
 //    The main runtime loop
 // ----------------------------------------------------------------------------
 {
+    if (RECORDER_TRACE(runtime) > 1)
+        return trace();
+
     bool          done   = false;
     runtime      &rt     = *this;
     byte_p        pc     = rt.pc;
-    byte_p        pc0    = pc; (void) pc0;
     stack_p       frame  = rt.frame;
     stack_p       args   = rt.frame;
     std::istream *stdin  = inputs.size() > 1 ? inputs[0] : nullptr;
@@ -233,17 +237,6 @@ bool runtime::run()
     {
         static_assert(OP_COUNT < 128);
         op_t op = op_t(*pc++);
-
-#ifdef DEBUG
-        static const cstring op_names[] = {
-#define OP(op, code) #op,
-#include "opcodes.tbl"
-        };
-        record(runtime, "%4u: %p %02X %+s",
-               pc - pc0, frame,
-               op, op < OP_COUNT ? op_names[op] : "INVALID");
-#endif
-
         switch (op)
         {
 
@@ -397,4 +390,83 @@ bool runtime::resolve(tok_t id, tok_t called, byte_p &pc)
     }
     error("Undefined operation");
     return false;
+}
+
+
+// ============================================================================
+//
+//   Main tracing loop
+//
+// ============================================================================
+
+#undef TRACE
+#define TRACE(format, arg)                                              \
+    ;                                                                   \
+    toffs += snprintf(tbuffer + toffs, tsize - toffs, " " format, arg)
+
+
+bool runtime::trace()
+// ----------------------------------------------------------------------------
+//    The main runtime loop
+// ----------------------------------------------------------------------------
+{
+    bool          done   = false;
+    runtime      &rt     = *this;
+    byte_p        pc     = rt.pc;
+    byte_p        pc0    = pc; (void) pc0;
+    stack_p       frame  = rt.frame;
+    stack_p       args   = rt.frame;
+    std::istream *stdin  = inputs.size() > 1 ? inputs[0] : nullptr;
+    std::ostream *stdout = outputs.size() > 2 ? outputs[1] : nullptr;
+    std::ostream *stderr = outputs.size() > 3 ? outputs[2] : nullptr;
+    tok_t         called = 0;
+
+    char          tbuffer[256];
+    const size_t  tsize = sizeof(tbuffer);
+    static const cstring op_names[] = {
+#define OP(op, code) #op,
+#include "opcodes.tbl"
+    };
+
+    record(runtime, "Tracing from pc=%p frame=%p", pc, frame);
+    while (!done)
+    {
+        static_assert(OP_COUNT < 128);
+        byte_p ppc   = pc;
+        op_t   op    = op_t(*pc++);
+        size_t toffs = 0;
+
+        record(runtime, "%p: %02X %6s",
+               ppc, op, op < OP_COUNT ? op_names[op] : "INVALID");
+
+        switch (op)
+        {
+
+#define OP(op, code)    case op_##op: { code; } break;
+#include "opcodes.tbl"
+        default:
+            error("Invalid opcode");
+            done = true;
+            break;
+        }
+
+        char obuf[32];
+        snprintf(obuf, sizeof(obuf), "%s%ld", pc >= ppc ? "+" : "", pc - ppc);
+        record(runtime, "%p: %02X %6+s %6s %s",
+               pc, op, op < OP_COUNT ? op_names[op] : "INVALID",
+               obuf, tbuffer);
+    }
+
+    // Pass state down to next runtime execution if any
+    this->pc = pc;
+    if (stdin)
+        iosetup(0, *stdin);
+    if (stdout)
+        iosetup(1, *stdout);
+    if (stderr)
+        iosetup(2, *stderr);
+
+    record(runtime, "Done pc=%p frame=%p %s",
+           pc, frame, error() ? error() : "SUCCESS");
+    return error() == nullptr;
 }
