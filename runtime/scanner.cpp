@@ -693,6 +693,10 @@ bool scanner::do_branch_offset()
         delta = intptr_t((*it).second - branch);
     else
         ulabels[name].push_back(branch);
+    record(scanner,
+           "Branch %zu index %zu to %+s is %+s, delta=%ld",
+           branch, branches.size(), name.c_str(),
+           seen ? "known" : "unknown", delta);
     branches.push_back(branch);
     append(delta);
     return true;
@@ -767,6 +771,8 @@ bool scanner::set(symbols &syms, text name, size_t target)
 //  Set a label with a new value
 // ----------------------------------------------------------------------------
 {
+    record(scanner, "Set %s=%zu", name.c_str(), target);
+
     if (syms.count(name))
     {
         record(scanner_error, "Redefining %s from %u to %u",
@@ -813,6 +819,8 @@ void scanner::patch_branch(size_t branch, size_t target)
 //   end up being 2 or 3 bytes instead of 1, in which case we need to adjust
 //   and recompute all impacted branch targets
 {
+    record(scanner, "Patching branch %u to %u", branch, target);
+
     // Location of branch delta in the program
     byte    *bp    = (byte *) program.data() + branch;
     size_t   esize = leb128size<intptr_t>(bp);
@@ -824,6 +832,8 @@ retry:
     size_t added = dsize - esize;
     if (added)
     {
+        record(scanner, "  Adding %u bytes (%u to %u) delta=%ld",
+               added, esize, dsize, delta);
         if (target > branch)
         {
             delta += added;
@@ -839,6 +849,7 @@ retry:
     }
     else
     {
+        record(scanner, "  Same size delta=%ld", delta);
         leb128(bp, delta);
     }
 }
@@ -853,6 +864,8 @@ void scanner::patch_cstref(size_t cstref, tok_t value)
 //   end up being 2 or 3 bytes instead of 1, in which case we need to adjust
 //   and recompute all impacted branch targets
 {
+    record(scanner, "Patching constant %u to %u", cstref, value);
+
     // Location of branch delta in the program
     byte  *bp    = (byte *) program.data() + cstref;
     size_t esize = leb128size<tok_t>(bp);
@@ -862,6 +875,9 @@ void scanner::patch_cstref(size_t cstref, tok_t value)
     size_t added = nsize - esize;
     if (added)
     {
+        record(scanner, "  Adding %u bytes (%u to %u) value=%lu",
+               added, esize, nsize, value);
+
         // Ouch complicated case: We need to insert bytes
         program.insert(cstref, added, 0);
         bp = (byte *) program.data() + cstref;
@@ -870,6 +886,7 @@ void scanner::patch_cstref(size_t cstref, tok_t value)
     }
     else
     {
+        record(scanner, "  Same size value=%lu", value);
         leb128(bp, value);
     }
 }
@@ -880,48 +897,78 @@ void scanner::patch_label_references(size_t pos, size_t added)
 //   Patch all possible references to a label that are above pc
 // ----------------------------------------------------------------------------
 {
+    record(scanner,
+           "Patching references to %zu adding %zu bytes to %zu branches,",
+           pos, added, branches.size());
+    record(scanner, "  %zu+%zu labels, %zu+%zu constants",
+           labels.size(), ulabels.size(),
+           cstrefs.size(), uconstants.size());
+
     // Change all existing cstrefs that are after branch
     for (size_t &ic : cstrefs)
+    {
+        record(scanner, "  cstref %zu +%zu", ic, ic > pos ? added : 0);
         if (ic > pos)
             ic += added;
-
+    }
     // Change all labels that point beyond current
     for (auto &l : labels)
+    {
+        record(scanner, "  label %zu +%zu %+s",
+               l.second, l.second > pos ? added : 0, l.first.c_str());
         if (l.second > pos)
             l.second += added;
+    }
 
     // Change all unknown labels that point beyond current branch
     for (auto &p : ulabels)
+    {
+        record(scanner, "  unknown label %+s", p.first.c_str());
         for (size_t &ub : p.second)
+        {
+            record(scanner, "    ulabel %zu +%zu", ub, ub > pos ? added : 0);
             if (ub > pos)
                 ub += added;
+        }
+    }
 
     // Change all constant references that point beyond current branch
     for (auto &p : uconstants)
+    {
+        record(scanner, "  unknown constant %+s", p.first.c_str());
         for (size_t &uc : p.second)
+        {
+            record(scanner, "    uconst %zu +%zu", uc, uc > pos ? added : 0);
             if (uc > pos)
                 uc += added;
+        }
+    }
 
     // Loop over all existng branches to adjust them
     for (size_t &ib : branches)
     {
-        byte    *bp     = (byte *) program.data() + ib;
+        size_t   ibd    = ib > pos ? added : 0;
+        byte    *bp     = (byte *) program.data() + ib + ibd;
         byte_p   b      = byte_p(bp);
         intptr_t edelta = leb128<intptr_t>(b);
 
         // Check if the branch address itself needs to be patched
-        if (ib > pos)
+        record(scanner, "  branch %zu+%zu delta=%ld +%zu",
+               ib, ibd, edelta, ibd);
+        if (ibd)
             ib += added;
 
         // Check branches that cross over
         if (ib < pos && edelta > 0 && ib + edelta > pos)
         {
             // Forward branch crossing over
+            record(scanner, "  backward %zu new=%ld", ib, edelta + added);
             patch_branch(ib, ib + edelta + added);
         }
         else if (ib > pos && edelta < 0 && ib + edelta < pos)
         {
             // Backward branch crossing over
+            record(scanner, "  forward %zu new=%ld", ib, edelta - added);
             patch_branch(ib, ib + edelta - added);
         }
     }
