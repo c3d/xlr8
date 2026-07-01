@@ -26,12 +26,12 @@ ret
 ;
 
 enter 4
-nat 0 40                       // R0 = n, starts at 0
-call *fib                      // R0 = n!
+nat 0 40                       // R0 = 40
 txt 1 "Fibonacci of "
 sys write_text 1 1
-sys write_integer 3 1
+sys write_integer 0 1
 txt 1 " is "
 sys write_text 1 1
+call *fib                      // R0 = fib(40)
 sys write_integer 0 1
 sys write_newline 1
