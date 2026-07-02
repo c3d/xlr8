@@ -34,11 +34,11 @@
 #include "types.h"
 
 #include <cassert>
+#include <cstring>
 #include <map>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
-#include <cstring>
 
 
 struct runtime
@@ -307,7 +307,7 @@ struct runtime
             return nullptr;
         }
         stack -= locals;
-        size_t finfo = (frame - stack) << 8 | locals;
+        size_t finfo = ((frame - stack) << 16) | (byte(flags) << 8) | locals;
         frame        = stack;
         if (!push(finfo))
         {
@@ -330,7 +330,8 @@ struct runtime
         }
         size_t finfo  = pop();
         size_t locals = byte(finfo);
-        frame += finfo >> 8;
+        flags = byte(finfo >> 8) | ((flags >> 8) << 8);
+        frame += finfo >> 16;
         stack += locals;
         return frame;
     }
@@ -342,7 +343,7 @@ struct runtime
     // ------------------------------------------------------------------------
     {
         size_t finfo = frame[-1];
-        return frame + (finfo >> 8);
+        return frame + (finfo >> 16);
     }
 
 
