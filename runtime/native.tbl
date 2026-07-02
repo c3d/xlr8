@@ -30,6 +30,7 @@
 
 NATIVE(globals,         rt.globals.resize(rt.arg<size_t>()))
 NATIVE(malloc,          DST; SRC; DNAT = value_t(malloc(SNAT)))
+NATIVE(kmalloc,         DST; ARG(size_t, sz); DNAT = value_t(malloc(sz)))
 NATIVE(realloc,         DST; SRC; DNAT = value_t(realloc((void *) DNAT, SNAT)))
 NATIVE(free,            DST; free((void *) DNAT))
 

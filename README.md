@@ -556,7 +556,11 @@ otherwise tokenize as an opcode name.
 
 | Group | Names |
 |-------|-------|
-| Heap / globals | `globals`, `malloc`, `realloc`, `free` |
+| Heap / globals | `globals`, `malloc`, `kmalloc`, `realloc`, `free` |
+
+`malloc` and `realloc` read the size from a **register** (`sys malloc 0 1` after
+`nat 1 16`). `kmalloc` reads the size inline, like `globals` (`sys kmalloc 0 +16`).
+Bare `+16` after `malloc` is a register index, not a byte count.
 | Process environment | `cmdline`, `env` |
 | Input | `read_char`, `read_integer`, `read_natural`, `read_float`, `read_double`, `read_scanner`, `branch_on_eof`, `branch_on_bad` |
 | Output | `write_char`, `write_integer`, `write_natural`, `write_float`, `write_double`, `write_text`, `write_newline` |
