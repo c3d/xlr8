@@ -1,0 +1,17 @@
+#!/bin/bash
+# Update all the timerefs that are smaller
+PATTERN=${1:-}
+for I in $(find . -name "*$PATTERN*".time)
+do
+    if [ -f "${I}ref" ]
+    then
+        time=$(cat $I)
+        ref=$(cat ${I}ref)
+        cmp=$(bc -e "$time < $ref")
+        if [ $cmp -eq 1 ]
+        then
+            echo "Updating $I from $ref to $time"
+            cp -f $I ${I}ref
+        fi
+    fi
+done

@@ -56,3 +56,7 @@ ref-% run-% perf-%:
 	$(PRINT_COMMAND) cd tests; make $@
 perf test tests base rebase baseline:
 	$(PRINT_COMMAND) cd tests; make $@
+better:
+	$(PRINT_COMMAND) tests/update-timerefs
+better-%:
+	$(PRINT_COMMAND) tests/update-timerefs $*
