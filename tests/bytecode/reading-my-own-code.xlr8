@@ -1,0 +1,34 @@
+// Check that we can read our own code
+// CMD=%x -d 199 %f
+enter 2
+
+// Load a constant and display it
+#199 #"Constant FOO (numerical value): " #0
+nat 0 *FOO
+sys write_integer 0 1
+sys write_newline 1
+
+// Load a token constant and display it
+#199 #"Load token for generated code: " #0
+nat 0 *BAR
+sys write_integer 0 1
+sys write_newline 1
+
+// Load address for BAR
+#199 #"Read token address" #10 #0
+sys tok 1 0
+
+// Write each byte of BAR code
+// It should start with 9
+.loop
+    #199 #"  " #0
+    ld1 0 1
+    sys write_integer 0 1
+    sys write_newline 1
+    incr 1
+    bne 0 :loop
+end
+
+!FOO 2
+
+=BAR 1 2 3 42 #"XYZ" 0;
