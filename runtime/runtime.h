@@ -35,6 +35,8 @@
 
 #include <cassert>
 #include <map>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 #include <cstring>
 
@@ -580,6 +582,9 @@ public:
 
     using pointers = std::vector<byte_p>;
     pointers            tokens;         // Table of tokens
+
+    using token_index = std::unordered_map<std::string_view, tok_t>;
+    token_index         token_by_text;  // Text to token lookup
 
     using callees= std::map<tok_t, tok_t>;
     callees             defined;        // Table of callees and globals

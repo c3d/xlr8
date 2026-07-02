@@ -55,6 +55,7 @@ runtime::runtime(size_t sz, size_t argc, char *argv[])
       err(),
       entry(),
       tokens(),
+      token_by_text(),
       defined(),
       inputs(),
       outputs(),
@@ -347,46 +348,28 @@ byte *runtime::allocate(size_t len, byte_p data)
 
 tok_t runtime::tok(utf8 text, size_t len, bool clone)
 // ----------------------------------------------------------------------------
-//   Hash the input token based on number of bits in tokens
+//   Return existing token or intern a new one
 // ----------------------------------------------------------------------------
 {
-    size_t ntokens = tokens.size();
-    for (tok_t t = 0; t < ntokens; t++)
-    {
-        // Check if we reached an empty slot
-        byte_p  &slot     = tokens[t];
-        byte_p   existing = slot;
-        if (!existing)
-        {
-            if (utf8 storage = clone ? utf8(allocate(len, byte_p(text))) : text)
-            {
-                slot = byte_p(storage);
-                return t;
-            }
-            error("Unable to allocate token");
-            record(runtime_error, "Unable to allocate token %zu bytes", len);
-            return 0;
-        }
+    std::string_view key(text, len);
+    if (auto it = token_by_text.find(key); it != token_by_text.end())
+        return it->second;
 
-        // Check if that slot matches
-        size_t elen = leb128<size_t>(existing);
-        if (elen == len && memcmp(existing, text, len) == 0)
-            return t;
+    byte_p storage = clone ? byte_p(allocate(len, byte_p(text))) : byte_p(text);
+    if (!storage)
+    {
+        error("Unable to allocate new token");
+        record(runtime_error, "Unable to allocate %zu bytes for token", len);
+        return 0;
     }
 
-    // Add one mxore token
-    tok_t result = tokens.size();
-    if (utf8 storage = clone ? utf8(allocate(len, byte_p(text))) : text)
-    {
-        tokens.push_back(byte_p(storage));
-        return result;
-    }
+    tok_t id = tokens.size();
+    tokens.push_back(storage);
 
-    error("Unable to allocate new token");
-    record(runtime_error,
-           "Unable to allocate %zu bytes for togen %u", len, result);
-
-    return 0;
+    byte_p tp = storage;
+    size_t elen = leb128<size_t>(tp);
+    token_by_text.emplace(std::string_view((char *) tp, elen), id);
+    return id;
 }
 
 
