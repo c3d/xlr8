@@ -249,7 +249,7 @@ struct runtime
     // ------------------------------------------------------------------------
     {
         if (stack + index < histack)
-            return stack + index;
+            return (value_t *) (stack + index);
         error("Stack index is out of range");
         return nullptr;
     }
@@ -345,7 +345,7 @@ struct runtime
     // ------------------------------------------------------------------------
     {
         if (frame + index < histack)
-            return frame + index;
+            return (value_t *) (frame + index);
         error("Local index is out of range");
         return nullptr;
     }

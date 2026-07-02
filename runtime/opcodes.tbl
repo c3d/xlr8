@@ -36,8 +36,8 @@ OP(flt,         DST; memcpy(&DFLT, pc, sizeof(float)); pc += sizeof(float))
 OP(dbl,         DST; memcpy(&DDBL, pc, sizeof(double)); pc += sizeof(double))
 OP(txt,         DST; TOK; DINT = t)
 
-OP(copy,        DST; SRC; DINT = SINT)
-OP(swap,        DST; SRC; std::swap(DINT, SINT))
+OP(copy,        DST; SRC; DALL = SALL)
+OP(swap,        DST; SRC; std::swap(DALL, SALL))
 
 OP(jmp,         TOK; JMP_TOK)
 OP(call,        TOK; called = t; done = !push(value_t(pc)); JMP_TOK)

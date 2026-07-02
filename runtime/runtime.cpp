@@ -174,16 +174,17 @@ inline bool output_newline(std::ostream &output)
 // ============================================================================
 
 #define TRACE(s,x)
-#define uframe          ((uvalue_t *) frame)
 #define uvalue          ((uvalue_t) value)
 #define DST             byte d = *pc++                  TRACE("D%u", d)
 #define SRC             byte s = *pc++                  TRACE("S%u", s)
-#define DINT            (frame[d])
-#define SINT            (frame[s])
-#define DNAT            (uframe[d])
-#define SNAT            (uframe[s])
 #define DTYPE(T)        (*(T *) &frame[d])
 #define STYPE(T)        (*(T *) &frame[s])
+#define DALL            frame[d]
+#define SALL            frame[s]
+#define DINT            DTYPE(value_t)
+#define SINT            STYPE(value_t)
+#define DNAT            DTYPE(uvalue_t)
+#define SNAT            STYPE(uvalue_t)
 #define DFLT            DTYPE(float)
 #define SFLT            STYPE(float)
 #define DDBL            DTYPE(double)
@@ -192,13 +193,13 @@ inline bool output_newline(std::ostream &output)
 #define SRPTR           STYPE(byte_p)
 #define DWPTR           DTYPE(byte *)
 #define SWPTR           STYPE(byte *)
-#define TOK             tok_t t = rt.arg<tok_t>(pc)     TRACE("T%lu", t)
+#define TOK             tok_t t = rt.arg<tok_t>(pc)     TRACE("T%zu", t)
 #define JMP_TOK         (pc = byte_p(tok(t)))           TRACE("=%p", pc)
 #define BR_OFF          byte_p bpc = pc;                                \
-                        broff_t b = rt.arg<broff_t>(pc) TRACE("O%ld", b)
+                        broff_t b = rt.arg<broff_t>(pc) TRACE("O%ld", long(b))
 #define BRANCH          (pc = bpc + b)                  TRACE(">%p", pc)
-#define KINT            value_t kint  = rt.arg<value_t>(pc)  TRACE("I%ld", kint)
-#define KNAT            uvalue_t knat = rt.arg<uvalue_t>(pc) TRACE("N%lu", knat)
+#define KINT            value_t kint  = rt.arg<value_t>(pc)  TRACE("I%ld", long(kint))
+#define KNAT            uvalue_t knat = rt.arg<uvalue_t>(pc) TRACE("N%lu", ulong(knat))
 #define KSHIFT          byte kshift = *pc++                  TRACE("#%u", kshift)
 #define FLUSH           this->pc = pc; this->frame = frame
 #define RESYNC          pc = this->pc; frame = this->frame; args = arguments()
@@ -450,7 +451,8 @@ bool runtime::trace()
         }
 
         char obuf[32];
-        snprintf(obuf, sizeof(obuf), "%s%ld", pc >= ppc ? "+" : "", pc - ppc);
+        snprintf(obuf, sizeof(obuf), "%s%ld",
+                 pc >= ppc ? "+" : "", long(pc - ppc));
         record(runtime, "%p: %02X %6s %6s %s", pc, op, opname, obuf, tbuffer);
     }
 
