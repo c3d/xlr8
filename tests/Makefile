@@ -140,7 +140,7 @@ GENERATE_FAILURES_LOG=						\
   ( for F in $(^:.diff=); do					\
     if [ $(call TEST_KO,$$F) ] ; then				\
       if ! grep -q "$$F" $(BASELINE); then			\
-	echo "=== $$F FAILED ===";				\
+	echo "tests/$$F.xlr8:1: Test FAILED";			\
 	( echo "--- $$F DIFF ---";				\
 	  [ -f "$$F.diff" ] && $(CAT) "$$F.diff" ;		\
 	  echo "--- $$F OUTPUT ---";				\
@@ -153,7 +153,7 @@ GENERATE_FAILURES_LOG=						\
   for F in $(^:.diff=); do					\
     if [ $(call TEST_KO,$$F) ]; then				\
       if grep -q "$$F" $(BASELINE); then			\
-	echo "=== $$F FAILED (EXPECTED) ===";			\
+	echo "tests/$$F.xlr8:1: Test FAILED (EXPECTED) ===";	\
 	( echo "--- $$F DIFF ---";				\
 	  [ -f "$$F.diff" ] && $(CAT) "$$F.diff" ;		\
 	  echo "--- $$F OUTPUT ---";				\
@@ -176,13 +176,13 @@ GENERATE_FAILURES_LOG=						\
   $(REPORT_FAILURES)
 
 REPORT_FAILURES=						\
- (failures=$$(grep "=== .* FAILED ===" $@ | wc -l);		\
+ (failures=$$(grep ".* Test FAILED" $@ | wc -l);		\
   successes=$$(grep "=== .* SUCCEEDED ===" $@ | wc -l);		\
-  expected=$$(grep "=== .* FAILED .EXPECTED. ===" $@ | wc -l);	\
+  expected=$$(grep ".* Test FAILED .EXPECTED." $@ | wc -l);	\
   improved=$$(grep "=== .* IMPROVED ===" $@ | wc -l);		\
   if [ "$$failures" -ne "0" ]; then				\
     $(INFO) "[SUMMARY]" "=== TESTS FAILED ===" "[NO]";		\
-    grep "=== .* FAILED ===" $@;				\
+    grep ".* FAILED" $@;					\
   elif [ "$$improved" -ne "0" ]; then				\
     $(INFO) "[SUMMARY]" "=== TESTS IMPROVED ===" "[++]";	\
     grep "=== .* IMPROVED ===" $@;				\
