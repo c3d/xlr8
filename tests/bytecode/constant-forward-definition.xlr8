@@ -1,0 +1,6 @@
+// Check that we can use a constant before defining it
+nat 0 *MAGIC
+sys write_integer 0 1
+sys write_newline 1
+
+!MAGIC 42

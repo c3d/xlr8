@@ -45,7 +45,7 @@ bool scanner::scan()
 //   Scan input tokens from the stream and build program object
 // ----------------------------------------------------------------------------
 {
-    while (true)
+    while (!rt.error())
     {
         token tok = next();
         switch (tok)
@@ -78,6 +78,7 @@ bool scanner::scan()
             break;
         }
     }
+    return !rt.error();
 }
 
 
@@ -1025,9 +1026,12 @@ bool scanner::set(uintptr_t u)
 {
     if (setting)
     {
+        size_t sz = 0;
+        utf8 txt = rt.tok(setting, &sz);
+        text name(txt, sz);
         rt.defined[setting] = u;
         setting = 0;
-        return true;
+        return set(constants, name, u);
     }
     return false;
 }

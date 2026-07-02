@@ -1,0 +1,9 @@
+// Check that we detect a label redefinition
+// EXIT=255
+// FILTER=sed -e 's/^[^a-z]*//g'
+nat 0 *FOO
+sys write_integer 0 1
+sys write_newline 1
+
+!FOO 2
+!FOO 3
