@@ -52,9 +52,11 @@ $(MIQ)rules.mk:
 # Do not run tests in the recorder
 RECURSE_FLAGS_recorder=RUN_TESTS=
 
-ref-% run-% perf-%:
+ref-% run-%:
 	$(PRINT_COMMAND) cd tests; make $@
-perf test tests base rebase baseline:
+perf-%: %
+	$(PRINT_COMMAND) cd tests; make $@
+perf test tests base rebase baseline: all
 	$(PRINT_COMMAND) cd tests; make $@
 better:
 	$(PRINT_COMMAND) tests/update-timerefs
