@@ -13,6 +13,7 @@ below:
 [os]: https://grenouillebouillie.wordpress.com/2020/03/27/old-ideas-about-an-os-from-scratch/
 [taos]: http://uruk.org/emu/Taos.html
 [art]: https://fosdem.org/2024/events/attachments/fosdem-2024-3485-hactorscript-in-art-bug-free-software-on-unhackable-hardware/slides/22293/Draft2_3QvqGJE.pdf
+[leb128]: https://en.wikipedia.org/wiki/LEB128
 
 The first step is to write the compiler and bootstrap it.
 
@@ -37,11 +38,15 @@ program:
 
 ```sh
 make
-./cmd/xlr8 tests/bytecode/addition.xlr8
+./xlr8 tests/bytecode/addition.xlr8
 ```
 
-The default memory arena is 32 KiB (`-m` selects a size in kilobytes).
+The default memory arena is 32 Ki. The `-m` option selects a size in kilobytes.
 Programs can also be read from standard input (`xlr8 -`).
+
+To run the test suite, use `make tests`. To update a test reference,
+use `make ref-pattern`, where `pattern` is a part of the name of the test to
+update.
 
 
 ## Bytecode
@@ -50,126 +55,295 @@ XLR8 programs at the lowest level are `.xlr8` files: human-readable
 bytecode assembly that the scanner turns into executable bytecode and the
 runtime interprets.
 
-The model is **register-based with extensible opcodes**. Each activation
-has numbered local registers (`0`, `1`, …). Most arithmetic, logic, and I/O
-operations take a destination register and/or source register as operands.
-A separate value stack supports calls, returns, and explicit `push`/`pop`.
+Below a commented example of bytecode that writes a null-terminated string:
 
-Built-in opcodes are defined in `runtime/opcodes.tbl` (currently 125 of
-them). Their names are registered in order when the runtime starts, so the
-first byte of an instruction is both an opcode number and a token index.
-New opcodes can be defined in source with `=` and invoked with `call *name`.
+```xlr8
+    enter 2                             // Reserve 2 "registers" on stack
+    pca 1 :mytext                       // R1 = PC-relative address of [mytext]
+.chars                                  // Symbolic label [chars]
+    ld1 0 1                             // R0 set to byte at address R1
+    beq 0 :done                         // Branch to [done] if R0==0
+    incr 1                              // Increment R1 (next character)
+    sys write_char 0 1                  // Write R0 to stream 1=stdout
+    bra :chars                          // Loop back to [chars]
+.mytext                                 // Label [mytext] used in pca above
+    #"Hello world!" #10                 // Insert raw bytes in stream
+    #"This is a C-style null-terminated string"
+    #16#0A #0                           // Based-number notation and trailing 0
+.done
+```
+
+# Virtual machine model
+
+XLR8 is a virtual machine optimized for fast interpreted execution and reduced
+memory usage. It is also designed for extensibility.
+
+## Instruction format
+
+The XLR8 virtual machine uses a byte-sized opcodes with two addresses.
+Built-in opcodes are defined in `runtime/opcodes.tbl`, with values below 128.
+The current number of reserved opcodes is shown by `xlr8 -tmain`.
+
+XLR8 source code directly translates into bytecode through one-pass scanning.
+For example, when you write `add 1 2`, this generates the byte corresponding to
+`add`, followed by one byte with value `1` and one byte with value `2`.
+The resulting byte sequence is interpreted as adding register 2 to register 1.
+
+However, these are only bytes, and the scanner makes no attempt at enforcing any
+kind of syntax or instruction format check. The `end` opcode has byte value 1,
+so it is equivalent to write `end` or `1`, and `add end end` will add register 1
+to itself.
+
+## Registers
+
+The virtual machine can address up to 256 "registers" at any given time.
+Registers live in a [register window](#register-window) backed up by the stack,
+where register 0 in the current function is distinct from register 0 in a caller
+or in a callee.
+
+Registers are normally referenced using a byte index. However, be mindful that
+the scanner by default encodes numbers using [LEB-128 encoding][leb128]. This
+means that any register index larger than 128 must be explicitly encoded as a
+byte using the `#` prefix. For example, adding register 200 to register 0 must
+be written as `add 0 #200`, since `add 0 200` would add one extra LEB128 byte.
+
+For density and efficiency, opcodes use two registers, where the target register
+is both a source and destination. By convention, the destination is the first
+argument: `op dst src`. This order is purely conventional, matching the order
+found in assignments in C or C++. For example, `add 3 2` matches `R3+=R2`.
+
+*Rationale* While two-address instructions were typical for CPUs designed in the
+1980s, many modern real CPUs, including most RISC designs, use three-address
+encoding instead, i.e. `op t=s1,s2`. The trade-off for a virtual machine is
+slightly different, and having only two register addresses accelerates execution
+and improves bytecode density. The drawback is that a compiler may have to
+occasionally emit additional `copy` instructions.
+
+## Register window
+
+Each activation has its own numbered local registers (`0`, `1`, …).
+Most arithmetic, logic, and system operations take a destination register and/or
+source register as operands. A separate [value stack](#stack) supports calls,
+returns, and explicit `push`/`pop`.
+
+The size of the current register window is set by the `enter` opcode, which
+creates a new activation record below the current stack pointer.
+This is indended to create a stack frame on entry to a function.
+
+The reciprocal operation is `leave`, which returns to the previous stack
+frame. Typically, a recursive function will begin with `enter N` where `N` is
+the number of registers it uses, and finish with `leave ret`, where `leave`
+returns to the previous stack frame and `ret` returns to the caller.
+
+## Calling conventions
+
+Arguments are accessed using the `get` and `set` opcodes, which access the
+caller's register window. `get 3 0` gets argument 0 and puts it in register 3,
+whereas `set 2 6` puts register 6 into argument 2.
+
+The `get` and `set` opcodes access the caller's activation record only after
+`enter`.  Like for registers, 256 distinct arguments can be accessed that way.
+
+Returning a value is typically done by writing into argument 0.
+
+## Stack
+
+The stack can also be accessed using `push` and `pop`. This moves the stack
+pointer but not the register frame. On the other hand, `enter` will always
+allocate a new register window below the current stack pointer.
+
+## User-defined opcodes
+
+Opcodes from 128 to 255 can be user-defined for compact encoding of additional
+arbitrary operations.
+
+The default `xlr8` command-line sample code illustrates that capability with a
+`-d` options that sets a user-defined opcode for debugging messages. For
+example, if you run `xlr8 -d 199`, you can emit a message using `#199`:
+
+```xlr8
+  #199 #": Hello, I just executed a user-defined opcode" #16#0A #0
+```
+
+Unused values below 128 can also be used for user-defined opcodes, however any
+built-in opcode will take precedence.
+
+# Source format
+
+XLR8 programs can be written using a standard source code format.
+
+## Tokens
+
+The text format is a sequence of [LEB128-encoded][leb128] tokens:
+
+* Names, e.g. `sys`, encoded as a natural number for the corresponding token.
+* Text between single or double quotes, e.g. `"Hello"` or `'World'`, encoded as
+  a natural number for the corresponding token.
+* Numbers, e.g. `42` or `-25`. Numbers beginning with `+` or `-` are encoded as
+  signed values, otherwise as natural (unsigned) values.
+* Floating-pointer numbers such as `1.23` or `3.25F`. If the `F` or `f` suffix
+  is used, the value is stored as 32-bits IEEE-754, 64-bit otherwise.
+
+Names and text are represented by token value that uniquely identify them.
+The token value for opcodes is the byte encoding for that opcode. For example
+`undef` has token value `0` and `end` has token value `1`.
+
+## Directives
+
+* `=foo` defines a bytecode sequence, typically for a function. This bytecode
+  sequence ends with the next `;`. Sequences can be nested.
+* `?foo` reserves a name as an external reference. This is useful for mutually
+  recursive calls.
+* `!foo` sets the value associated to symbol foo, and is used in conjuction with
+  the `*foo` notation that inserts the associated value.
+* `.foo` defines `foo` as a label for the current position.
+* `:foo` inserts a signed branch offset from the current PC to label `foo`.
+* `*foo` inserts the value of symbol `foo`. Note that this is typically needed
+  for the `call` instruction, but `nat 0 *foo` will set register `0`
+
+## Comments
+
+Comments follow the C/C++ conventions.
+
+* Single-line comments begin with `//` and extend to the end of the line.
+* Multi-line comments begin with `/*` and end with `*/`.
+
+## User-defined constants
+
+Setting a constant with `!FOO` enters its value in the symbol table.
+Using `*FOO` then inserts the _value_ of the constant.
+
+For example, after`!FOO 24`, any occurence of `*FOO` is the same as `24`.
+A constant can be inserted before it is known. This is notably useful for calls,
+but can also be used to name registers, etc.
+
+```xlr8
+!INDEX          0
+!LOOPS          42
+nat *INDEX *LOOPS
+```
+
+## Why the `*` in `call *foo`?
+
+A common use case for `*` is when calling a function:
+
+```xlr8
+=foo
+    decr 0
+    bne 0 :exit
+    call *foo
+    .exit
+```
+
+The reason for having to write `*foo` and not `foo` is that `foo` is the token
+for `foo`. Internally, the token value for `foo` is `[3][f][o][o]`. Unless the
+intent is to execute whatever bytecode that represents, what we really want is
+the bytecode value _defined_ for `foo`.
+
+Note that the mechanism is general. For example, you can load the address of the
+code to execute using something like `nat 0 *foo`. This is illustrated by the
+`reading-my-own-code.xlr8` test case, which uses this technique to get a
+sequence of bytes directly from the bytecode:
+
+```xlr8
+// Load a token constant and display it
+nat 0 *ARRAY
+sys tok 1 0
+
+=ARRAY 1 2 3 42 #"XYZ" 0;
+```
+
+## Branches
+
+Branches are PC-relative. Offsets are relative to the **beginning** of the
+offset (the first byte of the LEB128 field), not to the byte after it.
+That choice is necessary because the offset size is not fixed. A branch offset
+that eaches -64/+63 bytes fits in a byte, larger displacements require more
+bytes.
 
 
-### Assembly directives
+## Syntax symmary
 
-| Symbol | Meaning |
-|--------|---------|
-| `//` … | Line comment (C++ style) |
-| `/*` … `*/` | Block comment |
-| `*name` | Insert a reference to a named opcode body (required for `call`) |
-| `!name` | Forward-declare a user opcode defined later (needed for mutual recursion) |
-| `=name` | Begin defining a new opcode; body runs until `;` |
-| `;` | End an opcode definition (also ends the top-level program) |
-| `.label` | Define a branch target at the current code position |
-| `:label` | Insert a signed branch offset to `.label` (LEB128, relative to the offset itself) |
+| Syntax        | Meaning                                                      |
+|---------------|--------------------------------------------------------------|
+| `SomeName`    | Insert the token value, including for opcodes like `add`     |
+| `"Some Text"` | Insert the token value for the text                          |
+| `123`         | Insert the natural value in unsigned form                    |
+| `+123`,`-5`   | Insert an integer value in signed form                       |
+| `1.23F`       | Insert a 32-bit IEEE-754 floating point value                |
+| `1.23`, `1.D` | Insert a 64-bit IEEE-754 floating point value                |
+| `//` …        | Line comment (C++ style)                                     |
+| `/*` … `*/`   | Block comment                                                |
+| `*name`       | Insert a reference to a named token (required for `call`)    |
+| `!name`       | Forward-declare a user opcode for mutual recursion           |
+| `=name`       | Begin defining a new function; the body runs until `;`       |
+| `;`           | End an opcode definition (also ends the top-level program)   |
+| `.label`      | Define a branch target at the current code position          |
+| `:label`      | Insert a signed branch offset to `.label` [1]                |
+| `#num`        | Insert a byte value directly, e.g. `#192` for register 192   |
+| `#text`       | Insert a byte sequence directly, e.g. `#"Hello"              |
+
+[1] signed branches are relative to the offset itself.
 
 Built-in opcode names (`add`, `call`, `ret`, …) are written directly.
-User-defined opcodes are referenced with `*` when their address is needed,
+User-defined constants are referenced with `*` when their address is needed,
 for example `call *fact`.
 
 When one user opcode calls another that is not defined yet, pre-register the
-name with `!name` before the first `call *name`. This is required for
-**mutual recursion** (and other forward references across opcodes). A
-single opcode that calls itself only needs `=name`, because the name is
+name with `?name` before the first `call *name`. This is required for
+mutual recursion and other forward references across functions.
+
+A single opcode that calls itself only needs `=name`, because the name is
 registered at the start of its own definition.
 
-
-### Instruction encoding
-
-The scanner emits a byte stream with this layout:
-
-1. **Opcode** — Byte-encoded token index of the opcode name (matches the
-   `op_t` enum order in `opcodes.tbl` for built-ins). Because the scanner
-   encodes names using LEB128, this effectively limits the opcode count to
-   128 (where LEB128 and byte encoding agree). Byte encoding is important
-   since LEB128 decoding here potentially costs us about 12% of performance
-   for the 1-billion iterations test.
-2. **Operands** — encoding depends on the operand kind:
-   - **Source and destination registers** — one byte each (indices 0–255).
-     This keeps the common `op dst src` form compact and fast to decode.
-   - **Variable-size operands** — [LEB128][leb128]-encoded when their size is
-     not known ahead of time: branch deltas, immediate constants (`addi`,
-     `int`, `nat`, …), token references (`call`, `jmp`, `txt`, …), and similar.
-   - **Integer constants** — see [Integer constants](#integer-constants).
-3. **Floating-point immediates** — see [Floating-point constants](#floating-point-constants)
-   below.
-
-The 256-register limit applies to the byte-encoded `dst` and `src` operands.
-That is enough in practice for local frames allocated with `enter`.
-
-Branch offsets are **relative to the beginning of the offset** (the first
-byte of the LEB128 field), not to the byte after it. That choice is necessary
-because the offset size is not known until the target label is resolved: a
-delta that initially fits in one byte may later require two or three. Keeping
-the branch base at the start of the offset field means resizing an offset does
-not change how other branches compute their targets. Labels can be
-forward-referenced; the scanner patches offsets once the target is known, and
-re-adjusts other branches when an offset grows and shifts following code.
-
-[leb128]: https://en.wikipedia.org/wiki/LEB128
-
+# Examples
 
 ### Integer constants
 
-**`int`** loads a signed integer constant; **`nat`** loads a **natural**
-(unsigned) constant. Both take a destination register and a numeral; the
-scanner appends the value as [LEB128][leb128] after the register byte.
+`int` loads a signed integer constant.
+`nat` loads a natural (unsigned) constant.
+Both take a destination register and a numeral.
+The scanner appends the value as [LEB128][leb128] after the register byte.
 
 ```xlr8
 int 0 -42
 nat 1 1_000_000
 ```
 
-Numerals accept XL-style bases and underscores (`16#FF`, `1_000_000`). A leading
-`+` or `-` selects the signed path used with **`int`**; plain numerals are
-treated as naturals and pair with **`nat`**.
+Numerals accept XL-style bases and underscores (`16#FF`, `1_000_000`).
+A leading `+` or `-` selects the signed path used with `int`.
+Plain numerals are treated as naturals and pair with `nat`.
 
 
 ### Floating-point constants
 
-**`int`** and **`nat`** inline a LEB128-encoded integer after the destination
-register. Floating-point constants work differently: **`flt`** and **`dbl`**
-**`dbl`** take a destination register, then a **real literal** whose IEEE 754
-bit pattern is copied verbatim into the bytecode — **4 bytes** for `flt`,
-**8 bytes** for `dbl`.
+`flt` and `dbl` inserts 32-bit and 64-bit floating-point constants.
+There is no LEB128 encoding in that case, the value is copied literally.
 
 The literal may appear on the same line or on the following line:
 
 ```xlr8
 flt 0 2.5f
 dbl 1 3.0
-flt 2
-1.5e2f
 ```
 
 The scanner chooses the embedded size from the literal suffix:
 
-| Literal suffix | Embedded size | Typical opcode |
-|----------------|---------------|----------------|
-| `f` | 32-bit `float` | `flt` |
-| `d` | 64-bit `double` | `dbl` |
-| *(none)* | 64-bit `double` | `dbl` |
+| Literal suffix | Embedded size   | Typical opcode |
+|----------------|-----------------|----------------|
+| `f`            | 32-bit `float`  | `flt`          |
+| `d`            | 64-bit `double` | `dbl`          |
+| *(none)*       | 64-bit `double` | `dbl`          |
 
-Use the matching arithmetic and I/O opcodes: `fadd` / `outf` for floats,
-`dadd` / `outd` for doubles. Conversion opcodes (`i2f`, `f2i`, `i2d`, `d2i`)
-bridge integers and reals.
+Use the matching arithmetic and `sys` opcodes: `fadd` / `sys fceil` for floats,
+`dadd` / `sys dfloor` for doubles.
+
+Conversion opcodes (`i2f`, `f2i`, `i2d`, `d2i`) bridge integers and reals.
 
 Real literals accept decimal and based syntax (`16#1.A#f`, `1.5e2f`, …).
 See [Example 2](#example-2-counting-loop) for based-number rules, including
 exponents in the mantissa base and the `#f` suffix when `f` would otherwise
-be a hex digit.
-
+be a valid digit in the base (`16#1.FF#F`).
 
 ### Runtime layout
 
