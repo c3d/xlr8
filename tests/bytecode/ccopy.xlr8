@@ -1,0 +1,9 @@
+// Conditional copy: copy only when predicate is set
+
+enter 3
+int 0 0
+int 1 42
+true 0
+ccopy 0 0 1
+sys write_integer 0 1
+sys write_newline 1

@@ -1,3 +1,4 @@
+
 // ****************************************************************************
 //  native.tbl                                                     XLR8 project
 // ****************************************************************************
@@ -94,6 +95,10 @@ NATIVE(i2f,             DST; SRC; DFLT = SINT)
 NATIVE(i2d,             DST; SRC; DDBL = SINT)
 NATIVE(f2i,             DST; SRC; DINT = value_t(SFLT))
 NATIVE(d2i,             DST; SRC; DINT = value_t(SDBL))
+NATIVE(fpush,           SRC; done = !rt.push(SFLT))
+NATIVE(dpush,           SRC; done = !rt.push(SDBL))
+NATIVE(fpop,            DST; DFLT = rt.pop<float>())
+NATIVE(dpop,            DST; DDBL = rt.pop<double>())
 
 #define REAL_OP(name)                                           \
 NATIVE(f##name,         DST; SRC; DFLT = std::name(SFLT))       \
@@ -115,6 +120,17 @@ REAL_OP(exp2)
 REAL_OP(log2)
 
 #undef REAL_OP
+
+#define REAL_CMP(name, cond)                                    \
+NATIVE(f##name,         PRED; DST; SRC; PCOND(DFLT cond SFLT))  \
+NATIVE(d##name,         PRED; DST; SRC; PCOND(DDBL cond SDBL))
+
+REAL_CMP(cmpeq, == )
+REAL_CMP(cmpne, != )
+REAL_CMP(cmplt, <  )
+REAL_CMP(cmpgt, >  )
+REAL_CMP(cmple, <= )
+REAL_CMP(cmpge, >= )
 
 NATIVE(ld8,     DST; SRC; DNAT = *((volatile uint64_t *) SNAT))
 NATIVE(ld4,     DST; SRC; DNAT = *((volatile uint32_t *) SNAT))

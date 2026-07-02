@@ -1,0 +1,15 @@
+// Restore predicate flags from stack
+
+enter 2
+false 0
+pushf
+true 0
+popf
+bcc 0 :wrong
+int 0 42
+bra :done
+.wrong
+int 0 0
+.done
+sys write_integer 0 1
+sys write_newline 1

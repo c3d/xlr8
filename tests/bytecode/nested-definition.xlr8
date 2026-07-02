@@ -1,3 +1,4 @@
+// Check that we have a nested function definition
 .label
   enter 3
   int 0 :label
@@ -9,7 +10,9 @@
   txt 1 "Outer "
   txt 2 "Inner "
 
+// Define function stuff
 =stuff
+  // Nested function staff
   =staff
   addi 0 1
   sys write_text    1 1

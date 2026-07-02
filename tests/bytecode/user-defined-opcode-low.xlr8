@@ -1,5 +1,5 @@
 // This checks if we can emit messages using a user-defined opcode
-// CMD=%x -d 99 %f
+// CMD=%x -d 122 %f
 
    enter 1
    nat 0 32
@@ -8,5 +8,5 @@
 
 .loop
   sys write_integer 0 1
-  #99 #": Hello, I just executed a low-range user-defined opcode" #16#0A #0
+  #122 #": Hello, I just executed a low-range user-defined opcode" #16#0A #0
   dbra 0 :loop

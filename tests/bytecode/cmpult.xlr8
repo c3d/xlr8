@@ -1,0 +1,11 @@
+// Unsigned natural compare less than
+
+enter 5
+nat 0 3
+nat 1 5
+nat 2 1
+nat 3 0
+cmpult 0 0 1
+select 0 4 2 3
+sys write_natural 4 1
+sys write_newline 1

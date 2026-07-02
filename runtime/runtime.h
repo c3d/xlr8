@@ -154,7 +154,8 @@ struct runtime
     }
 
 
-    bool push(value_t value)
+    template<typename stack_t>
+    bool push(stack_t value)
     // ------------------------------------------------------------------------
     //   Push an value_t sized value on the stack
     // ------------------------------------------------------------------------
@@ -169,7 +170,8 @@ struct runtime
     }
 
 
-    value_t pop()
+    template<typename stack_t = value_t>
+    stack_t pop()
     // ------------------------------------------------------------------------
     //   Pop an value_t sized value from the stack
     // ------------------------------------------------------------------------
@@ -229,7 +231,8 @@ struct runtime
     }
 
 
-    value_t *top()
+    template<typename stack_t = value_t>
+    stack_t *top()
     // ------------------------------------------------------------------------
     //   Return top of stack in writable form
     // ------------------------------------------------------------------------
@@ -239,17 +242,18 @@ struct runtime
             error("Can't return top of empty stack");
             return nullptr;
         }
-        return (value_t *) stack;
+        return (stack_t *) stack;
     }
 
 
-    value_t *at(size_t index)
+    template <typename stack_t = value_t>
+    stack_t *at(size_t index)
     // ------------------------------------------------------------------------
     //   Return stack pointer at given index
     // ------------------------------------------------------------------------
     {
         if (stack + index < histack)
-            return (value_t *) (stack + index);
+            return (stack_t *) (stack + index);
         error("Stack index is out of range");
         return nullptr;
     }
@@ -339,13 +343,14 @@ struct runtime
     }
 
 
-    value_t *local(size_t index)
+    template <typename stack_t = value_t>
+    stack_t *local(size_t index)
     // ------------------------------------------------------------------------
     //   Return stack pointer for local at given index
     // ------------------------------------------------------------------------
     {
         if (frame + index < histack)
-            return (value_t *) (frame + index);
+            return (stack_t *) (frame + index);
         error("Local index is out of range");
         return nullptr;
     }
@@ -555,13 +560,14 @@ struct runtime
     }
 
 
-  public:
+public:
     // ========================================================================
     //
     //   Data for the runtime
     //
     // ========================================================================
 
+    uint64_t            flags;          // Conditional flags (predicates)
     byte_p              pc;             // Current PC
     byte_p              memory;         // Memory allocated for that runtime
     byte_p              heap;           // Top of heap (lo marker for stack)

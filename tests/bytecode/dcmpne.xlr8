@@ -1,0 +1,13 @@
+// Double compare not equal
+
+enter 4
+dbl 0
+3.14
+dbl 1
+2.71
+nat 2 1
+nat 3 0
+sys dcmpne 0 0 1
+select 0 4 2 3
+sys write_natural 4 1
+sys write_newline 1

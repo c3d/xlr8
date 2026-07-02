@@ -45,7 +45,8 @@ runtime::runtime(size_t sz, size_t argc, char *argv[])
 // ----------------------------------------------------------------------------
 //   Initialize the runtime with the given memory size
 // ----------------------------------------------------------------------------
-    : pc(),
+    : flags(),
+      pc(),
       memory(),
       heap(),
       stack(),
@@ -173,14 +174,17 @@ inline bool output_newline(std::ostream &output)
 //
 // ============================================================================
 
-#define TRACE(s,x)
+#define TRC(s,x)
 #define uvalue          ((uvalue_t) value)
-#define DST             byte d = *pc++                  TRACE("D%u", d)
-#define SRC             byte s = *pc++                  TRACE("S%u", s)
+#define DST             byte d = *pc++                  TRC("D%u", d)
+#define SRC             byte s = *pc++                  TRC("S%u", s)
+#define XTRA            byte x = *pc++                  TRC("X%u", x)
 #define DTYPE(T)        (*(T *) &frame[d])
 #define STYPE(T)        (*(T *) &frame[s])
+#define XTYPE(T)        (*(T *) &frame[x])
 #define DALL            frame[d]
 #define SALL            frame[s]
+#define XALL            frame[x]
 #define DINT            DTYPE(value_t)
 #define SINT            STYPE(value_t)
 #define DNAT            DTYPE(uvalue_t)
@@ -193,16 +197,25 @@ inline bool output_newline(std::ostream &output)
 #define SRPTR           STYPE(byte_p)
 #define DWPTR           DTYPE(byte *)
 #define SWPTR           STYPE(byte *)
-#define TOK             tok_t t = rt.arg<tok_t>(pc)     TRACE("T%zu", t)
-#define JMP_TOK         (pc = byte_p(tok(t)))           TRACE("=%p", pc)
-#define BR_OFF          byte_p bpc = pc;                                \
-                        broff_t b = rt.arg<broff_t>(pc) TRACE("O%ld", long(b))
-#define BRANCH          (pc = bpc + b)                  TRACE(">%p", pc)
-#define KINT            value_t kint  = rt.arg<value_t>(pc)  TRACE("I%ld", long(kint))
-#define KNAT            uvalue_t knat = rt.arg<uvalue_t>(pc) TRACE("N%lu", ulong(knat))
-#define KSHIFT          byte kshift = *pc++                  TRACE("#%u", kshift)
-#define FLUSH           this->pc = pc; this->frame = frame
-#define RESYNC          pc = this->pc; frame = this->frame; args = arguments()
+#define PRED            byte pred = *pc++;              TRC("?%u", pred)
+#define PMASK           (1ULL<<pred)
+#define PCOND(cond)     (flags = (cond) ? (flags | PMASK) : (flags & ~PMASK))
+#define PTEST           (flags & PMASK)
+#define ARG(type,name)  type name = rt.arg<type>(pc)
+#define TOK             ARG(tok_t, t)                   TRC("T%zu", t)
+#define JMP_TOK         (pc = byte_p(tok(t)))           TRC("=%p", pc)
+#define BR_OFF          byte_p bpc = pc; ARG(broff_t,b) TRC("O%ld", long(b))
+#define BRANCH          (pc = bpc + b)                  TRC(">%p", pc)
+#define KINT            ARG(value_t, kint)              TRC("I%ld", long(kint))
+#define KNAT            ARG(uvalue_t, knat)             TRC("N%lu", (unsigned long)(knat))
+#define KSHIFT          byte kshift = *pc++             TRC("#%u", kshift)
+#define FLUSH           this->flags = flags;            \
+                        this->pc    = pc;               \
+                        this->frame = frame
+#define RESYNC          flags       = this->flags;      \
+                        pc          = this->pc;         \
+                        frame       = this->frame;      \
+                        args        = arguments()
 
 // For native code
 #define NATIVE_PC       byte_p &pc = rt.pc
@@ -231,6 +244,7 @@ bool runtime::run()
     std::ostream *stdout = outputs.size() > 2 ? outputs[1] : nullptr;
     std::ostream *stderr = outputs.size() > 3 ? outputs[2] : nullptr;
     tok_t         called = 0;
+    uint64_t      flags  = 0;
 
     record(runtime, "Running from pc=%p frame=%p", pc, frame);
 
@@ -271,15 +285,19 @@ bool runtime::run()
 //
 // ============================================================================
 
-#define NATIVE(op, code)                        \
-    static bool xlr8_native_##op(runtime &rt)   \
-    {                                           \
-        byte_p  &pc    = rt.pc;                 \
-        stack_p &frame = rt.frame;              \
-        bool     done  = false;                 \
-        (void) pc; (void) frame; (void) done;   \
-        code;                                   \
-        return !done;                           \
+#define NATIVE(op, code)                      \
+    static bool xlr8_native_##op(runtime &rt) \
+    {                                         \
+        byte_p   &pc    = rt.pc;              \
+        uint64_t &flags = rt.flags;           \
+        stack_p  &frame = rt.frame;           \
+        bool      done  = false;              \
+        (void) pc;                            \
+        (void) flags;                         \
+        (void) frame;                         \
+        (void) done;                          \
+        code;                                 \
+        return !done;                         \
     }
 #include "native.tbl"
 
@@ -400,8 +418,8 @@ bool runtime::resolve(tok_t id, tok_t called, byte_p &pc)
 //
 // ============================================================================
 
-#undef TRACE
-#define TRACE(format, arg)                                              \
+#undef TRC
+#define TRC(format, arg)                                                \
     ;                                                                   \
     toffs += snprintf(tbuffer + toffs, tsize - toffs, " " format, arg)
 
@@ -421,6 +439,7 @@ bool runtime::trace()
     std::ostream *stdout = outputs.size() > 2 ? outputs[1] : nullptr;
     std::ostream *stderr = outputs.size() > 3 ? outputs[2] : nullptr;
     tok_t         called = 0;
+    uint64_t      flags  = 0;
 
     char          tbuffer[256];
     const size_t  tsize = sizeof(tbuffer);

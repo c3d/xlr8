@@ -1,0 +1,17 @@
+// Save and restore predicate flags
+
+enter 2
+true 0
+pushf
+false 0
+bcc 0 :fail
+popf
+bcc 0 :ok
+.fail
+int 0 0
+bra :done
+.ok
+int 0 42
+.done
+sys write_integer 0 1
+sys write_newline 1

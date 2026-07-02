@@ -1,0 +1,11 @@
+// Select register value based on predicate
+
+enter 5
+int 0 10
+int 1 10
+int 2 +111
+int 3 +222
+cmpeq 0 0 1
+select 0 4 2 3
+sys write_integer 4 1
+sys write_newline 1

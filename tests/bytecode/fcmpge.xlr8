@@ -1,0 +1,13 @@
+// Float compare greater or equal
+
+enter 4
+flt 0
+3.0f
+flt 1
+2.5f
+nat 2 1
+nat 3 0
+sys fcmpge 0 0 1
+select 0 4 2 3
+sys write_natural 4 1
+sys write_newline 1
