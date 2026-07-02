@@ -278,9 +278,10 @@ struct runtime
         for (size_t n = 0; n < ncases; n++)
         {
             value_t test = arg<value_t>(pc);
+            byte_p  bpc  = pc;
             broff_t offs = arg<broff_t>(pc);
             if (ref >= test)
-                target = pc + offs;
+                target = bpc + offs;
         }
         if (target)
             pc = target;
