@@ -80,9 +80,11 @@ memory usage. It is also designed for extensibility.
 
 ## Instruction format
 
-The XLR8 virtual machine uses a byte-sized opcodes with two addresses.
-Built-in opcodes are defined in `runtime/opcodes.tbl`, with values below 128.
-The current number of reserved opcodes is shown by `xlr8 -tmain`.
+The XLR8 virtual machine uses byte-sized opcodes. Most instructions name a
+destination register and a source register (`op dst src`); others append
+immediate operands, predicate numbers, branch offsets, or inline data (floats,
+dispatch tables). Built-in opcodes are defined in `runtime/opcodes.tbl`, with
+values below 128. The current number of reserved opcodes is shown by `xlr8 -tmain`.
 
 XLR8 source code directly translates into bytecode through one-pass scanning.
 For example, when you write `add 1 2`, this generates the byte corresponding to
@@ -90,9 +92,10 @@ For example, when you write `add 1 2`, this generates the byte corresponding to
 The resulting byte sequence is interpreted as adding register 2 to register 1.
 
 However, these are only bytes, and the scanner makes no attempt at enforcing any
-kind of syntax or instruction format check. The `end` opcode has byte value 1,
-so it is equivalent to write `end` or `1`, and `add end end` will add register 1
-to itself.
+kind of syntax or instruction format check. The `end` opcode has byte value `2`,
+so it is equivalent to write `end` or `2`, and `add end end` will add register 1
+to itself. Byte value `0` is the `null` opcode (always an error); byte value `1`
+is `undef`, which expects a token operand for forward `*name` resolution.
 
 ## Registers
 
@@ -152,21 +155,25 @@ The stack can also be accessed using `push` and `pop`. This moves the stack
 pointer but not the register frame. On the other hand, `enter` will always
 allocate a new register window below the current stack pointer.
 
-## User-defined opcodes
+## User-defined opcodes and named definitions
 
-Opcodes from 128 to 255 can be user-defined for compact encoding of additional
-arbitrary operations.
+XLR8 distinguishes two extension mechanisms:
 
-The default `xlr8` command-line sample code illustrates that capability with a
-`-d` options that sets a user-defined opcode for debugging messages. For
-example, if you run `xlr8 -d 199`, you can emit a message using `#199`:
+**Named definitions (`=foo`).** A `=name` … `;` block stores a bytecode body in the
+token pool. `call *name` emits a `call` plus a token reference (LEB128) pointing
+at that body. This is ordinary **function definition**, not a single-byte opcode.
+See [Example 3](#example-3-function-definition-recursive-factorial).
 
-```xlr8
-  #199 #": Hello, I just executed a user-defined opcode" #16#0A #0
-```
+**Extensible opcodes (128–255).** Byte values from 128 upward name a separate
+opcode space reserved for **compact encoding**: one byte in the instruction stream
+instead of a multi-byte `call` sequence or a long sequence of built-ins. The
+runtime dispatches these to handlers registered at startup (the sample driver uses
+`-d N` to bind opcode `N` to a native function). Emit them in source with `#N`,
+for example `#199` for opcode byte 199.
 
-Unused values below 128 can also be used for user-defined opcodes, however any
-built-in opcode will take precedence.
+Unused values below 128 can also be bound the same way, but any built-in opcode
+in `opcodes.tbl` takes precedence over a user handler at the same byte value.
+See [Example 6](#example-6-extensible-opcode-debug-print).
 
 # Source format
 
@@ -186,12 +193,14 @@ The text format is a sequence of [LEB128-encoded][leb128] tokens:
 
 Names and text are represented by token value that uniquely identify them.
 The token value for opcodes is the byte encoding for that opcode. For example
-`undef` has token value `0` and `end` has token value `1`.
+`null` has token value `0`, `undef` has token value `1`, and `end` has token
+value `2`.
 
 ## Directives
 
-* `=foo` defines a bytecode sequence, typically for a function. This bytecode
-  sequence ends with the next `;`. Sequences can be nested.
+* `=foo` defines a bytecode sequence—a **function body** stored as a token.
+  The sequence ends with the next `;`. Bodies can be nested. Invoke with
+  `call *foo`, not by writing `foo` as an opcode byte.
 * `?foo` reserves a name as an external reference. This is useful for mutually
   recursive calls.
 * `!foo` sets the value associated to symbol foo, and is used in conjuction with
@@ -258,11 +267,16 @@ sys tok 1 0
 Branches are PC-relative. Offsets are relative to the **beginning** of the
 offset (the first byte of the LEB128 field), not to the byte after it.
 That choice is necessary because the offset size is not fixed. A branch offset
-that eaches -64/+63 bytes fits in a byte, larger displacements require more
+that reaches -64/+63 bytes fits in a byte; larger displacements require more
 bytes.
 
+Register branches (`beq`, `blt`, …) test a **signed** register value.
+`dbra` decrements an unsigned register and branches while non-zero. Predicate
+branches use `bcc pred :label` (see [64 flags](#64-flags-and-conditional-execution)).
+Unconditional branches use `bra :label`. Token jumps use `jmp *name`.
 
-## Syntax symmary
+
+## Syntax summary
 
 | Syntax        | Meaning                                                      |
 |---------------|--------------------------------------------------------------|
@@ -274,7 +288,7 @@ bytes.
 | `1.23`, `1.D` | Insert a 64-bit IEEE-754 floating point value                |
 | `//` …        | Line comment (C++ style)                                     |
 | `/*` … `*/`   | Block comment                                                |
-| `*name`       | Insert a reference to a named token (required for `call`)    |
+| `*name`       | Insert a token reference (required for `call`, `jmp`)          |
 | `!name`       | Forward-declare a user opcode for mutual recursion           |
 | `=name`       | Begin defining a new function; the body runs until `;`       |
 | `;`           | End an opcode definition (also ends the top-level program)   |
@@ -314,6 +328,14 @@ Numerals accept XL-style bases and underscores (`16#FF`, `1_000_000`).
 A leading `+` or `-` selects the signed path used with `int`.
 Plain numerals are treated as naturals and pair with `nat`.
 
+**Ambiguous numerals.** Token values for small integers coincide with built-in
+opcode names (`0` is `null`, `1` is `undef`, `2` is `int`, `10` is `select`,
+`25` is `sys`, …). When a numeral is written as a freestanding token in the
+bytecode stream, the scanner emits the opcode byte, not the numeric value. Use a
+leading `+` or `-` to force a signed LEB128 constant (`int 0 +100`), or `#` for
+a raw byte (`#2`). This matters for `dispatch` case values, stream indices, and
+any operand that is not immediately after `int` or `nat`.
+
 
 ### Floating-point constants
 
@@ -335,10 +357,12 @@ The scanner chooses the embedded size from the literal suffix:
 | `d`            | 64-bit `double` | `dbl`          |
 | *(none)*       | 64-bit `double` | `dbl`          |
 
-Use the matching arithmetic and `sys` opcodes: `fadd` / `sys fceil` for floats,
+Use the matching arithmetic and `sys` opcodes: `fadd` / `sys ffloor` for floats,
 `dadd` / `sys dfloor` for doubles.
 
-Conversion opcodes (`i2f`, `f2i`, `i2d`, `d2i`) bridge integers and reals.
+Type conversions and math library routines are **`sys` natives** (`sys i2f`,
+`sys f2i`, `sys fsqrt`, …). Built-in `fadd`…`fmod` and `dadd`…`dmod` opcodes
+cover in-register arithmetic only.
 
 Real literals accept decimal and based syntax (`16#1.A#f`, `1.5e2f`, …).
 See [Example 2](#example-2-counting-loop) for based-number rules, including
@@ -362,6 +386,7 @@ All data lives in one memory arena allocated at startup:
 | `frame` | Base pointer for the current function's local registers |
 | `tokens[]` | Pool of text and bytecode; indices are `tok_t` values |
 | `defined` | Map from user opcode names to their bytecode entry tokens |
+| `globals` | Global variable slots (`sto` / `rcl`; sized with `sys globals`) |
 | `entry` | Program entry point after scanning |
 
 `enter N` allocates `N` local registers below the current frame. Most
@@ -372,29 +397,190 @@ register 0.
 
 ### Built-in opcodes (overview)
 
-The full list and semantics live in `runtime/opcodes.tbl`. Summary by group:
+There are **109 built-in opcodes** (byte values `0`…`108`). The count is shown
+at startup with `xlr8 -tmain`. Definitions and semantics are in
+`runtime/opcodes.tbl`. Most instructions use `op dst src`; immediate forms
+append a LEB128 constant; several groups use additional operands as described
+below.
 
 | Group | Opcodes | Purpose |
 |-------|---------|---------|
-| Control | `end`, `copy`, `swap`, `jmp`, `call`, `ijmp`, `icall`, `ret`, `ppc`, `pc`, `pca`, `enter`, `leave`, `save`, `restore`, `push`, `pop`, `dispatch` | Frames, calls, register moves, indirect jumps, multi-way dispatch |
-| Branches | `dbra`, `bra`, `beq`, `bne`, `blt`, `bgt`, `ble`, `bge` | Branches on a **signed** register test (`dbra` decrements and branches) |
-| Integer math | `add`, `sub`, `mul`, `div`, `mod`, `neg`, `incr`, `decr`, `umul`, `udiv`, `umod` | Register arithmetic |
-| Immediate math | `addi`, `subi`, `muli`, `divi`, `modi`, `addu`, `subu`, `mulu`, `divu`, `modu` | Same, with an inline constant |
-| Bitwise | `and`, `or`, `xor`, `shl`, `shr`, `ushr`, `not`, `andu`, `oru`, `xoru`, `shlu`, `shru`, `ushru` | Bit operations |
-| Constants | `int`, `nat`, `flt`, `dbl`, `txt` | Load a signed integer, natural, float, double, or text constant |
-| Errors | `err`, `clear`, `trap` | Error reporting and traps |
-| I/O | `stdin`, `stdout`, `stderr`, `eof`, `inpc`…`inpt`, `outc`…`outt`, `outl` | Stream binding and typed input/output |
-| Float / double | `i2f`, `i2d`, `f2i`, `d2i`, `fadd`…`fmod`, `dadd`…`dmod`, `ffloor`…`flog2`, `dfloor`…`dlog2` | Conversions and math library |
+| Meta | `null`, `undef`, `end` | `null` traps zero-filled regions; `undef` resolves forward `*name` references; `end` stops execution |
+| Constants | `int`, `nat`, `flt`, `dbl`, `txt` | Load a signed integer, natural, float, double, or text token into a register |
+| Data movement | `copy`, `swap`, `ccopy`, `select` | Register copy; `ccopy`/`select` are predicate-guarded (see below) |
+| Control flow | `jmp`, `call`, `ijmp`, `icall`, `ret`, `ppc`, `pc`, `pca`, `enter`, `leave`, `get`, `set`, `push`, `pop`, `dispatch` | Calls, returns, PC access, frames, argument access, multi-way dispatch |
+| Globals | `sto`, `rcl` | Store to / recall from the global array (resize with `sys globals`) |
+| System | `sys` | Invoke a native operation (see [Native operations](#native-operations-sys)) |
+| Branches | `dbra`, `bra`, `bcc`, `beq`, `bne`, `blt`, `bgt`, `ble`, `bge` | PC-relative branches; `bcc` tests a predicate; others test a **signed** register |
+| Predicates | `true`, `false`, `cmpeq`, `cmpne`, `cmplt`, `cmpgt`, `cmple`, `cmpge`, `cmpule`, `cmpuge`, `cmpult`, `cmpugt`, `pushf`, `popf` | 64 condition flags (see below) |
+| Integer math | `add`, `sub`, `mul`, `div`, `mod`, `neg`, `incr`, `decr`, `umul`, `udiv`, `umod` | Two-address register arithmetic |
+| Immediate math | `addi`, `subi`, `muli`, `divi`, `modi`, `addu`, `subu`, `mulu`, `divu`, `modu` | Same, with an inline LEB128 constant |
+| Bitwise | `and`, `or`, `xor`, `shl`, `shr`, `ushr`, `not`, `andu`, `oru`, `xoru`, `shlu`, `shru`, `ushru` | Bit operations; `shru`/`ushru` use an inline shift count |
+| Memory | `ld8`, `ld4`, `ld2`, `ld1`, `ldf`, `ldd`, `st8`, `st4`, `st2`, `st1`, `stf`, `std` | Load/store through an address held in a register |
+| Float / double | `fadd`, `fsub`, `fmul`, `fdiv`, `fmod`, `dadd`, `dsub`, `dmul`, `ddiv`, `dmod` | In-register IEEE-754 arithmetic |
 
-Many arithmetic and logical opcodes come in several variants, using a prefix
-when the operand type or operation matters: plain names for signed integer
-(`add`, `div`, …), `u` for unsigned (`udiv`, `umul`, `umod`, …), `f` for
-float (`fadd`, `fdiv`, …), and `d` for double (`dadd`, `ddiv`, …). The
-same convention applies to immediate forms (`divi` vs `divu`, etc.) and
-to bitwise shifts.
+**`null` vs `undef`.** Uninitialized heap and token storage is zero-filled. If
+the program counter ever fetches byte `0`, the VM executes `null` and stops with
+an error (`Null opcode, probably a bug`). That catches stray execution into
+padding or truncated bytecode. Forward references (`?foo`, `call *foo` before
+`=foo`) are encoded as an `undef` instruction (byte `1`) followed by the callee
+token; at run time `undef` patches the call site and continues into the real
+body. So `0` means “invalid / unset”, while `1` means “defined later, resolve
+now”.
 
-Branch opcodes always treat the tested register as a **signed** integer.
-There are no unsigned branch variants.
+Many arithmetic and logical opcodes come in several variants: plain names for
+signed integer (`add`, `div`, …), `u` for unsigned (`udiv`, `umul`, …), `f` for
+float (`fadd`, …), and `d` for double (`dadd`, …). Immediate forms follow the
+same convention (`divi` vs `divu`, etc.).
+
+Branch opcodes (`beq` … `bge`, `dbra`) treat the tested register as a **signed**
+integer. There are no unsigned branch variants; use predicate compares (`cmpult`,
+…) with `bcc` instead.
+
+**Jump forms.** `bra :label` and conditional branches use `:label` PC-relative
+offsets. `jmp *name` and `call *name` jump to the bytecode bound to token
+`*name`. `ijmp` / `icall` take an address from a register (often loaded with
+`pca` or `sys tok`).
+
+**Dispatch.** `dispatch reg N v1 :lab1 v2 :lab2 …` compares the signed value in
+`reg` against each threshold `v1`, `v2`, … (use `+v` or `#v` when `v` would
+name an opcode). The branch to the **last** label whose threshold is `<=` the
+value is taken; if none match, execution continues after the table.
+
+
+### 64 flags and conditional execution
+
+XLR8 maintains **64 condition flags** in a `flags` register (one bit each, numbered
+0…63). Compare opcodes set or clear a selected bit; only explicit **guarded**
+opcodes (`ccopy`, `select`, `bcc`, and the float compares via `sys`) consult
+that bit. Ordinary instructions such as `add` or `copy` always execute—unlike
+architectures where every instruction is predicated.
+
+| Opcode | Operands | Effect |
+|--------|----------|--------|
+| `true` / `false` | `pred` | Set or clear predicate bit `pred` |
+| `cmpeq` … `cmpge` | `pred dst src` | Signed compare `dst` vs `src`; update `pred` |
+| `cmpule` … `cmpugt` | `pred dst src` | Unsigned compare `dst` vs `src`; update `pred` |
+| `ccopy` | `pred dst src` | `dst ← src` if `pred` is set |
+| `select` | `pred dst src xtra` | `dst ← src` if `pred` set, else `dst ← xtra` |
+| `bcc` | `pred :label` | Branch if `pred` is set |
+| `pushf` / `popf` | *(none)* | Save / restore the entire `flags` word on the value stack |
+
+Example: **registers 0 and 1 are equal** — pick a result in register 2 (`+1` if
+equal, `+0` otherwise). Several idioms work; predicates add `cmpeq`/`bcc`/`select`
+/`ccopy`, while classic signed branches can use `sub` + `beq` without touching
+`flags`:
+
+| Approach | Instructions | Notes |
+|----------|--------------|-------|
+| **`cmpeq` + `bcc`** | `cmpeq pred R0 R1` then `bcc pred :equal` | Sets predicate bit `pred`, then branches. Compare and branch are separate; other guarded ops can reuse the same predicate. |
+| **`sub` + `beq`** | `copy tmp R0` · `sub tmp R1` · `beq tmp :equal` | No predicates. `tmp` is zero iff `R0 == R1` (signed). Destroys `tmp`. |
+| **`cmpeq` + `select`** | `cmpeq pred R0 R1` · `select pred dst if_true if_false` | Writes one of two source registers into `dst` based on equality; no branch. |
+| **`cmpeq` + `ccopy`** | `cmpeq pred R0 R1` · `ccopy pred dst value` | Copies `value` into `dst` only when equal; `dst` unchanged otherwise (initialize `dst` first). |
+
+Using **`cmpeq` + `bcc`** (output `1` when equal):
+
+```xlr8
+enter 3
+int 0 +10
+int 1 +10
+cmpeq 0 0 1
+bcc 0 :equal
+int 2 +0
+bra :done
+.equal
+int 2 +1
+.done
+sys write_integer 2 1
+sys write_newline 1
+```
+
+Using **`sub` + `beq`** (same result, no predicates):
+
+```xlr8
+enter 4
+int 0 +10
+int 1 +10
+copy 2 0
+sub 2 1
+beq 2 :equal
+int 3 +0
+bra :done
+.equal
+int 3 +1
+.done
+sys write_integer 3 1
+sys write_newline 1
+```
+
+Using **`cmpeq` + `select`** (no branch; register 2 holds the outcome):
+
+```xlr8
+enter 5
+int 0 +10
+int 1 +10
+nat 3 +1
+nat 4 +0
+cmpeq 0 0 1
+select 0 2 3 4
+sys write_integer 2 1
+sys write_newline 1
+```
+
+Using **`cmpeq` + `ccopy`** (`ccopy` overwrites register 2 only when equal):
+
+```xlr8
+enter 5
+int 0 +10
+int 1 +10
+int 2 +0
+nat 3 +1
+cmpeq 0 0 1
+ccopy 0 2 3
+sys write_integer 2 1
+sys write_newline 1
+```
+
+Floating-point compares (`fcmpeq`, `dcmplt`, …) are **`sys` natives** with the
+same `pred dst src` operand pattern.
+
+
+### Native operations (`sys`)
+
+Host services are invoked with `sys name operands…`. Names and implementations
+live in `runtime/native.tbl`. Operand order matches each native's definition
+(often `dst src`, sometimes `src stream`, sometimes `:branch stream`, etc.).
+Stream indices are small integers: `0` is the program input, `1` stdout, `2`
+stderr when running from a file. Use `#0` or `+0` when a stream index would
+otherwise tokenize as an opcode name.
+
+| Group | Names |
+|-------|-------|
+| Heap / globals | `globals`, `malloc`, `realloc`, `free` |
+| Process environment | `cmdline`, `env` |
+| Input | `read_char`, `read_integer`, `read_natural`, `read_float`, `read_double`, `read_scanner`, `branch_on_eof`, `branch_on_bad` |
+| Output | `write_char`, `write_integer`, `write_natural`, `write_float`, `write_double`, `write_text`, `write_newline` |
+| Errors | `print_error`, `clear_error`, `trap_error` |
+| Conversions | `i2f`, `i2d`, `f2i`, `d2i` |
+| Float stack | `fpush`, `fpop`, `dpush`, `dpop` |
+| Math library | `ffloor`, `fceil`, `fsqrt`, `fcbrt`, `fsin`, `fcos`, `ftan`, `fasin`, `facos`, `fatan`, `fexp`, `flog`, `fexp2`, `flog2`, and the `d…` counterparts |
+| Float compares | `fcmpeq`, `fcmpne`, `fcmplt`, `fcmpgt`, `fcmple`, `fcmpge`, and the `d…` counterparts |
+| Memory (volatile) | `ld1`…`ld8`, `ldf`, `ldd`, `st1`…`st8`, `stf`, `std` — same names as built-in load/store, also available as natives |
+| Bytecode / LEB128 | `tok`, `leb2i`, `leb2u`, `i2leb`, `u2leb`, `i2lebsz`, `u2lebsz` |
+
+Typical output idiom:
+
+```xlr8
+txt 1 "answer="
+sys write_text 1 1
+sys write_integer 0 1
+sys write_newline 1
+```
+
+When a program is loaded from a file, stream `0` is that file (exhausted after
+scanning), which is why `branch_on_eof` fires at runtime and `read_*` see EOF
+unless input is supplied differently (for example `xlr8 -` with the program and
+data on standard input).
 
 
 ### Example 1: addition and output
@@ -405,9 +591,9 @@ nat 0 1
 nat 1 1
 add 0 1
 txt 1 "1+1="
-outt 1
-outi 0
-outl
+sys write_text 1 1
+sys write_integer 0 1
+sys write_newline 1
 ```
 
 Output: `1+1=2`
@@ -415,23 +601,27 @@ Output: `1+1=2`
 
 ### Example 2: counting loop
 
+Use `dbra` for a compact counted loop: it decrements an **unsigned** register
+and branches while the result is non-zero (after the decrement).
+
 ```xlr8
-enter 4
+enter 3
 nat 0 2                         // counter
-nat 1 1                         // increment
-nat 2 1_000_000                 // limit
+nat 1 999_998                   // iterations until counter reaches limit
 
 .loop
-add 0 1
-copy 3 0
-sub 3 2                         // counter - limit
-blt 3 :loop                     // continue while counter < limit
+addu 0 1                        // counter++
+dbra 1 :loop                    // --remaining; branch if non-zero
 
-txt 3 "I="
-outt 3
-outi 0
-outl
+txt 2 "I="
+sys write_text 2 1
+sys write_integer 0 1
+sys write_newline 1
 ```
+
+The limit `1_000_000` is reached after `999_998` increments from the starting
+value `2`. For a limit test instead of a down-counter, use `blt` / `bge` on a
+signed difference (see [Branches](#branches)).
 
 Numbers accept XL-style bases and underscores (`16#FF`, `1_000_000`).
 
@@ -446,10 +636,10 @@ To request a 32-bit float in that case, use the `#f` suffix form, e.g.
 `16#1.A#f` (not `16#1.Af`, where the final `f` is the digit).
 
 
-### Example 3: extensible opcode (recursive factorial)
+### Example 3: function definition (recursive factorial)
 
-User-defined opcodes are bodies of bytecode stored under a name. Call them
-through `call *name` so the scanner emits a token pointing at the body:
+A `=name` block is a named function: bytecode stored under a token, invoked
+with `call *name`:
 
 ```xlr8
 =fact
@@ -469,9 +659,9 @@ enter 2
 nat 0 6
 call *fact
 txt 1 "Factorial 6 is "
-outt 1
-outi 0
-outl
+sys write_text 1 1
+sys write_integer 0 1
+sys write_newline 1
 ```
 
 Output: `Factorial 6 is 720`
@@ -513,9 +703,9 @@ enter 2
 nat 0 5
 call *foo
 txt 1 "foo(5)="
-outt 1
-outi 0
-outl
+sys write_text 1 1
+sys write_integer 0 1
+sys write_newline 1
 ```
 
 Output: `foo(5)=7`
@@ -529,12 +719,33 @@ flt 0 2.5f
 flt 1 3.0f
 fadd 0 1
 txt 1 "2.5f+3.0f="
-outt 1
-outf 0
-outl
+sys write_text 1 1
+sys write_float 0 1
+sys write_newline 1
 ```
 
 Output: `2.5f+3.0f=5.5`
+
+
+### Example 6: extensible opcode (debug print)
+
+Register a handler for opcode 199 when starting the runtime (`xlr8 -d 199`).
+The program can then emit that single byte—denser than spelling out the same
+logic with built-in opcodes:
+
+```xlr8
+enter 1
+nat 0 32
+.loop
+  sys write_integer 0 1
+  #199 #": Hello, I just executed a user-defined opcode" #16#0A #0
+  dbra 0 :loop
+```
+
+Run as `xlr8 -d 199 program.xlr8`. The `#199` byte is opcode 199; the following
+`#"…"` bytes are operands consumed by that handler. Values **128–255** are the
+primary extensible range; the same mechanism works for unused bytes below 128
+if no built-in opcode occupies them.
 
 
 ## Scanning
@@ -557,8 +768,10 @@ token and appends to a bytecode buffer:
 
 When scanning finishes, the program blob is stored as a token and
 `runtime.entry` is set to point at it. Undefined forward branch labels are
-reported as errors. An `!name` declaration reserves an entry in
-`runtime.defined` so `*name` can be used before `=name`. When the definition
+reported as errors. A `?name` declaration or a `call *name` before `=name`
+inserts an `undef` placeholder (opcode byte `1`) in the bytecode stream; the
+runtime resolves it on first execution. An `!name` declaration reserves an entry
+in `runtime.defined` so `*name` can be used before `=name`. When the definition
 is scanned, its bytecode is stored in that reserved slot. Nested `=opcode`
 definitions use a child scanner over the same input stream; the defined body
 is registered in `runtime.defined` before scanning resumes.
