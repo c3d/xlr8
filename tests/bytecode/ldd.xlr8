@@ -1,7 +1,8 @@
 // Store and load a double
 
 enter 3
-sys malloc 0 +8
+nat 2 8
+sys malloc 0 2
 dbl 1 2.718
 std 0 1
 dbl 1 0.0

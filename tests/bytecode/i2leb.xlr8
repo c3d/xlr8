@@ -1,7 +1,8 @@
 // Encode signed integer as LEB128
 
 enter 4
-sys malloc 0 +8
+nat 1 8
+sys malloc 0 1
 copy 2 0
 int 1 +42
 sys i2leb 0 1

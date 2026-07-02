@@ -1,7 +1,8 @@
 // Allocate heap memory
 
 enter 2
-sys malloc 0 +16
+nat 1 16
+sys malloc 0 1
 beq 0 :fail
 int 0 +1
 bra :done

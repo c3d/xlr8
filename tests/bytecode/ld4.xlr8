@@ -1,7 +1,8 @@
 // st4/ld4 32-bit memory access
 
 enter 3
-sys malloc 0 +8
+nat 2 8
+sys malloc 0 2
 nat 1 42
 st4 0 1
 nat 1 0
