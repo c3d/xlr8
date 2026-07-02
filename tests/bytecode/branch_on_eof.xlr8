@@ -1,0 +1,11 @@
+// Branch when input stream is at EOF
+
+enter 1
+sys branch_on_eof :eof +0
+int 0 +1
+bra :done
+.eof
+int 0 +2
+.done
+sys write_integer 0 1
+sys write_newline 1

@@ -1,0 +1,11 @@
+// Unconditional jump via token address
+
+=target
+  int 0 +42
+  jmp *out
+enter 1
+jmp *target
+int 0 +1
+.out
+sys write_integer 0 1
+sys write_newline 1

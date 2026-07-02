@@ -1,0 +1,12 @@
+// Program counter is non-zero
+
+enter 1
+pc 0
+beq 0 :zero
+int 0 +1
+bra :done
+.zero
+int 0 0
+.done
+sys write_integer 0 1
+sys write_newline 1

@@ -1,0 +1,7 @@
+// dsqrt on dbl
+
+enter 2
+dbl 0 9.0
+sys dsqrt 0 0
+sys write_double 0 1
+sys write_newline 1

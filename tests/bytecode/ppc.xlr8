@@ -1,0 +1,8 @@
+// Push program counter on the stack
+
+enter 1
+ppc
+pop 0
+int 0 +99
+sys write_integer 0 1
+sys write_newline 1

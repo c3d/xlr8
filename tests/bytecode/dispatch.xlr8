@@ -1,0 +1,15 @@
+// Multi-way dispatch on a signed value
+
+enter 2
+int 0 +15
+dispatch 0 #2 +10 :low +20 :high
+int 0 0
+bra :done
+.low
+int 0 +1
+bra :done
+.high
+int 0 +2
+.done
+sys write_integer 0 1
+sys write_newline 1

@@ -1,0 +1,7 @@
+// Convert signed integer to double
+
+enter 2
+int 0 +42
+sys i2d 0 0
+sys write_double 0 1
+sys write_newline 1

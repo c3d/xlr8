@@ -1,0 +1,12 @@
+// Indirect call through a register
+
+enter 1
+pca 0 :fn
+icall 0
+bra :done
+.fn
+  int 0 +42
+  ret
+.done
+sys write_integer 0 1
+sys write_newline 1

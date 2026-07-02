@@ -1,0 +1,12 @@
+// Branch when register is >= zero
+
+enter 2
+int 0 +99
+int 1 0
+bge 1 :target
+addi 0 +1
+addi 0 +1
+addi 0 +1
+.target
+sys write_integer 0 1
+sys write_newline 1

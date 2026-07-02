@@ -1,0 +1,8 @@
+// Free heap memory
+
+enter 1
+sys malloc 0 +8
+sys free 0
+int 0 +1
+sys write_integer 0 1
+sys write_newline 1

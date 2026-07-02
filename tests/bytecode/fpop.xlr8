@@ -1,0 +1,8 @@
+// Push float on the runtime stack
+
+enter 2
+flt 0 2.5f
+sys fpush 0
+sys fpop 1
+sys write_float 1 1
+sys write_newline 1

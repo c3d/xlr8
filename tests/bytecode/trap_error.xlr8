@@ -1,0 +1,13 @@
+// Branch when an error is pending
+
+enter 1
+sys write_integer 0 #99
+sys trap_error :trapped
+int 0 +1
+bra :done
+.trapped
+sys clear_error
+int 0 +2
+.done
+sys write_integer 0 1
+sys write_newline 1

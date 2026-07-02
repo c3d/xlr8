@@ -1,0 +1,10 @@
+// Indirect jump through a register
+
+enter 1
+pca 0 :target
+ijmp 0
+int 0 +1
+.target
+int 0 +42
+sys write_integer 0 1
+sys write_newline 1

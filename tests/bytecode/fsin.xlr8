@@ -1,0 +1,7 @@
+// fsin on flt
+
+enter 2
+flt 0 0.0f
+sys fsin 0 0
+sys write_float 0 1
+sys write_newline 1

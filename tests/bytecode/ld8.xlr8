@@ -1,0 +1,10 @@
+// st8/ld8 64-bit memory access
+
+enter 3
+sys malloc 0 +8
+nat 1 42
+st8 0 1
+nat 1 0
+ld8 1 0
+sys write_natural 1 1
+sys write_newline 1

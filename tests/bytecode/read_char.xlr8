@@ -1,0 +1,6 @@
+// Read one character from input (EOF -> 0)
+
+enter 2
+sys read_char 0 +0
+sys write_integer 0 1
+sys write_newline 1

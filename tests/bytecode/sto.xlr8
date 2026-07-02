@@ -1,0 +1,10 @@
+// Store and recall a global
+
+enter 2
+sys globals +4
+int 0 +42
+sto 0 0
+int 0 0
+rcl 0 0
+sys write_integer 0 1
+sys write_newline 1
