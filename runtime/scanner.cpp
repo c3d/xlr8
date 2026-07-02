@@ -105,7 +105,7 @@ bool scanner::validate()
         return false;
     }
 
-    program += text(char(runtime::op_end), 1);
+    program += text(1, char(runtime::op_end));
     tok_t prog = rt.tok(program);
     rt.entry = byte_p(rt.tok(prog));
     rt.pc = rt.entry;

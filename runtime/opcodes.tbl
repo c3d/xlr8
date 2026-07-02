@@ -27,6 +27,8 @@
 //   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // ****************************************************************************
 
+OP(null,        rt.error("Null opcode, probably a bug"); done = true)
+
 OP(undef,       TOK; done = !resolve(t, called, pc))
 OP(end,         done = true)
 

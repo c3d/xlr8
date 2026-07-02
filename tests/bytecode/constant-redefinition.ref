@@ -1,2 +1,2 @@
-scanner_error: Redefining FOO from 2 to 10
+scanner_error: Redefining FOO from 2 to 11
 main_error: Label redefinition

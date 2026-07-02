@@ -1,5 +1,5 @@
 arg[0]='./xlr8'
 arg[1]='performance/tokenization-performance.xlr8'
-arg[2]='undef'
+arg[2]='null'
 Done!
 

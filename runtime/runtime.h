@@ -545,7 +545,7 @@ struct runtime
     {
         if (index < cmdline.size())
             return tok(cmdline[index]);
-        return op_undef;
+        return op_null;
     }
 
 
@@ -557,7 +557,7 @@ struct runtime
         text name = as_text(t);
         if (cstring env = getenv(name.c_str()))
             return tok(text(env));
-        return op_undef;
+        return op_null;
     }
 
 
