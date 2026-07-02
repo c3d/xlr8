@@ -1,5 +1,6 @@
 #!/bin/bash
 export TIMEFILE=$1.${TARGET:-def}.time
 awk -f $(dirname $0)/filter-time.awk
+[ -f "${TIMEFILE}" ] || echo "999.999" > ${TIMEFILE}
 [ -n "${UPDATE_REFS}" ] && cp ${TIMEFILE} ${TIMEFILE}ref
 [ -f ${TIMEFILE}ref ] || cp ${TIMEFILE} ${TIMEFILE}ref
