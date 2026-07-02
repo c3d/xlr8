@@ -34,10 +34,12 @@
 #******************************************************************************
 
 XLR8=./xlr8 $(OPTLEVEL)
-TESTS=$(wildcard */*.xlr8)
+TESTS=$(TESTS_$(PERF))
 RUN_TESTS=yes
 TIMEOUT=30
-
+PERF=
+TESTS_perf=$(wildcard */*.xlr8)
+TESTS_=$(filter-out performance/%,$(TESTS_perf))
 MIQ=../make-it-quick/
 
 # Make sure we don't get "WARNING: Cannot set locale" messages polluting tests
@@ -57,6 +59,9 @@ run-%:
 	$(PRINT_COMMAND) $(MAKE) TESTS="$(wildcard */*$**.xlr8)" .tests
 ref-%:
 	$(PRINT_COMMAND) $(MAKE) TESTS="$(wildcard */*$**.xlr8)" UPDATE_REFS=yes .tests
+perf: perf-tests
+perf-%:
+	$(PRINT_COMMAND) $(MAKE) PERF=perf $*
 
 XLR8_CHECK=$(if $($1.CHECK), $($1.CHECK) &&)
 
