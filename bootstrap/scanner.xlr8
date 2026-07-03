@@ -74,12 +74,13 @@
 !G_NUM_GLOBALS  32
 
 // Character constants (extras for as_real)
-!CHAR_E         101
-!CHAR_UPPER_E   69
-!CHAR_F         102
-!CHAR_UPPER_F   70
-!CHAR_D         100
-!CHAR_UPPER_D   68
+// Use + prefix when value is a built-in opcode byte (0–117); see README "Ambiguous numerals".
+!CHAR_E         +101
+!CHAR_UPPER_E   +69
+!CHAR_F         +102
+!CHAR_UPPER_F   +70
+!CHAR_D         +100
+!CHAR_UPPER_D   +68
 !SIZE_FLOAT     +4
 !SIZE_DOUBLE    +8
 
@@ -100,19 +101,19 @@
 !INIT_SYM_CAP   64
 !INIT_VEC_CAP   64
 
-// Character constants
-!CHAR_NUL       0
-!CHAR_SLASH     47      // '/'
-!CHAR_STAR      42      // '*'
-!CHAR_SEMI      59      // ';'
-!CHAR_PLUS      43
-!CHAR_MINUS     45
-!CHAR_DOT       46
-!CHAR_HASH      35      // '#'
-!CHAR_USCORE    95      // '_'
-!CHAR_SQUOTE    39
-!CHAR_DQUOTE    34
-!CHAR_NEWLINE   10
+// Character constants (use + when value collides with opcode bytes 0–117)
+!CHAR_NUL       +0
+!CHAR_SLASH     +47      // '/'
+!CHAR_STAR      +42      // '*'
+!CHAR_SEMI      +59      // ';'
+!CHAR_PLUS      +43
+!CHAR_MINUS     +45
+!CHAR_DOT       +46
+!CHAR_HASH      +35      // '#'
+!CHAR_USCORE    +95      // '_' — 95 > 117, + is harmless
+!CHAR_SQUOTE    +39
+!CHAR_DQUOTE    +34
+!CHAR_NEWLINE   +10
 !NO_PUSHBACK    -1
 
 
@@ -947,8 +948,8 @@
 
 .digit
     copy 0 3
-    subu 0 48
-    cmplei 0 3 57
+    subu 0 +48
+    cmplei 0 3 +57
     bfalse 0 :hex_lower
     bra :have_digit
 .hex_lower
@@ -958,7 +959,7 @@
     subu 0 87
     bra :have_digit
 .hex_upper
-    cmplei 0 3 90
+    cmplei 0 3 +90
     bfalse 0 :bad_digit
     copy 0 3
     subu 0 55
@@ -1055,10 +1056,10 @@
     incr 2
 
     // --- Leading sign (isfirst) ---
-    bne 14 :not_first
-    cmpeqi 0 3 *CHAR_PLUS
+    beq 14 :not_first
+    cmpequ 0 3 *CHAR_PLUS
     btrue 0 :ar_loop
-    cmpeqi 0 3 *CHAR_MINUS
+    cmpequ 0 3 *CHAR_MINUS
     bfalse 0 :end_first
     xoru 15 1
     bra :ar_loop
@@ -1066,11 +1067,17 @@
     int 14 +0
 .not_first
 
-    cmpeqi 0 3 *CHAR_USCORE
+    // Exponent marker — must test before digit decode (R3 still holds the char)
+    cmpequ 0 3 *CHAR_UPPER_E
+    btrue 0 :ar_is_e
+    cmpequ 0 3 *CHAR_E
+    btrue 0 :ar_is_e
+
+    cmpequ 0 3 *CHAR_USCORE
     btrue 0 :ar_loop
 
     // --- Based number: 16#FFFF or 16#FF.FF#E3 ---
-    cmpeqi 0 3 *CHAR_HASH
+    cmpequ 0 3 *CHAR_HASH
     bfalse 0 :not_hash
     bne 18 :second_hash
     cmpultu 0 6 2
@@ -1096,7 +1103,7 @@
 .not_hash
 
     // --- Decimal point ---
-    cmpeqi 0 3 *CHAR_DOT
+    cmpequ 0 3 *CHAR_DOT
     bfalse 0 :not_dot
     bne 17 :ar_fail
     int 17 +1
@@ -1104,22 +1111,22 @@
 .not_dot
 
     // --- Decode digit (decimal 0-9, hex a-z / A-Z) ---
-    cmplei 0 3 57
+    cmplei 0 3 +57
     bfalse 0 :hex_lower
     copy 8 3
-    subu 8 48
+    subu 8 +48
     bra :have_digit
 .hex_lower
-    cmplei 0 3 122
+    cmplei 0 3 +122
     bfalse 0 :hex_upper
     copy 8 3
-    subu 8 87
+    subu 8 +87
     bra :have_digit
 .hex_upper
-    cmplei 0 3 90
+    cmplei 0 3 +90
     bfalse 0 :bad_digit
     copy 8 3
-    subu 8 55
+    subu 8 +55
 .have_digit
     cmpult 0 8 4
     bfalse 0 :bad_digit
@@ -1157,18 +1164,14 @@
     bra :ar_loop
 
 .bad_digit
-    // --- Exponent letter E / suffix F or D ---
-    cmpeqi 0 3 *CHAR_E
-    btrue 0 :ar_is_e
-    cmpeqi 0 3 *CHAR_UPPER_E
-    btrue 0 :ar_is_e
-    cmpeqi 0 3 *CHAR_F
+    // --- Suffix F or D (E handled before digit decode) ---
+    cmpequ 0 3 *CHAR_F
     btrue 0 :ar_is_f
-    cmpeqi 0 3 *CHAR_UPPER_F
+    cmpequ 0 3 *CHAR_UPPER_F
     btrue 0 :ar_is_f
-    cmpeqi 0 3 *CHAR_D
+    cmpequ 0 3 *CHAR_D
     btrue 0 :ar_is_d
-    cmpeqi 0 3 *CHAR_UPPER_D
+    cmpequ 0 3 *CHAR_UPPER_D
     btrue 0 :ar_is_d
     bra :ar_fail
 .ar_is_e
@@ -1192,31 +1195,32 @@
     bne 19 :ar_do_exp
     bra :ar_apply
 .ar_do_exp
-    flt 36 1.0f
     dbl 37 1.0
-    sys i2f 35 5
     sys i2d 31 5
 .ar_exp_loop
     beq 6 :ar_exp_done
     copy 8 6
     andu 8 1
     beq 8 :ar_exp_shift
-    fmul 36 35
     dmul 37 31
 .ar_exp_shift
-    fmul 35 35
     dmul 31 31
     ushru 6 1
     bra :ar_exp_loop
 .ar_exp_done
-    bne 15 :ar_exp_pos
-    ddiv 30 37
-    fdiv 34 36
-    bra :ar_apply
-.ar_exp_pos
+    bne 15 :ar_exp_neg
     dmul 30 37
-    fmul 34 36
+    bra :ar_apply
+.ar_exp_neg
+    ddiv 30 37
+    bra :ar_apply
 .ar_apply
+    bne 19 :ar_sync_float
+    bra :ar_mant_or_neg
+.ar_sync_float
+    sys dpush 30
+    sys fpop 34
+.ar_mant_or_neg
     bne 19 :ar_mant_sign
     bra :ar_maybe_neg
 .ar_mant_sign
@@ -1742,13 +1746,13 @@ beq 0 :init_fail
 
 // Self-test as_real with "2.5" (expect 8 bytes, bits 4612811918334230528)
 rcl 0 *G_SCANNED
-int 1 50
+int 1 +50
 st1 0 1
 incr 0
-int 1 46
+int 1 +46
 st1 0 1
 incr 0
-int 1 53
+int 1 +53
 st1 0 1
 incr 0
 int 1 +0
