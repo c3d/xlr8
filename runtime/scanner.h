@@ -48,13 +48,14 @@ struct scanner
     using symbols = std::map<text, size_t>;
     using patches = std::vector<size_t>;
     using pending = std::map<text, patches>;
+    struct macro;
 
     scanner(istream &input, runtime &rt)
         : input(input), rt(rt),scanned(), program(), setting() { }
 
     enum token { DONE, ERROR, COMMENT, NAME, SYMBOL, INTEGER, REAL, TEXT };
 
-    bool        scan();
+    bool        scan(bool macro = false);
     bool        validate();
 
     token       next();
@@ -69,6 +70,8 @@ struct scanner
     bool        do_text();
     bool        do_name();
     bool        do_symbol();
+    bool        do_macro_definition();
+    bool        do_macro_use(macro m);
     bool        do_extern();
     bool        do_set();
     bool        do_use();
@@ -102,6 +105,18 @@ public:
     pending     uconstants;     // Labels with unknown address
     patches     cstrefs;        // Reference to constants
     tok_t       setting;        // Value being set
+
+    struct macro
+    // ------------------------------------------------------------------------
+    //   Implementation of macros
+    // ------------------------------------------------------------------------
+    {
+        using texts = std::vector<text>;
+        texts   parameters;
+        text    definition;
+    };
+    using macros_defs = std::map<text, macro>;
+    macros_defs macros;
 };
 
 RECORDER_DECLARE(scanner);

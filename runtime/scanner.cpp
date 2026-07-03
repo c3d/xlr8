@@ -28,19 +28,23 @@
 // ****************************************************************************
 
 #include "scanner.h"
-#include "runtime.h"
+
 #include "leb128.h"
 #include "recorder.h"
+#include "runtime.h"
+#include "save.h"
 
 #include <cctype>
+#include <sstream>
 
 
 const size_t LEB128_MAXSIZE = 16;
 RECORDER(scanner,       16, "Scanner");
 RECORDER(scanner_error, 16, "Errors during scanner");
+RECORDER(macros,        16, "Macros");
 
 
-bool scanner::scan()
+bool scanner::scan(bool macro)
 // ----------------------------------------------------------------------------
 //   Scan input tokens from the stream and build program object
 // ----------------------------------------------------------------------------
@@ -51,7 +55,7 @@ bool scanner::scan()
         switch (tok)
         {
         case DONE:
-            return validate();
+            return macro ? true : validate();
         case ERROR:
             return false;
         case COMMENT:
@@ -179,7 +183,8 @@ scanner::token scanner::next()
             scanned += char(c);
             c = input.get();
         }
-        input.putback(c);
+        if (input.good())
+            input.putback(c);
         return NAME;
     }
 
@@ -196,7 +201,8 @@ scanner::token scanner::next()
                 is_real = true;
             c = input.get();
         }
-        input.putback(c);
+        if (input.good())
+            input.putback(c);
         return is_real ? REAL : INTEGER;
     }
 
@@ -217,7 +223,8 @@ scanner::token scanner::next()
                     done = true;
             }
         }
-        input.putback(c);
+        if (input.good())
+            input.putback(c);
         return TEXT;
     }
 
@@ -567,6 +574,8 @@ bool scanner::do_name()
 //   Process a name by adding the token to the token table
 // ----------------------------------------------------------------------------
 {
+    if (auto found = macros.find(scanned); found != macros.end())
+        return do_macro_use((*found).second);
     tok_t rtok = rt.tok(scanned);
     append(rtok);
     return !rt.error();
@@ -598,6 +607,8 @@ bool scanner::do_symbol()
         return do_use();
     case '#':
         return do_bytes();
+    case '[':
+        return do_macro_definition();
     case ';':
         return false;
     default:
@@ -605,6 +616,158 @@ bool scanner::do_symbol()
         rt.error("Unknownsymbol");
     }
     return false;
+}
+
+
+bool scanner::do_macro_definition()
+// ----------------------------------------------------------------------------
+//   Enter a macro definition in our table
+// ----------------------------------------------------------------------------
+//   A macro definition has the form            [MYMACRO A B C].
+//   Arguments can be placed between brackets:  [cmpge[r a b] cmple r b a]
+//   Local macros inside macros are allowed:    [stuff[r] [x (r+1)] r x x r]
+//
+//   Arguments behave as local macros during expansion
+{
+    token t = next();
+    if (t != NAME)
+    {
+        record(scanner_error, "Invalid macro name %s", scanned.c_str());
+        rt.error("Invalid macro name");
+        return false;
+    }
+
+    bool   first = true;
+    bool   done  = false;
+    bool   parms = false;
+    uint   depth = 0;
+    text   name  = scanned;
+    macro  here;
+    record(macros, "Define[%s]=%s", scanned.c_str(), here.definition.c_str());
+    here.definition = "";
+    while (!done)
+    {
+        t = next();
+        switch (t)
+        {
+        case DONE:
+            done = true;
+            break;
+        case ERROR:
+            return false;
+        case NAME:
+            if (parms)
+            {
+                here.parameters.push_back(scanned);
+                continue;
+            }
+            break;
+        case SYMBOL:
+            switch (scanned[0])
+            {
+            case '[':
+                depth++;
+                if (first)
+                {
+                    parms = true;
+                    first = false;
+                    continue;
+                }
+                break;
+            case ']':
+                done = !depth;
+                --depth;
+                if (depth == 0 && parms)
+                {
+                    parms = false;
+                    continue;
+                }
+                break;
+            }
+            break;
+        default:
+            break;
+        }
+
+        if (!done)
+        {
+            first = false;
+            if (parms && t != NAME)
+            {
+                record(scanner_error,
+                       "Invalid macro parameter %s", scanned.c_str());
+                rt.error("Invalid macro parameter");
+                return false;
+            }
+            if (here.definition.length())
+                here.definition += ' ';
+            here.definition += scanned;
+        }
+    }
+    record(macros, "Defined[%s]=[%s]", name.c_str(), here.definition.c_str());
+    macros[name] = here;
+    return true;
+}
+
+
+bool scanner::do_macro_use(macro m)
+// ----------------------------------------------------------------------------
+//    Expand macro
+// ----------------------------------------------------------------------------
+{
+    record(macros,
+           "Macro[%s(%zu args)]=%s",
+           scanned.c_str(), m.parameters.size(), m.definition);
+    save<macros_defs> saved(macros, macros);
+
+    // Read parameters in the macros
+    for (text parm : m.parameters)
+    {
+        // For each parameter, create a new macro (or overwite existing)
+        macro p = macros[parm];
+        token n = next();
+        if (n == ERROR || n == DONE)
+        {
+            rt.error("Invalid macro argument");
+            record(scanner_error, "Invalid macro argument %s: %s",
+                   parm.c_str(), scanned.c_str());
+            return false;
+        }
+
+        p.definition = scanned;
+        record(macros, "Parm[%s]=%s", parm.c_str(), scanned.c_str());
+
+        // Append scanned token to definition
+        // If the argument has the form [A B C] return A B C
+        if (n == SYMBOL && scanned == "[")
+        {
+            uint depth = 1;
+            p.definition = "";
+            while (depth)
+            {
+                bool skip = false;
+                n = next();
+                if (n == SYMBOL && scanned == "]")
+                    if (--depth == 0)
+                        skip = true;
+                if (!skip)
+                {
+                    if (p.definition.length())
+                        p.definition += ' ';
+                    p.definition += scanned;
+                }
+            }
+        }
+        macros[parm] = p;
+    }
+
+    // Switch to the definition and parse that
+    text               mval = m.definition;
+    std::istringstream definition(mval);
+    std::streambuf    *sbuf = input.rdbuf(definition.rdbuf());
+    bool               ok   = scan(true);
+    input.rdbuf(sbuf);
+    return ok;
 }
 
 

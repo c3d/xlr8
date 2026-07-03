@@ -223,6 +223,8 @@ value `2`.
 * `:foo` inserts a signed branch offset from the current PC to label `foo`.
 * `*foo` inserts the value of symbol `foo`. Note that this is typically needed
   for the `call` instruction, but `nat 0 *foo` will set register `0`
+* `[foo …]` defines a **macro** that expands at scan time (see [Macros](#macros)).
+  Invoke with `foo` followed by one argument per formal parameter.
 
 ## Comments
 
@@ -245,6 +247,75 @@ but can also be used to name registers, etc.
 !LOOPS          42
 nat *INDEX *LOOPS
 ```
+
+## Macros
+
+The scanner supports **macros**: named templates that expand into bytecode at
+scan time. A macro definition is wrapped in square brackets and starts with the
+macro name:
+
+```xlr8
+[NAME body tokens until closing bracket]
+```
+
+Formal parameters, if any, appear immediately after the name in their own
+bracket list:
+
+```xlr8
+[NAME [A B C] body using A B C]
+```
+
+Invoke a macro by writing its name followed by one argument for each parameter.
+During expansion each parameter name behaves as a temporary macro bound to the
+corresponding argument. The macro table is saved and restored around each
+expansion, so parameter bindings and any macros defined inside the body do not
+leak into the surrounding program.
+
+Example (from `tests/scanner/macros.xlr8`):
+
+```xlr8
+[tout[t]
+ [TMP    0]
+ [STDOUT 1]
+
+ txt TMP t
+ sys write_text TMP STDOUT
+ sys write_newline  STDOUT
+]
+
+tout "Hello"
+tout "World"
+```
+
+This defines `tout` with parameter `t`. The body also defines local macros
+`TMP` and `STDOUT` (registers `0` and `1`) that exist only while `tout`
+expands. The two invocations at the bottom emit the same bytecode as if the body
+had been written out twice with `t` replaced by `"Hello"` and `"World"`.
+
+A macro argument is normally a single token (a name, numeral, or quoted text).
+To pass several tokens as one substitution, wrap the argument in brackets:
+
+```xlr8
+[cmpge[r a b] cmple r b a]
+```
+
+When called as `cmpge 0 1 2`, this expands to `cmple 0 2 1` — an `>=` test
+implemented by swapping the last two operands of `cmple`.
+
+Macro definitions may nest other macro definitions in their body. Those inner
+definitions are stored as part of the outer macro's text and take effect only
+when the outer macro is expanded.
+
+| Mechanism         | When      | Effect                                      |
+|-------------------|-----------|---------------------------------------------|
+| `[name …]` macro  | Scan time | Textual substitution into bytecode          |
+| `!name` / `*name` | Scan time | Symbolic constants and forward references   |
+| `=name` … `;`     | Scan time | Named function stored as a token; invoked at runtime with `call *name` |
+
+Macros do not emit bytecode by themselves and do not define runtime functions.
+They are a scanner convenience for repeating or parameterizing bytecode
+patterns.
+
 
 ## Why the `*` in `call *foo`?
 
@@ -310,6 +381,7 @@ Unconditional branches use `bra :label`. Token jumps use `jmp *name`.
 | `:label`      | Insert a signed branch offset to `.label` [1]                |
 | `#num`        | Insert a byte value directly, e.g. `#192` for register 192   |
 | `#text`       | Insert a byte sequence directly, e.g. `#"Hello"              |
+| `[name …]`    | Define a scan-time macro; invoke as `name` with arguments    |
 
 [1] signed branches are relative to the offset itself.
 
@@ -792,7 +864,10 @@ token and appends to a bytecode buffer:
    `float`, suffix `d` or no suffix selects `double`.
 4. **Text** — `'…'` or `"…"` strings (double the quote to escape); stored
    in the token pool, referenced by a LEB128 token index.
-5. **Directives** — `*`, `!`, `=`, `.`, and `:` as described above.
+5. **Directives** — `*`, `!`, `=`, `.`, `:`, and `[` … `]` macros as described
+   above.
+6. **Macros** — when a name matches a defined macro, the scanner binds arguments
+   to parameters and re-scans the macro body into the bytecode buffer.
 
 When scanning finishes, the program blob is stored as a token and
 `runtime.entry` is set to point at it. Undefined forward branch labels are

@@ -1,0 +1,11 @@
+[tout[t]
+ [TMP    0]
+ [STDOUT 1]
+
+ txt TMP t
+ sys write_text TMP STDOUT
+ sys write_newline  STDOUT
+]
+
+tout "Hello"
+tout "World"
