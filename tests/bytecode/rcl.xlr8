@@ -1,6 +1,5 @@
 // Recall a stored global
 
-enter 2
 sys globals +4
 int 0 +42
 sto 0 0

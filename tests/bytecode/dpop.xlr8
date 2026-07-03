@@ -1,6 +1,5 @@
 // Push double on the runtime stack
 
-enter 2
 dbl 0 2.5
 sys dpush 0
 sys dpop 1

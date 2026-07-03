@@ -1,6 +1,5 @@
 // sys ld8s loads signed 64-bit value
 
-enter 4
 nat 2 8
 sys kmalloc 0 2
 int 1 -1

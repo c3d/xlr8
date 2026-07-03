@@ -1,6 +1,5 @@
 // Allocate heap memory
 
-enter 2
 nat 1 16
 sys malloc 0 1
 beq 0 :fail

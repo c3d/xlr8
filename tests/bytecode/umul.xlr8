@@ -1,6 +1,5 @@
 // Very simple output: compute 3 * 4 (unsigned)
 
-enter 2
 nat 0 3
 nat 1 4
 umul 0 1

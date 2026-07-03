@@ -58,7 +58,6 @@ runtime interprets.
 Below a commented example of bytecode that writes a null-terminated string:
 
 ```xlr8
-    enter 2                             // Reserve 2 "registers" on stack
     pca 1 :mytext                       // R1 = PC-relative address of [mytext]
 .chars                                  // Symbolic label [chars]
     ld1 0 1                             // R0 = byte at address R1
@@ -131,7 +130,12 @@ returns, and explicit `push`/`pop`.
 
 The size of the current register window is set by the `enter` opcode, which
 creates a new activation record below the current stack pointer.
-This is indended to create a stack frame on entry to a function.
+This is intended to create a stack frame on entry to a function.
+
+When the runtime starts a program, `runtime::run` executes `enter 8` before the
+entry point. Top-level bytecode therefore has registers `0`…`7` available without
+an explicit `enter`. Use `enter N` only when you need a larger frame or a nested
+activation (for example inside a recursive function).
 
 The reciprocal operation is `leave`, which returns to the previous stack
 frame. Typically, a recursive function will begin with `enter N` where `N` is
@@ -144,6 +148,11 @@ calls—use `pushf` / `popf` on the value stack when you need to preserve the
 full flag word. See `enter-leave-flags.xlr8` in the test suite.
 
 ## Calling conventions
+
+By convention, a callee may clobber registers `0`…`7` in the caller's register
+window (`CALL_CLOBBERED_REGS` in `runtime.h`). Values that must survive a call
+should live in registers `8` and above, or be saved on the value stack with
+`push` / `pop`.
 
 Arguments are accessed using the `get` and `set` opcodes, which access the
 caller's register window. `get 3 0` gets argument 0 and puts it in register 3,
@@ -394,8 +403,9 @@ All data lives in one memory arena allocated at startup:
 | `globals` | Global variable slots (`sto` / `rcl`; sized with `sys globals`) |
 | `entry` | Program entry point after scanning |
 
-`enter N` allocates `N` local registers below the current frame. Most
-two-operand instructions use the form `op dst src`, meaning `local[dst] ← local[dst] op local[src]`. Immediate forms append a
+`enter N` allocates `N` local registers below the current frame. The runtime
+opens the initial frame with `enter 8` before running the program entry point.
+Most two-operand instructions use the form `op dst src`, meaning `local[dst] ← local[dst] op local[src]`. Immediate forms append a
 LEB128 constant after the register, for example `addi 0 3` adds 3 to
 register 0.
 
@@ -498,7 +508,6 @@ equal, `+0` otherwise). Several idioms work; predicates add `cmpeq`/`btrue`/`sel
 Using **`cmpeq` + `btrue`** (output `1` when equal):
 
 ```xlr8
-enter 3
 int 0 +10
 int 1 +10
 cmpeq 0 0 1
@@ -515,7 +524,6 @@ sys write_newline 1
 Using **`sub` + `beq`** (same result, no predicates):
 
 ```xlr8
-enter 4
 int 0 +10
 int 1 +10
 copy 2 0
@@ -533,7 +541,6 @@ sys write_newline 1
 Using **`cmpeq` + `select`** (no branch; register 2 holds the outcome):
 
 ```xlr8
-enter 5
 int 0 +10
 int 1 +10
 nat 3 +1
@@ -547,7 +554,6 @@ sys write_newline 1
 Using **`cmpeq` + `ccopy`** (`ccopy` overwrites register 2 only when equal):
 
 ```xlr8
-enter 5
 int 0 +10
 int 1 +10
 int 2 +0
@@ -614,7 +620,6 @@ data on standard input).
 ### Example 1: addition and output
 
 ```xlr8
-enter 2
 nat 0 1
 nat 1 1
 add 0 1
@@ -633,7 +638,6 @@ Use `dbra` for a compact counted loop: it decrements an **unsigned** register
 and branches while the result is non-zero (after the decrement).
 
 ```xlr8
-enter 3
 nat 0 2                         // counter
 nat 1 999_998                   // iterations until counter reaches limit
 
@@ -683,7 +687,6 @@ nat 0 1
 ret
 ;
 
-enter 2
 nat 0 6
 call *fact
 txt 1 "Factorial 6 is "
@@ -727,7 +730,6 @@ nat 0 0
 ret
 ;
 
-enter 2
 nat 0 5
 call *foo
 txt 1 "foo(5)="
@@ -742,7 +744,6 @@ Output: `foo(5)=7`
 ### Example 5: floating-point constants
 
 ```xlr8
-enter 2
 flt 0 2.5f
 flt 1 3.0f
 fadd 0 1
@@ -762,7 +763,6 @@ The program can then emit that single byte—denser than spelling out the same
 logic with built-in opcodes:
 
 ```xlr8
-enter 1
 nat 0 32
 .loop
   sys write_integer 0 1

@@ -1,6 +1,5 @@
 // Very simple output: compute 8 >> 2 (unsigned)
 
-enter 2
 nat 0 8
 nat 1 2
 ushr 0 1

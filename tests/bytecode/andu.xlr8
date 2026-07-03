@@ -1,6 +1,5 @@
 // Very simple output: compute 5 & 3
 
-enter 2
 nat 0 5
 andu 0 3
 txt 1 "5&3="

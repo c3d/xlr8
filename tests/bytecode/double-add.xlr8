@@ -1,6 +1,5 @@
 // Double addition (no f suffix)
 
-enter 4
 dbl 0
 1.5
 dbl 1

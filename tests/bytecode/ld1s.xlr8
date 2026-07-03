@@ -1,6 +1,5 @@
 // sys ld1s sign-extends 8-bit load
 
-enter 4
 nat 2 8
 sys kmalloc 0 2
 nat 1 255

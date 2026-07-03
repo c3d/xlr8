@@ -1,6 +1,5 @@
 // Clear the current error and verify trap no longer fires
 
-enter 1
 sys write_integer 0 #99
 sys clear_error
 sys trap_error :trapped

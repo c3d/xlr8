@@ -1,6 +1,5 @@
 // Restore predicate flags from stack
 
-enter 2
 false 0
 pushf
 true 0

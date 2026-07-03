@@ -1,6 +1,5 @@
 // Double compare greater or equal
 
-enter 4
 dbl 0
 3.0
 dbl 1

@@ -1,6 +1,5 @@
 // Set predicate to false
 
-enter 2
 int 0 99
 false 0
 btrue 0 :yes

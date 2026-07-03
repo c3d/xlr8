@@ -1,6 +1,5 @@
 // dlog2 on dbl
 
-enter 2
 dbl 0 8.0
 sys dlog2 0 0
 sys write_double 0 1

@@ -1,6 +1,5 @@
 // Check that we have a nested function definition
 .label
-  enter 3
   int 0 :label
   sys write_integer 0 1
   sys write_newline   1

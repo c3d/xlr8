@@ -1,7 +1,6 @@
 // Check that we can read the command line arguments
 // CMD= %x -m 40 %f -- hello world
 
-enter 4
 
 nat 0 0
 

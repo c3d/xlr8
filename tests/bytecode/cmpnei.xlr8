@@ -1,6 +1,5 @@
 // Signed compare not-equal to immediate
 
-enter 4
 int 0 5
 nat 1 1
 nat 2 0

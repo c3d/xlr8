@@ -1,6 +1,5 @@
 // Very simple output: compute 3 * 4
 
-enter 2
 nat 0 3
 nat 1 4
 mul 0 1

@@ -1,6 +1,5 @@
 // Read double at EOF returns 0
 
-enter 2
 sys read_double 0 +0
 sys write_double 0 1
 sys write_newline 1

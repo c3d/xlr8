@@ -1,6 +1,5 @@
 // enter saves and leave restores the low 8 predicate flags
 
-enter 2
 true 0
 enter 1
 false 0
@@ -14,7 +13,6 @@ txt 0 "OK true"
 sys write_text 0 1
 sys write_newline 1
 
-enter 2
 false 5
 enter 1
 true 5

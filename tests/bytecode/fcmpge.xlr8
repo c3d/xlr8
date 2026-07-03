@@ -1,6 +1,5 @@
 // Float compare greater or equal
 
-enter 4
 flt 0
 3.0f
 flt 1

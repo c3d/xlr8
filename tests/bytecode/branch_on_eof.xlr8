@@ -1,6 +1,5 @@
 // Branch when input stream is at EOF
 
-enter 1
 sys branch_on_eof :eof +0
 int 0 +1
 bra :done

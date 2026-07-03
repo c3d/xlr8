@@ -1,6 +1,5 @@
 // Branch when predicate is false (clear)
 
-enter 2
 int 0 99
 false 0
 bfalse 0 :yes

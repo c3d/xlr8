@@ -1,6 +1,5 @@
 // fasin on flt
 
-enter 2
 flt 0 0.0f
 sys fasin 0 0
 sys write_float 0 1

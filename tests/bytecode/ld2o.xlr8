@@ -1,6 +1,5 @@
 // ld2o / st2o
 
-enter 4
 nat 2 16
 sys kmalloc 0 2
 nat 1 100

@@ -6,7 +6,6 @@ nat 0 88
 ret
 ;
 
-enter 2
 call *'Hello, ''Zorglub'''
 txt 1 "Hello, 'Zorglub'="
 sys write_text 1 1

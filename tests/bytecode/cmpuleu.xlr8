@@ -1,6 +1,5 @@
 // Unsigned compare less-or-equal to immediate
 
-enter 4
 nat 0 5
 nat 1 1
 nat 2 0

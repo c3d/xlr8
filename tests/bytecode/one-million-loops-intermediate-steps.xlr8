@@ -1,7 +1,6 @@
 // Example counting to 1 million showing all multiples of 12345
 
 // Reserve four registers
-enter 4
 
 // Prepare registers
 nat 0 2                         // R0 = 2, counter

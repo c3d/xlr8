@@ -1,6 +1,5 @@
 // Based hex float with f suffix (16#1.0f)
 
-enter 2
 dbl 0 16#1.Af
 txt 1 "16#1.Af="
 sys write_text 1 1

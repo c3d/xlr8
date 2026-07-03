@@ -1,6 +1,5 @@
 // Check that we can emit raw bytes in the bytecode
 
-enter 2
 
 pca 1 :mytext
 

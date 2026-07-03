@@ -1,7 +1,6 @@
 // Forward branch just under the 1-byte LEB128 delta limit (~63 bytes)
 // R0 must stay 99: falling through any addi would change the output
 
-enter 2
 nat 0 99
 bra :target
 addi 0 1

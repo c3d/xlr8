@@ -3,7 +3,6 @@
 =target
   int 0 +42
   jmp *out
-enter 1
 jmp *target
 int 0 +1
 .out

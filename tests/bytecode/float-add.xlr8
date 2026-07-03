@@ -1,6 +1,5 @@
 // Float addition with f-suffix literals
 
-enter 2
 flt 0
 2.5f
 flt 1

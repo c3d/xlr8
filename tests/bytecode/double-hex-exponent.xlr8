@@ -1,6 +1,5 @@
 // XL hex real with decimal exponent (16#1.FFFF_FFFF#E3)
 
-enter 4
 dbl 0
 16#1.FFFF_FFFF#E3
 txt 1 "16#1.FFFF_FFFF#E3="

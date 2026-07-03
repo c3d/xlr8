@@ -1,6 +1,5 @@
 // Very simple output: decrement 5
 
-enter 2
 nat 0 5
 decr 0
 txt 1 "5-1="

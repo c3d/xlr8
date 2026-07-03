@@ -4,7 +4,6 @@
 // TIMEOUT=50
 
 // Reserve four registers
-enter 4
 
 // Prepare registers
 nat 0 2                         // R0 = 2, counter

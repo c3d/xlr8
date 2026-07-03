@@ -8,7 +8,6 @@
 !LOOPS          42
 !MULTIPLIER     21
 
-enter *REGS
 
 nat *INDEX *LOOPS
 .loop

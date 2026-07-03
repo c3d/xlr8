@@ -1,6 +1,5 @@
 // sys sext sign-extends low 8 bits
 
-enter 2
 nat 0 128
 sys sext 0 8
 sys write_integer 0 1

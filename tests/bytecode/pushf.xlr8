@@ -1,6 +1,5 @@
 // Save and restore predicate flags
 
-enter 2
 true 0
 pushf
 false 0

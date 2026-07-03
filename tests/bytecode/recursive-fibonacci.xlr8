@@ -22,7 +22,6 @@ nat 0 1
 ret
 ;
 
-enter 4
 nat 0 0                         // R0 = n, starts at 0
 
 .loop

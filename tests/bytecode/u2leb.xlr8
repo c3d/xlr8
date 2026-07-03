@@ -1,6 +1,5 @@
 // Encode unsigned natural as LEB128
 
-enter 4
 nat 1 8
 sys malloc 0 1
 copy 2 0

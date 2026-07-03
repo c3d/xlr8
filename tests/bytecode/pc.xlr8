@@ -1,6 +1,5 @@
 // Program counter is non-zero
 
-enter 1
 pc 0
 beq 0 :zero
 int 0 +1

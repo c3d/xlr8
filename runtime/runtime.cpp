@@ -244,6 +244,8 @@ bool runtime::run()
 //    The main runtime loop
 // ----------------------------------------------------------------------------
 {
+    enter(CALL_CLOBBERED_REGS);
+
     if (RECORDER_TRACE(runtime) > 1)
         return trace();
 

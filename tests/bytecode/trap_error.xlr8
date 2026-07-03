@@ -1,6 +1,5 @@
 // Branch when an error is pending
 
-enter 1
 sys write_integer 0 #99
 sys trap_error :trapped
 int 0 +1

@@ -1,6 +1,5 @@
 // Very simple output: compute 1 + 1
 
-enter 2
 nat 0 1
 nat 1 1
 add 0 1

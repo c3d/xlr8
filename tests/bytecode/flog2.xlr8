@@ -1,6 +1,5 @@
 // flog2 on flt
 
-enter 2
 flt 0 8.0f
 sys flog2 0 0
 sys write_float 0 1

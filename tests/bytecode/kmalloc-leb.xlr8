@@ -1,6 +1,5 @@
 // LEB128 encode/decode using kmalloc for buffer allocation
 
-enter 4
 sys kmalloc 0 +8
 copy 2 0
 int 1 +42

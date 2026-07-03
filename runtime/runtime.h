@@ -52,7 +52,8 @@ struct runtime
     ~runtime();
     void setup();
 
-    const uint regs_per_double = sizeof(double) / sizeof(value_t);
+    // Regs in the caller that a callee is allowed to clobber
+    const uint CALL_CLOBBERED_REGS = 8;
 
 
 

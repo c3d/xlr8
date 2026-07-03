@@ -1,6 +1,5 @@
 // dcbrt on dbl
 
-enter 2
 dbl 0 27.0
 sys dcbrt 0 0
 sys write_double 0 1

@@ -28,7 +28,6 @@ nat 0 0
 ret
 ;
 
-enter 2
 nat 0 5
 call *foo
 txt 1 "foo(5)="

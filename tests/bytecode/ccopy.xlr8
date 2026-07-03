@@ -1,6 +1,5 @@
 // Conditional copy: copy only when predicate is set
 
-enter 3
 int 0 0
 int 1 42
 true 0

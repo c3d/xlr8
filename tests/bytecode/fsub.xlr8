@@ -1,6 +1,5 @@
 // Float fsub
 
-enter 2
 flt 0 5.0f
 flt 1 2.0f
 fsub 0 1

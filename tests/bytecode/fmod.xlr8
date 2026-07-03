@@ -1,6 +1,5 @@
 // Float fmod
 
-enter 2
 flt 0 7.0f
 flt 1 2.0f
 fmod 0 1

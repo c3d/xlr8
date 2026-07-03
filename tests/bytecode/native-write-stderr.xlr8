@@ -1,6 +1,5 @@
 // Check that we can use sys functions to write stuff to standard error
 
-enter 1
 
 int 0 42
 sys write_integer 0 2

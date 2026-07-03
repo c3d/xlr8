@@ -1,6 +1,5 @@
 // Size of unsigned LEB128 encoding
 
-enter 2
 nat 0 42
 sys u2lebsz 1 0
 sys write_natural 1 1

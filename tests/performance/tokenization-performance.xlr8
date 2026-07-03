@@ -3,7 +3,6 @@
 // CHECK=./check-time %f
 // TIMEOUT=500
 
-enter 4
 
 nat 0 0
 

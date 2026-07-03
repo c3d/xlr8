@@ -1,6 +1,5 @@
 // ld8o / st8o
 
-enter 4
 nat 2 16
 sys kmalloc 0 2
 int 1 -42

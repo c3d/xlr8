@@ -1,6 +1,5 @@
 // Unsigned natural compare less or equal
 
-enter 5
 nat 0 5
 nat 1 5
 nat 2 1

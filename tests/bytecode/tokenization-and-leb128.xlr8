@@ -1,6 +1,5 @@
 // Check that we can read the tokens and the LEB128 data
 
-enter 5
 
 nat 0 0                                 // R0: Token index
 

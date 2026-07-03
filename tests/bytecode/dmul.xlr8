@@ -1,6 +1,5 @@
 // Double dmul
 
-enter 2
 dbl 0 2.5
 dbl 1 4.0
 dmul 0 1

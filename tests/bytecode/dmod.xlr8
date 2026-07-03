@@ -1,6 +1,5 @@
 // Double dmod
 
-enter 2
 dbl 0 7.0
 dbl 1 2.0
 dmod 0 1

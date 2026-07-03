@@ -1,6 +1,5 @@
 // Push program counter on the stack
 
-enter 1
 ppc
 pop 0
 int 0 +99

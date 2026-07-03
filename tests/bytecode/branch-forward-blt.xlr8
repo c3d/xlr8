@@ -1,7 +1,6 @@
 // Conditional forward branch with long padding (blt)
 // R0 must stay 99: falling through any addi would change the output
 
-enter 2
 nat 0 99
 nat 1 0
 subi 1 1

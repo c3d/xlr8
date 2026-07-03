@@ -1,6 +1,5 @@
 // dcos on dbl
 
-enter 2
 dbl 0 0.0
 sys dcos 0 0
 sys write_double 0 1

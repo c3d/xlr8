@@ -1,6 +1,5 @@
 // Read float at EOF returns 0
 
-enter 2
 sys read_float 0 +0
 sys write_float 0 1
 sys write_newline 1

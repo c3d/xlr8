@@ -1,6 +1,5 @@
 // Allocate heap memory with inline size (sys kmalloc dst +size)
 
-enter 2
 sys kmalloc 0 +16
 beq 0 :fail
 int 0 +1

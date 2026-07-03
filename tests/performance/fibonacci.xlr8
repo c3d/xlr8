@@ -25,7 +25,6 @@ nat 0 1
 ret
 ;
 
-enter 4
 nat 0 40                       // R0 = 40
 txt 1 "Fibonacci of "
 sys write_text 1 1

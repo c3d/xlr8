@@ -1,6 +1,5 @@
 // Branch when input stream is bad (none configured)
 
-enter 1
 sys branch_on_bad :bad +0
 int 0 +1
 bra :done

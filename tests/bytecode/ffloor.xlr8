@@ -1,6 +1,5 @@
 // ffloor on flt
 
-enter 2
 flt 0 3.9f
 sys ffloor 0 0
 sys write_float 0 1

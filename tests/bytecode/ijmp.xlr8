@@ -1,6 +1,5 @@
 // Indirect jump through a register
 
-enter 1
 pca 0 :target
 ijmp 0
 int 0 +1

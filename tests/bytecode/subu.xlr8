@@ -1,6 +1,5 @@
 // Very simple output: compute 10 - 3 (unsigned)
 
-enter 2
 nat 0 10
 subu 0 3
 txt 1 "10-3="

@@ -1,6 +1,5 @@
 // Very simple output: compute ~0
 
-enter 2
 nat 0 0
 not 0
 txt 1 "~0="

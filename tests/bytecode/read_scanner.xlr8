@@ -1,6 +1,5 @@
 // read_scanner returns DONE at EOF
 
-enter 2
 sys read_scanner 0 +0
 sys write_natural 0 1
 sys write_newline 1

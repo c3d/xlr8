@@ -1,6 +1,5 @@
 // Multi-way dispatch on a signed value
 
-enter 2
 int 0 +15
 dispatch 0 #2 +10 :low +20 :high
 int 0 0

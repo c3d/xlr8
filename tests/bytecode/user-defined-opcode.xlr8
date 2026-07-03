@@ -1,7 +1,6 @@
 // This checks if we can emit messages using a user-defined opcode
 // CMD=%x -d 199 %f
 
-   enter 1
    nat 0 32
 
 // The user-defined opcode 199 should now emit a debug message

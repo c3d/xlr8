@@ -1,6 +1,5 @@
 // Resize the global variable space
 
-enter 2
 sys globals +8
 int 0 +42
 sto 0 0

@@ -13,7 +13,6 @@ nat 0 1
 ret
 ;
 
-enter 4
 nat 0 1                         // R0 = n, starts at 1
 
 .loop

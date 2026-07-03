@@ -1,6 +1,5 @@
 // Very simple output: increment 5
 
-enter 2
 nat 0 5
 incr 0
 txt 1 "5+1="

@@ -1,6 +1,5 @@
 // Reallocate heap memory
 
-enter 2
 nat 1 8
 sys malloc 0 1
 nat 1 16

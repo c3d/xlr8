@@ -1,6 +1,5 @@
 // Double dsub
 
-enter 2
 dbl 0 5.0
 dbl 1 2.0
 dsub 0 1

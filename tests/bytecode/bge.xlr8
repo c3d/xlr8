@@ -1,6 +1,5 @@
 // Branch when register is >= zero
 
-enter 2
 int 0 +99
 int 1 0
 bge 1 :target

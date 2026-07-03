@@ -1,6 +1,5 @@
 // st1/ld1 via kmalloc with inline size
 
-enter 3
 sys kmalloc 0 +8
 nat 1 42
 st1 0 1

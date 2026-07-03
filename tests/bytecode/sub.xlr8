@@ -1,6 +1,5 @@
 // Very simple output: compute 5 - 3
 
-enter 2
 nat 0 5
 nat 1 3
 sub 0 1

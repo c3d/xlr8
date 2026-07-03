@@ -1,6 +1,5 @@
 // sys sext as 32-bit value
 
-enter 2
 nat 0 2147483648
 sys sext 0 32
 sys write_integer 0 1

@@ -1,6 +1,5 @@
 // sys zext keeps low 8 bits
 
-enter 2
 int 0 -1
 sys zext 0 8
 sys write_natural 0 1

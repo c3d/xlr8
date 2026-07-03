@@ -1,6 +1,5 @@
 // Check that we can read our own code
 // CMD=%x -d 199 %f
-enter 2
 
 // Load a constant and display it
 #199 #"Constant FOO (numerical value): " #0

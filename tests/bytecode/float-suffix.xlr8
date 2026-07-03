@@ -1,6 +1,5 @@
 // f suffix selects 32-bit float; plain reals are 64-bit double
 
-enter 4
 flt 0
 3.0f
 dbl 2
