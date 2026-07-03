@@ -4,9 +4,9 @@ enter 2
 true 0
 pushf
 false 0
-bcc 0 :fail
+btrue 0 :fail
 popf
-bcc 0 :ok
+btrue 0 :ok
 .fail
 int 0 0
 bra :done

@@ -1,18 +1,18 @@
 // Check that we can emit raw bytes in the bytecode
 
-    enter 2
+enter 2
 
-    pca 1 :mytext
+pca 1 :mytext
 
 .chars
-    ld1 0 1
-    beq 0 :done
-    sys write_char 0 1
-    incr 1
-    bra :chars
+ld1 0 1
+beq 0 :done
+sys write_char 0 1
+incr 1
+bra :chars
 
 .mytext
-    #"Hello world!" #16#0A
-    #"This is a C-style null-terminated string" #10 #0
+#"Hello world!" #16#0A
+#"This is a C-style null-terminated string" #10 #0
 
 .done

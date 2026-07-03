@@ -1,0 +1,10 @@
+// ld2o / st2o
+
+enter 4
+nat 2 16
+sys kmalloc 0 2
+nat 1 100
+st2o 0 1 +4
+ld2o 3 0 +4
+sys write_natural 3 1
+sys write_newline 1

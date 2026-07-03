@@ -1,9 +1,9 @@
-// Branch when predicate is set
+// Branch when predicate is false (clear)
 
 enter 2
 int 0 99
-true 0
-bcc 0 :yes
+false 0
+bfalse 0 :yes
 int 0 1
 bra :done
 .yes

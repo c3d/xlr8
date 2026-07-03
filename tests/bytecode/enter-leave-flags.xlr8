@@ -1,0 +1,29 @@
+// enter saves and leave restores the low 8 predicate flags
+
+enter 2
+true 0
+enter 1
+false 0
+leave
+btrue 0 :ok
+txt 0 "FAIL true"
+bra :done
+.ok
+txt 0 "OK true"
+.done
+sys write_text 0 1
+sys write_newline 1
+
+enter 2
+false 5
+enter 1
+true 5
+leave
+btrue 5 :bad
+txt 0 "OK false"
+bra :write
+.bad
+txt 0 "FAIL false"
+.write
+sys write_text 0 1
+sys write_newline 1

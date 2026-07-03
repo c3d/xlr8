@@ -1,0 +1,7 @@
+// sys zext to 32 bits
+
+enter 2
+nat 0 65535
+sys zext 0 32
+sys write_natural 0 1
+sys write_newline 1

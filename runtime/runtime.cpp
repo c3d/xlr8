@@ -175,17 +175,28 @@ inline bool output_newline(std::ostream &output)
 //
 // ============================================================================
 
+typedef int8_t          i8;
+typedef int16_t         i16;
+typedef int32_t         i32;
+typedef int64_t         i64;
+typedef uint8_t         u8;
+typedef uint16_t        u16;
+typedef uint32_t        u32;
+typedef uint64_t        u64;
+
 #define TRC(s,x)
 #define uvalue          ((uvalue_t) value)
 #define DST             byte d = *pc++                  TRC("D%u", d)
 #define SRC             byte s = *pc++                  TRC("S%u", s)
 #define XTRA            byte x = *pc++                  TRC("X%u", x)
-#define DTYPE(T)        (*(T *) &frame[d])
-#define STYPE(T)        (*(T *) &frame[s])
-#define XTYPE(T)        (*(T *) &frame[x])
 #define DALL            frame[d]
 #define SALL            frame[s]
 #define XALL            frame[x]
+#define TYPE(T,X)       (*((T *) &(X)))
+#define DTYPE(T)        TYPE(T, DALL)
+#define STYPE(T)        TYPE(T, SALL)
+#define XTYPE(T)        TYPE(T, XALL)
+#define OTYPE(T,X,O)    (*((T *) (byte_p(X)+intptr_t(O))))
 #define DINT            DTYPE(value_t)
 #define SINT            STYPE(value_t)
 #define DNAT            DTYPE(uvalue_t)

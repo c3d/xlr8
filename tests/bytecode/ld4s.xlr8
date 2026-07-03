@@ -1,0 +1,10 @@
+// sys ld4s sign-extends 32-bit load
+
+enter 4
+nat 2 8
+sys kmalloc 0 2
+nat 1 2147483648
+st4 0 1
+sys ld4s 1 0
+sys write_integer 1 1
+sys write_newline 1

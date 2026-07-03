@@ -1,0 +1,10 @@
+// ld8o / st8o
+
+enter 4
+nat 2 16
+sys kmalloc 0 2
+int 1 -42
+st8o 0 1 +0
+ld8o 3 0 +0
+sys write_integer 3 1
+sys write_newline 1

@@ -43,8 +43,10 @@ typedef byte_p               object_p;
 typedef size_t               tok_t;
 typedef intptr_t             value_t;
 typedef uintptr_t            uvalue_t;
+typedef int64_t              large_t;
+typedef uint64_t             ularge_t;
 typedef value_t              broff_t;
-typedef int64_t             *stack_p;
+typedef ularge_t            *stack_p;
 typedef std::string          text;
 
 #endif // TYPES_H

@@ -61,10 +61,10 @@ Below a commented example of bytecode that writes a null-terminated string:
     enter 2                             // Reserve 2 "registers" on stack
     pca 1 :mytext                       // R1 = PC-relative address of [mytext]
 .chars                                  // Symbolic label [chars]
-    ld1 0 1                             // R0 set to byte at address R1
+    ld1 0 1                             // R0 = byte at address R1
     beq 0 :done                         // Branch to [done] if R0==0
-    incr 1                              // Increment R1 (next character)
     sys write_char 0 1                  // Write R0 to stream 1=stdout
+    incr 1                              // Increment R1 (next character)
     bra :chars                          // Loop back to [chars]
 .mytext                                 // Label [mytext] used in pca above
     #"Hello world!" #10                 // Insert raw bytes in stream
@@ -137,6 +137,11 @@ The reciprocal operation is `leave`, which returns to the previous stack
 frame. Typically, a recursive function will begin with `enter N` where `N` is
 the number of registers it uses, and finish with `leave ret`, where `leave`
 returns to the previous stack frame and `ret` returns to the caller.
+
+`enter` saves the low **8 predicate flags** (bits 0–7 of the `flags` register)
+in the frame record; `leave` restores them. Predicates 8–63 are not saved across
+calls—use `pushf` / `popf` on the value stack when you need to preserve the
+full flag word. See `enter-leave-flags.xlr8` in the test suite.
 
 ## Calling conventions
 
@@ -272,7 +277,7 @@ bytes.
 
 Register branches (`beq`, `blt`, …) test a **signed** register value.
 `dbra` decrements an unsigned register and branches while non-zero. Predicate
-branches use `bcc pred :label` (see [64 flags](#64-flags-and-conditional-execution)).
+branches use `btrue pred :label` or `bfalse pred :label` (see [64 flags](#64-flags-and-conditional-execution)).
 Unconditional branches use `bra :label`. Token jumps use `jmp *name`.
 
 
@@ -397,7 +402,7 @@ register 0.
 
 ### Built-in opcodes (overview)
 
-There are **109 built-in opcodes** (byte values `0`…`108`). The count is shown
+There are **118 built-in opcodes** (byte values `0`…`117`). The count is shown
 at startup with `xlr8 -tmain`. Definitions and semantics are in
 `runtime/opcodes.tbl`. Most instructions use `op dst src`; immediate forms
 append a LEB128 constant; several groups use additional operands as described
@@ -411,12 +416,12 @@ below.
 | Control flow | `jmp`, `call`, `ijmp`, `icall`, `ret`, `ppc`, `pc`, `pca`, `enter`, `leave`, `get`, `set`, `push`, `pop`, `dispatch` | Calls, returns, PC access, frames, argument access, multi-way dispatch |
 | Globals | `sto`, `rcl` | Store to / recall from the global array (resize with `sys globals`) |
 | System | `sys` | Invoke a native operation (see [Native operations](#native-operations-sys)) |
-| Branches | `dbra`, `bra`, `bcc`, `beq`, `bne`, `blt`, `bgt`, `ble`, `bge` | PC-relative branches; `bcc` tests a predicate; others test a **signed** register |
-| Predicates | `true`, `false`, `cmpeq`, `cmpne`, `cmplt`, `cmpgt`, `cmple`, `cmpge`, `cmpule`, `cmpuge`, `cmpult`, `cmpugt`, `pushf`, `popf` | 64 condition flags (see below) |
+| Branches | `dbra`, `bra`, `btrue`, `bfalse`, `beq`, `bne`, `blt`, `bgt`, `ble`, `bge` | PC-relative branches; `btrue`/`bfalse` test a predicate; others test a **signed** register |
+| Predicates | `true`, `false`, `cmpeq`, `cmpne`, `cmplt`, `cmple`, `cmpule`, `cmpult`, `cmpeqi`, `cmpnei`, `cmplti`, `cmplei`, `cmpequ`, `cmpneu`, `cmpultu`, `cmpuleu`, `pushf`, `popf` | 64 condition flags (see below); for `>`, `>=`, swap register operands; `*i`/`*u` suffixes are signed/unsigned **immediate** compares |
 | Integer math | `add`, `sub`, `mul`, `div`, `mod`, `neg`, `incr`, `decr`, `umul`, `udiv`, `umod` | Two-address register arithmetic |
 | Immediate math | `addi`, `subi`, `muli`, `divi`, `modi`, `addu`, `subu`, `mulu`, `divu`, `modu` | Same, with an inline LEB128 constant |
 | Bitwise | `and`, `or`, `xor`, `shl`, `shr`, `ushr`, `not`, `andu`, `oru`, `xoru`, `shlu`, `shru`, `ushru` | Bit operations; `shru`/`ushru` use an inline shift count |
-| Memory | `ld8`, `ld4`, `ld2`, `ld1`, `ldf`, `ldd`, `st8`, `st4`, `st2`, `st1`, `stf`, `std` | Load/store through an address held in a register |
+| Memory | `ld8`…`ld1`, `st8`…`st1`, `ld8o`…`ld1o`, `st8o`…`st1o` | Load/store through an address in a register; `*o` forms add a signed LEB128 byte offset (`ld1o dst ptr +0`) |
 | Float / double | `fadd`, `fsub`, `fmul`, `fdiv`, `fmod`, `dadd`, `dsub`, `dmul`, `ddiv`, `dmod` | In-register IEEE-754 arithmetic |
 
 **`null` vs `undef`.** Uninitialized heap and token storage is zero-filled. If
@@ -435,7 +440,7 @@ same convention (`divi` vs `divu`, etc.).
 
 Branch opcodes (`beq` … `bge`, `dbra`) treat the tested register as a **signed**
 integer. There are no unsigned branch variants; use predicate compares (`cmpult`,
-…) with `bcc` instead.
+…) with `btrue` / `bfalse` instead.
 
 **Jump forms.** `bra :label` and conditional branches use `:label` PC-relative
 offsets. `jmp *name` and `call *name` jump to the bytecode bound to token
@@ -447,45 +452,57 @@ offsets. `jmp *name` and `call *name` jump to the bytecode bound to token
 name an opcode). The branch to the **last** label whose threshold is `<=` the
 value is taken; if none match, execution continues after the table.
 
+**Memory addressing.** `ld1 dst ptr` loads one byte from `*ptr` into `dst`
+(zero-extended). `ld1o dst ptr +off` adds a signed byte offset before
+dereferencing. Stores mirror this (`st1`, `st1o`, …). For signed narrow values,
+use `sys ld1s` or `sys ld1os`; for arbitrary bit widths in a register, use
+`sys sext dst +width` or `sys zext dst +width`.
+
 
 ### 64 flags and conditional execution
 
 XLR8 maintains **64 condition flags** in a `flags` register (one bit each, numbered
 0…63). Compare opcodes set or clear a selected bit; only explicit **guarded**
-opcodes (`ccopy`, `select`, `bcc`, and the float compares via `sys`) consult
+opcodes (`ccopy`, `select`, `btrue`, `bfalse`, and the float compares via `sys`) consult
 that bit. Ordinary instructions such as `add` or `copy` always execute—unlike
 architectures where every instruction is predicated.
 
 | Opcode | Operands | Effect |
 |--------|----------|--------|
 | `true` / `false` | `pred` | Set or clear predicate bit `pred` |
-| `cmpeq` … `cmpge` | `pred dst src` | Signed compare `dst` vs `src`; update `pred` |
-| `cmpule` … `cmpugt` | `pred dst src` | Unsigned compare `dst` vs `src`; update `pred` |
+| `cmpeq`, `cmpne`, `cmplt`, `cmple` | `pred dst src` | Signed compare `dst` vs `src`; update `pred` |
+| `cmpule`, `cmpult` | `pred dst src` | Unsigned compare `dst` vs `src`; update `pred` |
+| `cmpeqi`, `cmpnei`, `cmplti`, `cmplei` | `pred dst imm` | Signed compare `dst` vs inline LEB128 immediate (`+n` / `-n`) |
+| `cmpequ`, `cmpneu`, `cmpultu`, `cmpuleu` | `pred dst imm` | Unsigned compare `dst` vs inline natural immediate |
 | `ccopy` | `pred dst src` | `dst ← src` if `pred` is set |
 | `select` | `pred dst src xtra` | `dst ← src` if `pred` set, else `dst ← xtra` |
-| `bcc` | `pred :label` | Branch if `pred` is set |
+| `btrue` / `bfalse` | `pred :label` | Branch if `pred` is set / clear |
 | `pushf` / `popf` | *(none)* | Save / restore the entire `flags` word on the value stack |
 
+For relations not listed (`>`, `>=`), swap register operands (`cmplt b a` for
+`a > b`, etc.). Immediate forms compare a register to an inline constant:
+`cmpeqi pred dst +10`, `cmpultu pred dst 5`.
+
 Example: **registers 0 and 1 are equal** — pick a result in register 2 (`+1` if
-equal, `+0` otherwise). Several idioms work; predicates add `cmpeq`/`bcc`/`select`
+equal, `+0` otherwise). Several idioms work; predicates add `cmpeq`/`btrue`/`select`
 /`ccopy`, while classic signed branches can use `sub` + `beq` without touching
 `flags`:
 
 | Approach | Instructions | Notes |
 |----------|--------------|-------|
-| **`cmpeq` + `bcc`** | `cmpeq pred R0 R1` then `bcc pred :equal` | Sets predicate bit `pred`, then branches. Compare and branch are separate; other guarded ops can reuse the same predicate. |
+| **`cmpeq` + `btrue`** | `cmpeq pred R0 R1` then `btrue pred :equal` | Sets predicate bit `pred`, then branches. Compare and branch are separate; other guarded ops can reuse the same predicate. |
 | **`sub` + `beq`** | `copy tmp R0` · `sub tmp R1` · `beq tmp :equal` | No predicates. `tmp` is zero iff `R0 == R1` (signed). Destroys `tmp`. |
 | **`cmpeq` + `select`** | `cmpeq pred R0 R1` · `select pred dst if_true if_false` | Writes one of two source registers into `dst` based on equality; no branch. |
 | **`cmpeq` + `ccopy`** | `cmpeq pred R0 R1` · `ccopy pred dst value` | Copies `value` into `dst` only when equal; `dst` unchanged otherwise (initialize `dst` first). |
 
-Using **`cmpeq` + `bcc`** (output `1` when equal):
+Using **`cmpeq` + `btrue`** (output `1` when equal):
 
 ```xlr8
 enter 3
 int 0 +10
 int 1 +10
 cmpeq 0 0 1
-bcc 0 :equal
+btrue 0 :equal
 int 2 +0
 bra :done
 .equal
@@ -557,10 +574,6 @@ otherwise tokenize as an opcode name.
 | Group | Names |
 |-------|-------|
 | Heap / globals | `globals`, `malloc`, `kmalloc`, `realloc`, `free` |
-
-`malloc` and `realloc` read the size from a **register** (`sys malloc 0 1` after
-`nat 1 16`). `kmalloc` reads the size inline, like `globals` (`sys kmalloc 0 +16`).
-Bare `+16` after `malloc` is a register index, not a byte count.
 | Process environment | `cmdline`, `env` |
 | Input | `read_char`, `read_integer`, `read_natural`, `read_float`, `read_double`, `read_scanner`, `branch_on_eof`, `branch_on_bad` |
 | Output | `write_char`, `write_integer`, `write_natural`, `write_float`, `write_double`, `write_text`, `write_newline` |
@@ -569,8 +582,19 @@ Bare `+16` after `malloc` is a register index, not a byte count.
 | Float stack | `fpush`, `fpop`, `dpush`, `dpop` |
 | Math library | `ffloor`, `fceil`, `fsqrt`, `fcbrt`, `fsin`, `fcos`, `ftan`, `fasin`, `facos`, `fatan`, `fexp`, `flog`, `fexp2`, `flog2`, and the `d…` counterparts |
 | Float compares | `fcmpeq`, `fcmpne`, `fcmplt`, `fcmpgt`, `fcmple`, `fcmpge`, and the `d…` counterparts |
-| Memory (volatile) | `ld1`…`ld8`, `ldf`, `ldd`, `st1`…`st8`, `stf`, `std` — same names as built-in load/store, also available as natives |
+| Memory (volatile) | `ld1v`…`ld8v`, `st1v`…`st8v` — volatile load/store through a register address |
+| Memory (sign-extending) | `ld1s`…`ld8s`, `ld1vs`…`ld8vs`, `ld1os`…`ld8os` — sign-extending loads (plain, volatile, and with signed offset) |
+| Extension | `sext`, `zext` — sign- or zero-extend a register to `kshift` bits (`sys sext dst +8`, `sys zext dst +32`) |
 | Bytecode / LEB128 | `tok`, `leb2i`, `leb2u`, `i2leb`, `u2leb`, `i2lebsz`, `u2lebsz` |
+
+`malloc` and `realloc` read the size from a **register** (`sys malloc 0 1` after
+`nat 1 16`). `kmalloc` reads the size inline, like `globals` (`sys kmalloc 0 +16`).
+Bare `+16` after `malloc` is a register index, not a byte count.
+
+Built-in `ld1`…`ld8` / `st1`…`st8` zero-extend loaded values into the register.
+Use `sys ld1s` (or `ld1os` with an offset) when you need a signed narrow load.
+Floating-point values in memory are accessed with pointer arithmetic and
+`memcpy`-style patterns, or by keeping them in registers after `flt` / `dbl`.
 
 Typical output idiom:
 

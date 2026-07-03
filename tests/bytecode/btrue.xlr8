@@ -1,0 +1,13 @@
+// Branch when predicate is true (set)
+
+enter 2
+int 0 99
+true 0
+btrue 0 :yes
+int 0 1
+bra :done
+.yes
+int 0 2
+.done
+sys write_integer 0 1
+sys write_newline 1

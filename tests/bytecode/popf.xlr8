@@ -5,7 +5,7 @@ false 0
 pushf
 true 0
 popf
-bcc 0 :wrong
+btrue 0 :wrong
 int 0 42
 bra :done
 .wrong
