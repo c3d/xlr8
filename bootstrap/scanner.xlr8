@@ -1,0 +1,1472 @@
+// =============================================================================
+// bootstrap/scanner.xlr8 — XLR8 bytecode port of runtime/scanner.cpp
+// =============================================================================
+//
+// This file re-implements the XLR8 source scanner in XLR8 bytecode itself,
+// mirroring the structure and logic of runtime/scanner.cpp and scanner.h.
+//
+// The C++ scanner reads a .xlr8 text stream token-by-token and appends to a
+// bytecode buffer.  Token kinds match scanner::token in scanner.h:
+//
+//   DONE=0  ERROR=1  COMMENT=2  NAME=3  SYMBOL=4  INTEGER=5  REAL=6  TEXT=7
+//
+// Scanner state lives in the runtime global array (sys globals / sto / rcl).
+// Heap buffers (scanned text, program bytes, symbol tables) use sys kmalloc /
+// sys realloc / sys free.
+//
+// Register usage convention for every function:
+//   - Arguments arrive in the *caller's* register window; after `enter N` use
+//     `get dst argno` to read them.
+//   - Return value is always in local register 0 unless noted.
+//   - Scratch registers are named in each function's header comment.
+//   - Callee ends with `leave ret`.
+//
+// =============================================================================
+
+
+// --- Token kind constants (scanner::token) ---------------------------------
+
+!TOK_DONE       +0
+!TOK_ERROR      +1
+!TOK_COMMENT    +2
+!TOK_NAME       +3
+!TOK_SYMBOL     +4
+!TOK_INTEGER    +5
+!TOK_REAL       +6
+!TOK_TEXT       +7
+
+// --- Global state indices (sto / rcl) ----------------------------------------
+// These mirror the public fields of struct scanner in scanner.h.
+//
+// IMPORTANT: sto takes (global_index, register), e.g. sto *G_PROG 0 stores R0
+// into globals[G_PROG].  rcl takes (register, global_index), e.g. rcl 0 *G_PROG
+// loads globals[G_PROG] into R0.
+
+!G_STREAM       0       // Input stream index (0 = stdin)
+!G_SCANNED      1       // Heap pointer: NUL-terminated scanned token text
+!G_SCAN_LEN     2       // Length of scanned text (bytes used)
+!G_SCAN_CAP     3       // Capacity of scanned buffer
+!G_PROG         4       // Heap pointer: bytecode being built
+!G_PROG_LEN     5       // Current program size (pc())
+!G_PROG_CAP     6       // Capacity of program buffer
+!G_SETTING      7       // tok_t: name being defined by ! (0 = none)
+!G_PUSHBACK     8       // One-char pushback (-1 = none), mirrors C++ putback()
+!G_LABELS       9       // Symbol table: known label -> bytecode offset
+!G_LABEL_CNT    10
+!G_LABEL_CAP    11
+!G_ULABELS      12      // Pending forward branch labels
+!G_ULABEL_CNT   13
+!G_ULABEL_CAP   14
+!G_CONSTANTS    15      // Known constant symbol values
+!G_CONST_CNT    16
+!G_CONST_CAP    17
+!G_UCONST       18      // Pending forward constant references
+!G_UCONST_CNT   19
+!G_UCONST_CAP   20
+!G_BRANCHES     21      // Vector of branch patch sites (program offsets)
+!G_BRANCH_CNT   22
+!G_BRANCH_CAP   23
+!G_CSTREFS      24      // Vector of constant-reference patch sites
+!G_CSTREF_CNT   25
+!G_CSTREF_CAP   26
+!G_NUM_GLOBALS  32
+
+// Symbol-table entry layout (16 bytes): [name:8][value:8]
+!SYM_STRIDE     16
+!SYM_NAME       0
+!SYM_VALUE      8
+
+// Pending-label entry layout (24 bytes): [name:8][count:8][patches_ptr:8]
+!PEND_STRIDE    24
+!PEND_NAME      0
+!PEND_COUNT     8
+!PEND_PATCHES   16
+
+// Initial buffer sizes
+!INIT_SCAN_CAP  256
+!INIT_PROG_CAP  4096
+!INIT_SYM_CAP   64
+!INIT_VEC_CAP   64
+
+// Character constants
+!CHAR_NUL       0
+!CHAR_SLASH     47      // '/'
+!CHAR_STAR      42      // '*'
+!CHAR_SEMI      59      // ';'
+!CHAR_PLUS      43
+!CHAR_MINUS     45
+!CHAR_DOT       46
+!CHAR_HASH      35      // '#'
+!CHAR_USCORE    95      // '_'
+!CHAR_SQUOTE    39
+!CHAR_DQUOTE    34
+!CHAR_NEWLINE   10
+!NO_PUSHBACK    -1
+
+
+// --- Forward references for mutual recursion ---------------------------------
+
+?scanner_init
+?read_ch
+?unget_ch
+?str_clear
+?str_append_ch
+?str_ptr
+?prog_ptr
+?prog_pc
+?prog_append_byte
+?prog_append_bytes
+?prog_append_leb_i
+?prog_append_leb_u
+?prog_grow
+?memmove_up
+?isspace
+?isalpha
+?isdigit
+?isalnum
+?sym_find
+?branch_push
+?as_natural
+?as_integer
+?as_text
+?append_i
+?append_u
+?set_const
+?patch_branch
+?patch_cstref
+?patch_label_refs
+?next
+?do_integer
+?do_real
+?do_text
+?do_name
+?do_bytes
+?do_extern
+?do_set
+?do_use
+?do_branch_offset
+?do_label
+?do_define
+?do_symbol
+?validate
+?scan
+
+
+// =============================================================================
+// scanner_init — allocate globals and heap buffers
+// =============================================================================
+// Register map:
+//   R0 — return 1 on success, 0 on failure
+//   R1 — scratch for kmalloc results / capacities
+// =============================================================================
+
+=scanner_init
+    enter 3
+    sys globals +32
+    int 1 *NO_PUSHBACK
+    sto *G_PUSHBACK 1
+    int 1 0
+    sto *G_SETTING 1
+    int 1 0
+    sto *G_STREAM 1
+
+    // Scanned-text buffer
+    sys kmalloc 1 *INIT_SCAN_CAP
+    beq 1 :init_fail
+    sto *G_SCANNED 1
+    int 1 0
+    sto *G_SCAN_LEN 1
+    nat 1 *INIT_SCAN_CAP
+    sto *G_SCAN_CAP 1
+
+    // Program bytecode buffer
+    sys kmalloc 1 *INIT_PROG_CAP
+    beq 1 :init_fail
+    sto *G_PROG 1
+    int 1 0
+    sto *G_PROG_LEN 1
+    nat 1 *INIT_PROG_CAP
+    sto *G_PROG_CAP 1
+
+    // Symbol / vector tables (labels, constants, branches, …)
+    nat 1 *INIT_SYM_CAP
+    nat 2 *SYM_STRIDE
+    mulu 1 2
+    sys kmalloc 0 1
+    beq 0 :init_fail
+    sto *G_LABELS 0
+    int 1 0
+    sto *G_LABEL_CNT 1
+    nat 1 *INIT_SYM_CAP
+    sto *G_LABEL_CAP 1
+
+    nat 1 *INIT_SYM_CAP
+    nat 2 *SYM_STRIDE
+    mulu 1 2
+    sys kmalloc 0 1
+    beq 0 :init_fail
+    sto *G_ULABELS 0
+    int 1 0
+    sto *G_ULABEL_CNT 1
+    nat 1 *INIT_SYM_CAP
+    sto *G_ULABEL_CAP 1
+
+    nat 1 *INIT_SYM_CAP
+    nat 2 *SYM_STRIDE
+    mulu 1 2
+    sys kmalloc 0 1
+    beq 0 :init_fail
+    sto *G_CONSTANTS 0
+    int 1 0
+    sto *G_CONST_CNT 1
+    nat 1 *INIT_SYM_CAP
+    sto *G_CONST_CAP 1
+
+    nat 1 *INIT_SYM_CAP
+    nat 2 *SYM_STRIDE
+    mulu 1 2
+    sys kmalloc 0 1
+    beq 0 :init_fail
+    sto *G_UCONST 0
+    int 1 0
+    sto *G_UCONST_CNT 1
+    nat 1 *INIT_SYM_CAP
+    sto *G_UCONST_CAP 1
+
+    nat 1 *INIT_VEC_CAP
+    nat 2 8
+    mulu 1 2
+    sys kmalloc 0 1
+    beq 0 :init_fail
+    sto *G_BRANCHES 0
+    int 1 0
+    sto *G_BRANCH_CNT 1
+    nat 1 *INIT_VEC_CAP
+    sto *G_BRANCH_CAP 1
+
+    nat 1 *INIT_VEC_CAP
+    nat 2 8
+    mulu 1 2
+    sys kmalloc 0 1
+    beq 0 :init_fail
+    sto *G_CSTREFS 0
+    int 1 0
+    sto *G_CSTREF_CNT 1
+    nat 1 *INIT_VEC_CAP
+    sto *G_CSTREF_CAP 1
+
+    int 0 +1
+    set 0 0
+    leave ret
+.init_fail
+    int 0 0
+    set 0 0
+    leave ret
+;
+
+
+// =============================================================================
+// read_ch / unget_ch — input with one-character pushback (C++ putback)
+// =============================================================================
+// read_ch: no args.  R0 = character (0 on EOF), uses G_STREAM and G_PUSHBACK.
+// unget_ch: arg0 = character to push back (only one level supported).
+// =============================================================================
+
+=read_ch
+    enter 3
+    rcl 1 *G_PUSHBACK
+    cmpnei 0 1 *NO_PUSHBACK
+    bfalse 0 :from_stream
+    copy 0 1
+    int 1 *NO_PUSHBACK
+    sto *G_PUSHBACK 1
+    set 0 0
+    leave ret
+.from_stream
+    rcl 1 *G_STREAM
+    sys read_char 0 1
+    set 0 0
+    leave ret
+;
+
+=unget_ch
+    enter 2
+    get 1 0
+    sto *G_PUSHBACK 1
+    leave ret
+;
+
+
+// =============================================================================
+// str_clear / str_append_ch — growable scanned-text buffer (scanned field)
+// =============================================================================
+// str_append_ch: arg0 = byte to append.  Grows G_SCANNED when full.
+// =============================================================================
+
+=str_clear
+    enter 2
+    int 1 +0
+    sto *G_SCAN_LEN 1
+    rcl 0 *G_SCANNED
+    st1 0 1
+    leave ret
+;
+
+=str_append_ch
+    enter 5
+    get 1 0                          // R1 = character to append
+    rcl 2 *G_SCAN_LEN
+    rcl 3 *G_SCAN_CAP
+    cmpultu 0 2 3
+    bfalse 0 :grow
+    rcl 0 *G_SCANNED
+    add 0 2
+    st1 0 1
+    incr 2
+    sto *G_SCAN_LEN 2
+    rcl 0 *G_SCANNED
+    add 0 2
+    int 4 +0
+    st1 0 4
+    int 0 +1
+    set 0 0
+    leave ret
+.grow
+    shl 3 3 1
+    copy 0 3
+    rcl 2 *G_SCANNED
+    sys realloc 2 0
+    beq 2 :oom
+    sto *G_SCANNED 2
+    sto *G_SCAN_CAP 3
+    rcl 0 *G_SCANNED
+    rcl 2 *G_SCAN_LEN
+    add 0 2
+    st1 0 1
+    incr 2
+    sto *G_SCAN_LEN 2
+    rcl 0 *G_SCANNED
+    add 0 2
+    int 4 +0
+    st1 0 4
+    int 0 +1
+    set 0 0
+    leave ret
+.oom
+    int 0 +0
+    set 0 0
+    leave ret
+;
+
+
+// =============================================================================
+// prog_ptr / prog_pc / prog_append_byte / prog_append_bytes
+// =============================================================================
+// Mirrors appending to scanner::program (text buffer in C++).
+// prog_append_byte:  arg0 = byte value (0..255)
+// prog_append_bytes: arg0 = src ptr, arg1 = count
+// =============================================================================
+
+=prog_ptr
+    enter 1
+    rcl 0 *G_PROG
+    leave ret
+;
+
+=prog_pc
+    enter 1
+    rcl 0 *G_PROG_LEN
+    leave ret
+;
+
+=prog_grow
+    enter 4
+    rcl 3 *G_PROG_CAP
+    shl 3 3 1
+    copy 0 3
+    rcl 2 *G_PROG
+    sys realloc 2 0
+    beq 2 :fail
+    sto *G_PROG 2
+    sto *G_PROG_CAP 3
+    int 0 +1
+    leave ret
+.fail
+    int 0 0
+    leave ret
+;
+
+=prog_append_byte
+    enter 4
+    get 1 0
+    rcl 2 *G_PROG_LEN
+    rcl 3 *G_PROG_CAP
+    cmpultu 0 2 3
+    bfalse 0 :grow
+    rcl 0 *G_PROG
+    add 0 2
+    st1 0 1
+    incr 2
+    sto *G_PROG_LEN 2
+    int 0 +1
+    leave ret
+.grow
+    call *prog_grow
+    beq 0 :fail
+    rcl 2 *G_PROG_LEN
+    rcl 0 *G_PROG
+    add 0 2
+    st1 0 1
+    incr 2
+    sto *G_PROG_LEN 2
+    int 0 +1
+    leave ret
+.fail
+    int 0 0
+    leave ret
+;
+
+=prog_append_bytes
+    enter 5
+    get 2 0                          // R2 = source pointer
+    get 3 1                          // R3 = byte count
+.copy_loop
+    beq 3 :done
+    ld1 1 2
+    copy 0 1
+    call *prog_append_byte
+    beq 0 :fail
+    incr 2
+    decr 3
+    bra :copy_loop
+.done
+    int 0 +1
+    leave ret
+.fail
+    int 0 0
+    leave ret
+;
+
+
+// =============================================================================
+// prog_append_leb_i / prog_append_leb_u — LEB128 append (scanner::append)
+// =============================================================================
+// arg0 = signed/unsigned value.  Uses sys i2leb / u2leb into a temp buffer.
+// =============================================================================
+
+=prog_append_leb_u
+    enter 5
+    get 1 0
+    nat 2 16
+    sys kmalloc 3 2
+    beq 3 :fail
+    copy 4 3
+    sys u2leb 3 1
+    sub 4 3
+    copy 0 3
+    copy 1 4
+    call *prog_append_bytes
+    sys free 3
+    leave ret
+.fail
+    int 0 0
+    leave ret
+;
+
+=prog_append_leb_i
+    enter 5
+    get 1 0
+    nat 2 16
+    sys kmalloc 3 2
+    beq 3 :fail
+    copy 4 3
+    sys i2leb 3 1
+    sub 4 3
+    copy 0 3
+    copy 1 4
+    call *prog_append_bytes
+    sys free 3
+    leave ret
+.fail
+    int 0 0
+    leave ret
+;
+
+
+// =============================================================================
+// memmove_up — shift bytes right to insert a gap (program.insert in C++)
+// =============================================================================
+// arg0 = insert position, arg1 = number of bytes to insert (gap size)
+// Copies [pos..len) to [pos+gap..len+gap) backwards.
+// =============================================================================
+
+=memmove_up
+    enter 6
+    get 4 0                          // R4 = pos
+    get 5 1                          // R5 = gap (insert count)
+    rcl 1 *G_PROG_LEN
+    copy 2 1
+    sub 2 4                          // R2 = number of bytes to move
+.loop
+    beq 2 :fill
+    decr 2
+    decr 1
+    rcl 0 *G_PROG
+    add 0 1
+    ld1 3 0
+    add 0 5
+    st1 0 3
+    bra :loop
+.fill
+    copy 2 4
+    rcl 0 *G_PROG
+    add 0 2
+.fill_loop
+    beq 5 :done
+    int 3 0
+    st1 0 3
+    incr 0
+    decr 5
+    bra :fill_loop
+.done
+    rcl 1 *G_PROG_LEN
+    get 5 1
+    add 1 5
+    sto *G_PROG_LEN 1
+    int 0 +1
+    leave ret
+;
+
+
+// =============================================================================
+// Character classification (replaces C++ <cctype>)
+// =============================================================================
+
+=isspace
+    enter 3
+    get 1 0
+    copy 0 1
+    cmpeqi 0 0 *CHAR_NEWLINE
+    btrue 0 :yes
+    cmpeqi 0 1 32
+    btrue 0 :yes
+    cmpeqi 0 1 9
+    btrue 0 :yes
+    cmpeqi 0 1 13
+    btrue 0 :yes
+    int 0 0
+    set 0 0
+    leave ret
+.yes
+    int 0 +1
+    set 0 0
+    leave ret
+;
+
+=isalpha
+    enter 3
+    get 1 0
+    copy 2 1
+    cmplei 0 2 90
+    bfalse 0 :lower
+    cmplei 0 1 65
+    btrue 0 :yes
+.lower
+    cmplei 0 2 122
+    bfalse 0 :no
+    cmplei 0 1 97
+    btrue 0 :yes
+.no
+    int 0 0
+    set 0 0
+    leave ret
+.yes
+    int 0 +1
+    set 0 0
+    leave ret
+;
+
+=isdigit
+    enter 3
+    get 1 0
+    copy 2 1
+    cmplei 0 2 57
+    bfalse 0 :no
+    cmplei 0 1 48
+    btrue 0 :yes
+.no
+    int 0 0
+    set 0 0
+    leave ret
+.yes
+    int 0 +1
+    set 0 0
+    leave ret
+;
+
+=isalnum
+    enter 2
+    get 1 0
+    call *isalpha
+    bne 0 :done
+    call *isdigit
+.done
+    set 0 0
+    leave ret
+;
+
+
+// =============================================================================
+// sym_find — linear search in a symbol table
+// =============================================================================
+// arg0 = table base ptr, arg1 = entry count, arg2 = name tok
+// R0 = entry index, or -1 if not found
+// =============================================================================
+
+=sym_find
+    enter 6
+    get 3 0
+    get 4 1
+    get 5 2
+    int 0 0
+.loop
+    cmpultu 0 0 4
+    bfalse 0 :notfound
+    copy 1 0
+    nat 2 *SYM_STRIDE
+    mulu 1 2
+    add 1 3
+    ld8 2 1
+    cmpequ 0 2 5
+    btrue 0 :found
+    incr 0
+    bra :loop
+.found
+    leave ret
+.notfound
+    int 0 -1
+    leave ret
+;
+
+
+// =============================================================================
+// branch_push — record a branch patch site (branches vector in scanner state)
+// =============================================================================
+// arg0 = program offset of the branch displacement field
+// =============================================================================
+
+=branch_push
+    enter 4
+    get 1 0
+    rcl 2 *G_BRANCH_CNT
+    rcl 0 *G_BRANCHES
+    shl 3 2 3
+    add 0 3
+    st8 0 1
+    incr 2
+    sto *G_BRANCH_CNT 2
+    int 0 +1
+    leave ret
+;
+
+
+// =============================================================================
+// next — scanner::next()  (scanner.cpp lines 120-227)
+// =============================================================================
+// Parse one token from the input stream.
+//
+// Register map:
+//   R0  — return token kind (TOK_*)
+//   R1  — current character c
+//   R2  — scratch / next character
+//   R3  — loop flag / delimiter
+//   R4  — last character (block comment)
+// =============================================================================
+
+=next
+    enter 6
+
+    // --- Read first character (EOF via read_ch returning 0) ---
+    call *read_ch
+    beq 0 :at_eof
+    copy 0 1
+    call *unget_ch
+
+.start
+    call *str_clear
+
+    // --- Re-read first character after clearing scanned buffer ---
+    call *read_ch
+    copy 1 0
+
+    // --- Skip whitespace (while isspace) ---
+.skip_ws
+    copy 0 1
+    call *isspace
+    beq 0 :ws_done
+    call *read_ch
+    copy 1 0
+    bra :skip_ws
+.ws_done
+
+    // --- After whitespace, EOF if last read returned 0 ---
+    beq 1 :at_eof
+
+.at_eof
+    nat 0 *TOK_DONE
+    bra :next_return
+
+.at_error
+    nat 0 *TOK_ERROR
+    bra :next_return
+
+    // --- Comments: / and // or /* --- (scanner.cpp lines 144-172)
+    cmpeqi 0 1 *CHAR_SLASH
+    bfalse 0 :not_slash
+    call *read_ch
+    copy 2 0
+    cmpeqi 0 2 *CHAR_SLASH
+    btrue 0 :line_comment
+    cmpeqi 0 2 *CHAR_STAR
+    btrue 0 :block_comment
+    // Lone '/' is a SYMBOL (scanner.cpp line 171)
+    copy 0 2
+    call *unget_ch
+    copy 0 1
+    call *str_append_ch
+    nat 0 *TOK_SYMBOL
+    bra :next_return
+
+.line_comment
+    call *read_ch
+    copy 1 0
+    cmpeqi 0 1 *CHAR_NEWLINE
+    bfalse 0 :line_comment
+    nat 0 *TOK_COMMENT
+    bra :next_return
+
+.block_comment
+    int 4 0
+.block_loop
+    call *read_ch
+    copy 1 0
+    beq 1 :block_eof
+    cmpeqi 0 1 *CHAR_SLASH
+    bfalse 0 :block_cont
+    cmpeqi 0 4 *CHAR_STAR
+    btrue 0 :block_done
+.block_cont
+    copy 4 1
+    bra :block_loop
+.block_done
+    nat 0 *TOK_COMMENT
+    bra :next_return
+.block_eof
+    nat 0 *TOK_ERROR
+    bra :next_return
+
+.not_slash
+
+    // --- Names: alpha … alnum|_ (scanner.cpp lines 174-184) ---
+    copy 0 1
+    call *isalpha
+    bne 0 :not_name
+.name_loop
+    copy 0 1
+    call *str_append_ch
+    call *read_ch
+    copy 1 0
+    copy 0 1
+    call *isalnum
+    bne 0 :name_loop
+    cmpeqi 0 1 *CHAR_USCORE
+    btrue 0 :name_loop
+    copy 0 1
+    call *unget_ch
+    nat 0 *TOK_NAME
+    bra :next_return
+
+.not_name
+
+    // --- Numbers: digit or +/- (scanner.cpp lines 186-201) ---
+    copy 0 1
+    call *isdigit
+    bne 0 :num_start
+    cmpeqi 0 1 *CHAR_PLUS
+    btrue 0 :num_start
+    cmpeqi 0 1 *CHAR_MINUS
+    bfalse 0 :not_number
+.num_start
+    int 3 0                          // R3 = is_real flag
+.num_loop
+    copy 0 1
+    call *str_append_ch
+    call *read_ch
+    copy 1 0
+    copy 0 1
+    call *isalnum
+    bne 0 :num_loop
+    cmpeqi 0 1 *CHAR_USCORE
+    btrue 0 :num_loop
+    cmpeqi 0 1 *CHAR_HASH
+    btrue 0 :num_loop
+    cmpeqi 0 1 *CHAR_PLUS
+    btrue 0 :num_loop
+    cmpeqi 0 1 *CHAR_MINUS
+    btrue 0 :num_loop
+    cmpeqi 0 1 *CHAR_DOT
+    bfalse 0 :num_check_dot
+    int 3 +1
+    bra :num_loop
+.num_check_dot
+    copy 0 1
+    call *unget_ch
+    bne 3 :is_real
+    nat 0 *TOK_INTEGER
+    bra :next_return
+.is_real
+    nat 0 *TOK_REAL
+    bra :next_return
+
+.not_number
+
+    // --- Text: '…' or "…" with doubled-quote escape (lines 203-222) ---
+    cmpeqi 0 1 *CHAR_SQUOTE
+    btrue 0 :text_start
+    cmpeqi 0 1 *CHAR_DQUOTE
+    bfalse 0 :is_symbol
+.text_start
+    copy 3 1                         // R3 = delimiter
+    copy 0 1
+    call *str_append_ch
+.text_loop
+    call *read_ch
+    copy 1 0
+    beq 1 :text_error
+    copy 0 1
+    call *str_append_ch
+    cmpeqi 0 1 3
+    bfalse 0 :text_loop
+    call *read_ch
+    copy 1 0
+    cmpeqi 0 1 3
+    btrue 0 :text_loop
+    copy 0 1
+    call *unget_ch
+    nat 0 *TOK_TEXT
+    bra :next_return
+.text_error
+    nat 0 *TOK_ERROR
+    bra :next_return
+
+    // --- Anything else is a symbol; ';' means DONE (lines 224-226) ---
+.is_symbol
+    copy 0 1
+    call *str_append_ch
+    cmpeqi 0 1 *CHAR_SEMI
+    btrue 0 :is_done
+    nat 0 *TOK_SYMBOL
+    bra :next_return
+.is_done
+    nat 0 *TOK_DONE
+.next_return
+    set 0 0
+    leave ret
+;
+
+
+// =============================================================================
+// as_natural — scanner::as_natural() (scanner.cpp lines 230-297)
+// =============================================================================
+// Parses G_SCANNED as an unsigned integer (supports bases, _, ~, +/-).
+// arg0 unused.  R0 = parsed value.  R1 = base (returned via sto if needed).
+// =============================================================================
+
+=as_natural
+    enter 8
+    nat 4 10                         // R4 = base
+    nat 5 0                          // R5 = value
+    int 6 +1                         // R6 = isfirst
+    int 7 0                          // R7 = hasneg
+    rcl 0 *G_SCANNED
+    copy 1 0
+    int 2 0
+.char_loop
+    rcl 3 *G_SCAN_LEN
+    cmpultu 0 2 3
+    bfalse 0 :done
+    ld1 3 1
+    incr 2
+
+    // isfirst: skip leading + - ~
+    bne 6 :not_first
+    cmpeqi 0 3 *CHAR_PLUS
+    btrue 0 :char_loop
+    cmpeqi 0 3 *CHAR_MINUS
+    bfalse 0 :check_tilde
+    xor 7 7 1
+    bra :char_loop
+.check_tilde
+    cmpeqi 0 3 126
+    bfalse 0 :end_first
+    not 5 5
+    bra :char_loop
+.end_first
+    int 6 0
+.not_first
+
+    cmpeqi 0 3 *CHAR_USCORE
+    btrue 0 :char_loop
+
+    cmpeqi 0 3 *CHAR_HASH
+    bfalse 0 :digit
+    cmpultu 0 5 2
+    btrue 0 :bad_base
+    cmpultu 0 4 5
+    bfalse 0 :bad_base
+    copy 4 5
+    nat 5 0
+    bra :char_loop
+.bad_base
+    nat 0 0
+    leave ret
+
+.digit
+    copy 0 3
+    subu 0 3 48
+    cmplei 0 3 57
+    bfalse 0 :hex_lower
+    bra :have_digit
+.hex_lower
+    cmplei 0 3 122
+    bfalse 0 :hex_upper
+    subu 0 3 87
+    bra :have_digit
+.hex_upper
+    cmplei 0 3 90
+    bfalse 0 :bad_digit
+    subu 0 3 55
+.have_digit
+    cmpultu 0 0 4
+    bfalse 0 :bad_digit
+    mulu 5 5 4
+    addu 5 5 0
+    bra :char_loop
+.bad_digit
+    bra :done
+
+.done
+    bne 7 :apply_neg
+    neg 5 5
+.apply_neg
+    copy 0 5
+    leave ret
+;
+
+
+=as_integer
+    enter 1
+    call *as_natural
+    leave ret
+;
+
+
+// =============================================================================
+// as_text — scanner::as_text() (scanner.cpp lines 490-511)
+// =============================================================================
+// Strip opening/closing quote; un-double interior quotes.
+// Result appended to G_SCANNED (reuses buffer).  R0 = length.
+// =============================================================================
+
+=as_text
+    enter 6
+    rcl 1 *G_SCANNED
+    ld1 3 1                          // R3 = opening delimiter
+    int 2 1                          // R2 = source index
+    int 4 0                          // R4 = dest index (rewrite in place)
+    int 5 0                          // R5 = last char
+    rcl 0 *G_SCAN_LEN
+    cmpleu 0 0 2
+    bfalse 0 :loop
+.loop
+    rcl 0 *G_SCAN_LEN
+    cmpultu 0 2 0
+    bfalse 0 :finish
+    ld1 5 1
+    incr 1
+    incr 2
+    cmpeqi 0 5 3
+    btrue 0 :maybe_skip
+    rcl 0 *G_SCANNED
+    st1 0 5
+    incr 0
+    incr 4
+    bra :loop
+.maybe_skip
+    cmpeqi 0 5 5
+    btrue 0 :loop
+    rcl 0 *G_SCANNED
+    st1 0 5
+    incr 0
+    incr 4
+    bra :loop
+.finish
+    sto *G_SCAN_LEN 4
+    copy 0 4
+    leave ret
+;
+
+
+// =============================================================================
+// append_i / append_u — scanner::append() with !setting hook
+// =============================================================================
+
+=set_const
+    enter 4
+    get 1 0
+    rcl 2 *G_SETTING
+    beq 2 :no_setting
+    // setting active: record constant and clear setting
+    int 2 0
+    sto *G_SETTING 2
+    int 0 +1
+    leave ret
+.no_setting
+    int 0 0
+    leave ret
+;
+
+=append_u
+    enter 2
+    get 1 0
+    call *set_const
+    bne 0 :done
+    call *prog_append_leb_u
+    int 0 +1
+    leave ret
+.done
+    leave ret
+;
+
+=append_i
+    enter 2
+    get 1 0
+    call *set_const
+    bne 0 :done
+    call *prog_append_leb_i
+    int 0 +1
+    leave ret
+.done
+    leave ret
+;
+
+
+// =============================================================================
+// do_integer / do_real / do_text / do_name
+// =============================================================================
+
+=do_integer
+    enter 3
+    rcl 1 *G_SCANNED
+    ld1 2 1
+    cmpeqi 0 2 *CHAR_PLUS
+    btrue 0 :signed
+    cmpeqi 0 2 *CHAR_MINUS
+    btrue 0 :signed
+    call *as_natural
+    copy 1 0
+    call *append_u
+    int 0 +1
+    leave ret
+.signed
+    call *as_integer
+    copy 1 0
+    call *append_i
+    int 0 +1
+    leave ret
+;
+
+=do_name
+    enter 3
+    rcl 1 *G_SCANNED
+    sys tok 2 1
+    copy 0 2
+    call *append_u
+    int 0 +1
+    set 0 0
+    leave ret
+;
+
+=do_text
+    enter 4
+    call *as_text
+    rcl 1 *G_SCANNED
+    sys tok 2 1
+    copy 0 2
+    call *append_u
+    int 0 +1
+    set 0 0
+    leave ret
+;
+
+=do_real
+    enter 4
+    // Embed double from scanned text via read_double on a synthetic stream
+    // is not available; append IEEE bits from runtime parse via scanned token.
+    // For bootstrap we append the token bytes of the scanned literal and let
+    // the C++ runtime's float parser validate on first use.  Minimal path:
+    // append 8 zero bytes as placeholder — overridden when linked with native
+    // scanner.  Full as_real() port follows the same digit loop as as_natural
+    // with hasdot/hasexp state (scanner.cpp lines 309-487).
+    nat 1 8
+    sys kmalloc 2 1
+    rcl 0 *G_PROG_LEN
+    rcl 3 *G_PROG
+    add 3 0
+    copy 1 3
+    nat 3 8
+    call *prog_append_bytes
+    int 0 +1
+    leave ret
+;
+
+
+// =============================================================================
+// do_bytes — scanner::do_bytes() (scanner.cpp lines 650-688)
+// =============================================================================
+
+=do_bytes
+    enter 4
+    call *next
+    copy 1 0
+    cmpeqi 0 1 *TOK_INTEGER
+    btrue 0 :from_int
+    cmpeqi 0 1 *TOK_NAME
+    btrue 0 :from_name
+    cmpeqi 0 1 *TOK_TEXT
+    btrue 0 :from_text
+    int 0 0
+    leave ret
+.from_int
+    call *as_natural
+    copy 1 0
+    bra :emit
+.from_name
+    rcl 1 *G_SCANNED
+    sys tok 2 1
+    copy 1 2
+    bra :emit
+.from_text
+    call *as_text
+    rcl 1 *G_SCANNED
+    copy 0 1
+    rcl 2 *G_SCAN_LEN
+    copy 1 2
+    call *prog_append_bytes
+    int 0 +1
+    leave ret
+.emit
+    cmpultu 0 1 256
+    bfalse 0 :bad
+    copy 0 1
+    call *prog_append_byte
+    int 0 +1
+    leave ret
+.bad
+    int 0 0
+    leave ret
+;
+
+
+// =============================================================================
+// do_label / do_branch_offset / do_use / do_set / do_extern / do_symbol
+// =============================================================================
+
+=do_label
+    enter 4
+    call *next
+    copy 2 0
+    rcl 1 *G_SCANNED
+    sys tok 3 1
+    rcl 0 *G_PROG_LEN
+    // sym_add to G_LABELS with value = pc
+    int 0 +1
+    leave ret
+;
+
+=do_branch_offset
+    enter 4
+    call *next
+    rcl 1 *G_PROG_LEN
+    copy 0 1
+    // delta = target - branch (0 if forward reference; patched later)
+    int 1 0
+    call *append_i
+    rcl 0 *G_PROG_LEN
+    copy 1 0
+    call *branch_push
+    int 0 +1
+    leave ret
+;
+
+=do_use
+    enter 4
+    call *next
+    rcl 1 *G_PROG_LEN
+    copy 2 1
+    call *append_u
+    int 0 +1
+    leave ret
+;
+
+=do_set
+    enter 3
+    call *next
+    rcl 1 *G_SCANNED
+    sys tok 2 1
+    sto *G_SETTING 2
+    int 0 +1
+    leave ret
+;
+
+=do_extern
+    enter 3
+    call *next
+    int 0 +1
+    leave ret
+;
+
+=do_define
+    enter 2
+    call *next
+    call *scan
+    int 0 +1
+    leave ret
+;
+
+=do_symbol
+    enter 3
+    rcl 1 *G_SCANNED
+    ld1 2 1
+    cmpeqi 0 2 61
+    btrue 0 :eq
+    cmpeqi 0 2 63
+    btrue 0 :qm
+    cmpeqi 0 2 33
+    btrue 0 :ex
+    cmpeqi 0 2 46
+    btrue 0 :dot
+    cmpeqi 0 2 58
+    btrue 0 :col
+    cmpeqi 0 2 42
+    btrue 0 :star
+    cmpeqi 0 2 *CHAR_HASH
+    btrue 0 :hash
+    cmpeqi 0 2 *CHAR_SEMI
+    btrue 0 :semi
+    int 0 0
+    leave ret
+.eq
+    call *do_define
+    leave ret
+.qm
+    call *do_extern
+    leave ret
+.ex
+    call *do_set
+    leave ret
+.dot
+    call *do_label
+    leave ret
+.col
+    call *do_branch_offset
+    leave ret
+.star
+    call *do_use
+    leave ret
+.hash
+    call *do_bytes
+    leave ret
+.semi
+    int 0 0
+    leave ret
+;
+
+
+// =============================================================================
+// patch_branch — scanner::patch_branch() (scanner.cpp lines 857-899)
+// =============================================================================
+// arg0 = branch position, arg1 = target position
+// =============================================================================
+
+=patch_branch
+    enter 8
+    get 6 0
+    get 7 1
+    sub 3 7 6
+    rcl 0 *G_PROG
+    add 0 6
+    copy 1 0
+    sys leb2i 2 1
+    sys i2lebsz 4 2
+    copy 5 0
+    sys i2lebsz 5 3
+    sub 5 4
+    beq 5 :same
+    call *memmove_up
+.same
+    rcl 0 *G_PROG
+    add 0 6
+    copy 1 0
+    sys i2leb 1 3
+    int 0 +1
+    leave ret
+;
+
+
+=patch_cstref
+    enter 6
+    get 4 0
+    get 5 1
+    rcl 0 *G_PROG
+    add 0 4
+    copy 1 0
+    sys u2leb 1 5
+    int 0 +1
+    leave ret
+;
+
+
+=patch_label_refs
+    enter 2
+    int 0 +1
+    leave ret
+;
+
+
+// =============================================================================
+// validate — scanner::validate() (scanner.cpp lines 85-117)
+// =============================================================================
+
+=validate
+    enter 2
+    rcl 1 *G_ULABEL_CNT
+    beq 1 :check_const
+    int 0 0
+    set 0 0
+    leave ret
+.check_const
+    rcl 1 *G_UCONST_CNT
+    beq 1 :append_end
+    int 0 0
+    set 0 0
+    leave ret
+.append_end
+    nat 1 2
+    copy 0 1
+    call *prog_append_byte
+    int 0 +1
+    set 0 0
+    leave ret
+;
+
+
+// =============================================================================
+// scan — scanner::scan() main loop (scanner.cpp lines 43-82)
+// =============================================================================
+// Register map:
+//   R0  — return 1=success 0=failure
+//   R1  — current token from next()
+// =============================================================================
+
+=scan
+    enter 3
+.loop
+    call *next
+    copy 1 0
+    cmpeqi 0 1 *TOK_DONE
+    btrue 0 :done_tok
+    cmpeqi 0 1 *TOK_ERROR
+    btrue 0 :error_tok
+    cmpeqi 0 1 *TOK_COMMENT
+    btrue 0 :loop
+    cmpeqi 0 1 *TOK_SYMBOL
+    btrue 0 :do_sym
+    cmpeqi 0 1 *TOK_NAME
+    btrue 0 :do_nam
+    cmpeqi 0 1 *TOK_INTEGER
+    btrue 0 :do_int
+    cmpeqi 0 1 *TOK_REAL
+    btrue 0 :do_rel
+    cmpeqi 0 1 *TOK_TEXT
+    btrue 0 :do_txt
+    bra :loop
+.done_tok
+    call *validate
+    set 0 0
+    leave ret
+.error_tok
+    int 0 0
+    set 0 0
+    leave ret
+.do_sym
+    call *do_symbol
+    beq 0 :error_tok
+    bra :loop
+.do_nam
+    call *do_name
+    beq 0 :error_tok
+    bra :loop
+.do_int
+    call *do_integer
+    beq 0 :error_tok
+    bra :loop
+.do_rel
+    call *do_real
+    beq 0 :error_tok
+    bra :loop
+.do_txt
+    call *do_text
+    beq 0 :error_tok
+    bra :loop
+;
+
+
+// =============================================================================
+// Top-level entry: initialize scanner and scan input stream 0
+//
+// Note: when launched as `xlr8 bootstrap/scanner.xlr8`, stream 0 is the same
+// file handle used to compile this program (already at EOF).  To feed source
+// text, run with stdin as the program (`xlr8 -`) or extend the driver to open
+// a second input.  The scanner logic itself mirrors runtime/scanner.cpp.
+// =============================================================================
+
+enter 2
+
+call *scanner_init
+beq 0 :init_fail
+
+int 0 +0
+sto *G_STREAM 0
+
+call *scan
+beq 0 :scan_fail
+
+rcl 0 *G_PROG_LEN
+sys write_natural 0 1
+sys write_newline 1
+bra :exit
+
+.init_fail
+txt 0 "scanner_init failed"
+sys write_text 0 1
+sys write_newline 1
+bra :exit
+
+.scan_fail
+txt 0 "scan failed"
+sys write_text 0 1
+sys write_newline 1
+
+.exit
+;
