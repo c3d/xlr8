@@ -69,7 +69,19 @@
 !G_CSTREFS      24      // Vector of constant-reference patch sites
 !G_CSTREF_CNT   25
 !G_CSTREF_CAP   26
+!G_FP_SIZE      27      // as_real / do_real: 4=float, 8=double, 0=error
+!G_FP_BITS      28      // IEEE bits (low 32 valid when size==4)
 !G_NUM_GLOBALS  32
+
+// Character constants (extras for as_real)
+!CHAR_E         101
+!CHAR_UPPER_E   69
+!CHAR_F         102
+!CHAR_UPPER_F   70
+!CHAR_D         100
+!CHAR_UPPER_D   68
+!SIZE_FLOAT     +4
+!SIZE_DOUBLE    +8
 
 // Symbol-table entry layout (16 bytes): [name:8][value:8]
 !SYM_STRIDE     16
@@ -128,6 +140,7 @@
 ?branch_push
 ?as_natural
 ?as_integer
+?as_real
 ?as_text
 ?append_i
 ?append_u
@@ -317,7 +330,7 @@
     get 1 0                          // R1 = character to append
     rcl 2 *G_SCAN_LEN
     rcl 3 *G_SCAN_CAP
-    cmpultu 0 2 3
+    cmpult 0 2 3
     bfalse 0 :grow
     rcl 0 *G_SCANNED
     add 0 2
@@ -401,7 +414,7 @@
     get 1 0
     rcl 2 *G_PROG_LEN
     rcl 3 *G_PROG_CAP
-    cmpultu 0 2 3
+    cmpult 0 2 3
     bfalse 0 :grow
     rcl 0 *G_PROG
     add 0 2
@@ -630,7 +643,7 @@
     get 5 2
     int 0 0
 .loop
-    cmpultu 0 0 4
+    cmpult 0 0 4
     bfalse 0 :notfound
     copy 1 0
     nat 2 *SYM_STRIDE
@@ -883,18 +896,19 @@
 // =============================================================================
 
 =as_natural
-    enter 8
-    nat 4 10                         // R4 = base
+    enter 10
+    nat 4 +10                         // R4 = base
     nat 5 0                          // R5 = value
     int 6 +1                         // R6 = isfirst
     int 7 0                          // R7 = hasneg
-    rcl 0 *G_SCANNED
-    copy 1 0
+    rcl 10 *G_SCANNED
     int 2 0
 .char_loop
     rcl 3 *G_SCAN_LEN
-    cmpultu 0 2 3
+    cmpult 0 2 3
     bfalse 0 :done
+    copy 1 10
+    add 1 2
     ld1 3 1
     incr 2
 
@@ -904,7 +918,7 @@
     btrue 0 :char_loop
     cmpeqi 0 3 *CHAR_MINUS
     bfalse 0 :check_tilde
-    xor 7 7 1
+    xoru 7 1
     bra :char_loop
 .check_tilde
     cmpeqi 0 3 126
@@ -922,7 +936,7 @@
     bfalse 0 :digit
     cmpultu 0 5 2
     btrue 0 :bad_base
-    cmpultu 0 4 5
+    cmpultu 0 5 36
     bfalse 0 :bad_base
     copy 4 5
     nat 5 0
@@ -933,24 +947,26 @@
 
 .digit
     copy 0 3
-    subu 0 3 48
+    subu 0 48
     cmplei 0 3 57
     bfalse 0 :hex_lower
     bra :have_digit
 .hex_lower
     cmplei 0 3 122
     bfalse 0 :hex_upper
-    subu 0 3 87
+    copy 0 3
+    subu 0 87
     bra :have_digit
 .hex_upper
     cmplei 0 3 90
     bfalse 0 :bad_digit
-    subu 0 3 55
+    copy 0 3
+    subu 0 55
 .have_digit
-    cmpultu 0 0 4
+    cmpult 0 0 4
     bfalse 0 :bad_digit
-    mulu 5 5 4
-    addu 5 5 0
+    umul 5 4
+    add 5 0
     bra :char_loop
 .bad_digit
     bra :done
@@ -967,6 +983,272 @@
 =as_integer
     enter 1
     call *as_natural
+    set 0 0
+    leave ret
+;
+
+
+// =============================================================================
+// as_real — scanner::as_real() (scanner.cpp lines 309-487)
+// =============================================================================
+// Parse G_SCANNED as IEEE float/double (XL syntax: bases, _, ., E, 16#A.B#E3).
+//
+// Register map (integer):
+//   R2  — scan index
+//   R3  — current character
+//   R4  — digit base
+//   R5  — mbase (mantissa base for exponent)
+//   R6  — integer value (exponent digits / base prefix)
+//   R8  — digit / bit-test scratch
+//   R9  — digit scratch
+//   R14 — isfirst (1 while skipping leading sign)
+//   R15 — hasneg
+//   R16 — hasmneg (sign of exponent)
+//   R17 — hasdot
+//   R18 — hasbase
+//   R19 — hasexp
+//   R20 — hashash (saw 16#FF.FF#E3 style second #)
+//   R21 — result size: 4 (float) or 8 (double)
+//
+// Register map (floating-point):
+//   R30 — dvalue (double accumulator)
+//   R31 — dmult  (double fractional multiplier)
+//   R32 — digit as double (temp)
+//   R33 — base as double (temp)
+//   R34 — fvalue (float accumulator)
+//   R35 — fmult  (float fractional multiplier)
+//   R36 — fexp   (float exponent factor, temp)
+//   R37 — dexp   (double exponent factor, temp)
+//
+// Return: R0 = byte size (0 on error, 4 or 8 on success).
+//         *G_FP_SIZE and *G_FP_BITS hold the embedded value for do_real.
+// =============================================================================
+
+=as_real
+    enter 40
+    nat 4 +10
+    nat 5 +10
+    nat 6 +0
+    int 14 +1
+    int 15 +0
+    int 16 +0
+    int 17 +0
+    int 18 +0
+    int 19 +0
+    int 20 +0
+    nat 21 +8
+    dbl 30 0.0
+    dbl 31 1.0
+    flt 34 0.0f
+    flt 35 1.0f
+    rcl 10 *G_SCANNED
+    int 2 +0
+
+.ar_loop
+    rcl 3 *G_SCAN_LEN
+    cmpult 0 2 3
+    bfalse 0 :ar_done
+
+    copy 1 10
+    add 1 2
+    ld1 3 1
+    incr 2
+
+    // --- Leading sign (isfirst) ---
+    bne 14 :not_first
+    cmpeqi 0 3 *CHAR_PLUS
+    btrue 0 :ar_loop
+    cmpeqi 0 3 *CHAR_MINUS
+    bfalse 0 :end_first
+    xoru 15 1
+    bra :ar_loop
+.end_first
+    int 14 +0
+.not_first
+
+    cmpeqi 0 3 *CHAR_USCORE
+    btrue 0 :ar_loop
+
+    // --- Based number: 16#FFFF or 16#FF.FF#E3 ---
+    cmpeqi 0 3 *CHAR_HASH
+    bfalse 0 :not_hash
+    bne 18 :second_hash
+    cmpultu 0 6 2
+    btrue 0 :ar_fail
+    cmpultu 0 6 36
+    bfalse 0 :ar_fail
+    copy 4 6
+    nat 6 +0
+    dbl 30 0.0
+    dbl 31 1.0
+    flt 34 0.0f
+    flt 35 1.0f
+    int 18 +1
+    bra :ar_loop
+.second_hash
+    nat 6 +0
+    copy 5 4
+    nat 4 +10
+    int 17 +0
+    int 20 +1
+    int 14 +1
+    bra :ar_loop
+.not_hash
+
+    // --- Decimal point ---
+    cmpeqi 0 3 *CHAR_DOT
+    bfalse 0 :not_dot
+    bne 17 :ar_fail
+    int 17 +1
+    bra :ar_loop
+.not_dot
+
+    // --- Decode digit (decimal 0-9, hex a-z / A-Z) ---
+    cmplei 0 3 57
+    bfalse 0 :hex_lower
+    copy 8 3
+    subu 8 48
+    bra :have_digit
+.hex_lower
+    cmplei 0 3 122
+    bfalse 0 :hex_upper
+    copy 8 3
+    subu 8 87
+    bra :have_digit
+.hex_upper
+    cmplei 0 3 90
+    bfalse 0 :bad_digit
+    copy 8 3
+    subu 8 55
+.have_digit
+    cmpult 0 8 4
+    bfalse 0 :bad_digit
+
+    // value = value * base + digit
+    umul 6 4
+    add 6 8
+
+    // Exponent digits or post-# hash: integer only
+    bne 19 :ar_loop
+    bne 20 :ar_loop
+
+    // Integral / fractional accumulation
+    copy 9 8
+    sys i2d 32 9
+    bne 17 :ar_frac
+    sys i2d 33 4
+    dmul 30 33
+    dadd 30 32
+    sys i2f 36 9
+    sys i2f 33 4
+    fmul 34 33
+    fadd 34 36
+    bra :ar_loop
+.ar_frac
+    sys i2d 33 4
+    ddiv 31 33
+    dmul 32 31
+    dadd 30 32
+    sys i2f 33 4
+    fdiv 35 33
+    sys i2f 36 9
+    fmul 36 35
+    fadd 34 36
+    bra :ar_loop
+
+.bad_digit
+    // --- Exponent letter E / suffix F or D ---
+    cmpeqi 0 3 *CHAR_E
+    btrue 0 :ar_is_e
+    cmpeqi 0 3 *CHAR_UPPER_E
+    btrue 0 :ar_is_e
+    cmpeqi 0 3 *CHAR_F
+    btrue 0 :ar_is_f
+    cmpeqi 0 3 *CHAR_UPPER_F
+    btrue 0 :ar_is_f
+    cmpeqi 0 3 *CHAR_D
+    btrue 0 :ar_is_d
+    cmpeqi 0 3 *CHAR_UPPER_D
+    btrue 0 :ar_is_d
+    bra :ar_fail
+.ar_is_e
+    bne 19 :ar_loop
+    bne 18 :ar_loop
+    int 19 +1
+    copy 16 15
+    nat 6 +0
+    nat 4 +10
+    int 15 +0
+    int 14 +1
+    bra :ar_loop
+.ar_is_f
+    nat 21 +4
+    bra :ar_loop
+.ar_is_d
+    nat 21 +8
+    bra :ar_loop
+
+.ar_done
+    bne 19 :ar_do_exp
+    bra :ar_apply
+.ar_do_exp
+    flt 36 1.0f
+    dbl 37 1.0
+    sys i2f 35 5
+    sys i2d 31 5
+.ar_exp_loop
+    beq 6 :ar_exp_done
+    copy 8 6
+    andu 8 1
+    beq 8 :ar_exp_shift
+    fmul 36 35
+    dmul 37 31
+.ar_exp_shift
+    fmul 35 35
+    dmul 31 31
+    ushru 6 1
+    bra :ar_exp_loop
+.ar_exp_done
+    bne 15 :ar_exp_pos
+    ddiv 30 37
+    fdiv 34 36
+    bra :ar_apply
+.ar_exp_pos
+    dmul 30 37
+    fmul 34 36
+.ar_apply
+    bne 19 :ar_mant_sign
+    bra :ar_maybe_neg
+.ar_mant_sign
+    copy 15 16
+.ar_maybe_neg
+    bne 15 :ar_negate
+    bra :ar_store
+.ar_negate
+    dbl 33 0.0
+    dsub 33 30
+    copy 30 33
+    flt 33 0.0f
+    fsub 33 34
+    copy 34 33
+.ar_store
+    cmpequ 0 21 +4
+    bfalse 0 :ar_store_dbl
+    sto *G_FP_BITS 34
+    bra :ar_ok
+.ar_store_dbl
+    sto *G_FP_BITS 30
+.ar_ok
+    sto *G_FP_SIZE 21
+    copy 0 21
+    set 0 0
+    leave ret
+
+.ar_fail
+    int 21 +0
+    sto *G_FP_SIZE 21
+    int 0 +0
+    set 0 0
     leave ret
 ;
 
@@ -1110,23 +1392,35 @@
 ;
 
 =do_real
-    enter 4
-    // Embed double from scanned text via read_double on a synthetic stream
-    // is not available; append IEEE bits from runtime parse via scanned token.
-    // For bootstrap we append the token bytes of the scanned literal and let
-    // the C++ runtime's float parser validate on first use.  Minimal path:
-    // append 8 zero bytes as placeholder — overridden when linked with native
-    // scanner.  Full as_real() port follows the same digit loop as as_natural
-    // with hasdot/hasexp state (scanner.cpp lines 309-487).
-    nat 1 8
-    sys kmalloc 2 1
-    rcl 0 *G_PROG_LEN
-    rcl 3 *G_PROG
-    add 3 0
-    copy 1 3
-    nat 3 8
+    enter 6
+    // scanner::do_real() — parse scanned text and embed raw IEEE bytes in program
+    call *as_real
+    beq 0 :fail
+    rcl 2 *G_FP_SIZE
+    beq 2 :fail
+    nat 3 +8
+    sys kmalloc 4 3
+    beq 4 :fail
+    rcl 0 *G_FP_BITS
+    cmpequ 0 2 +4
+    bfalse 0 :embed_double
+    st4 4 0
+    nat 5 +4
+    bra :append
+.embed_double
+    st8 4 0
+    nat 5 +8
+.append
+    copy 0 4
+    copy 1 5
     call *prog_append_bytes
+    sys free 4
     int 0 +1
+    set 0 0
+    leave ret
+.fail
+    int 0 +0
+    set 0 0
     leave ret
 ;
 
@@ -1441,17 +1735,47 @@
 // a second input.  The scanner logic itself mirrors runtime/scanner.cpp.
 // =============================================================================
 
-enter 2
+enter 3
 
 call *scanner_init
 beq 0 :init_fail
 
-int 0 +0
-sto *G_STREAM 0
-
-call *scan
+// Self-test as_real with "2.5" (expect 8 bytes, bits 4612811918334230528)
+rcl 0 *G_SCANNED
+int 1 50
+st1 0 1
+incr 0
+int 1 46
+st1 0 1
+incr 0
+int 1 53
+st1 0 1
+incr 0
+int 1 +0
+st1 0 1
+nat 1 3
+sto *G_SCAN_LEN 1
+call *as_real
 beq 0 :scan_fail
+rcl 0 *G_FP_SIZE
+sys write_natural 0 1
+txt 1 " bytes bits="
+sys write_text 1 1
+rcl 0 *G_FP_BITS
+sys write_natural 0 1
+sys write_newline 1
+bra :exit
 
+// int 0 +0
+// sto *G_STREAM 0
+// call *scan
+// beq 0 :scan_fail
+// rcl 0 *G_PROG_LEN
+// sys write_natural 0 1
+// sys write_newline 1
+// bra :exit
+
+beq 0 :scan_fail
 rcl 0 *G_PROG_LEN
 sys write_natural 0 1
 sys write_newline 1
