@@ -1,0 +1,82 @@
+// Compile-time expressions in operands
+
+nat 0 (1+2)
+sys write_integer 0 1
+sys write_newline 1
+
+nat 1 (1+2*3)
+sys write_integer 1 1
+sys write_newline 1
+
+nat 2 (7&3)
+sys write_integer 2 1
+sys write_newline 1
+
+nat 3 (5^2)
+sys write_integer 3 1
+sys write_newline 1
+
+txt 4 ("ABC"+"DEF")
+sys write_text 4 1
+sys write_newline 1
+
+nat 5 (null+42)
+sys write_integer 5 1
+sys write_newline 1
+
+dbl 5 (null+42.42)
+sys write_double 5 1
+sys write_newline 1
+
+[inc[r] nat 0 (r+1)]
+nat 0 0
+inc 0
+sys write_integer 0 1
+sys write_newline 1
+
+nat 6 0
+addi 6 #(1+2)
+sys write_integer 6 1
+sys write_newline 1
+
+nat 3 (3*(4-2))
+sys write_integer 3 1
+sys write_newline 1
+
+nat 3 (33 % 17)
+sys write_integer 3 1
+sys write_newline 1
+
+nat 3 (~'ABCDEF')
+sys write_integer 3 1
+sys write_newline 1
+
+pca 4 :text
+pca 5 :textend
+sub 5 4
+.loop
+  ld1 0 4
+  sys write_char 0 1
+  incr 4
+  dbra 5 :loop
+sys write_newline 1
+
+txt 2 ((5 * "Hello" & 2 * "World") * 3)
+sys write_text 2 1
+sys write_newline 1
+
+txt 3 ("X=" & 1 & " and Y=" & 2*3)
+sys write_text 3 1
+sys write_newline 1
+
+txt 3 (("My Hello World is Truncated????" + 3) - 4 & "!")
+sys write_text 3 1
+sys write_newline 1
+
+txt 3 ("My Other Hello World is Also Truncated????" + 3 - 4 & "!")
+sys write_text 3 1
+sys write_newline 1
+
+end
+
+.text #("Hello " & "World") .textend

@@ -54,40 +54,6 @@ NATIVE(write_double,    SRC; OSTREAM; OSTREAM_WR(SDBL))
 NATIVE(write_text,      SRC; OSTREAM; OSTREAM_WR(rt.as_text(SNAT)))
 NATIVE(write_newline,        OSTREAM; OSTREAM_WR('\n'))
 
-NATIVE(read_scanner,    DST; ISTREAM;
-       if (in)
-       {
-           scanner s(*in, rt);
-           scanner::token tok = s.next();
-           DNAT               = tok;
-           d++;
-           switch(tok)
-           {
-           case scanner::DONE:
-           case scanner::ERROR:
-               break;
-           case scanner::COMMENT:
-           case scanner::NAME:
-           case scanner::SYMBOL:
-               DNAT = rt.tok(s.scanned);
-               break;
-           case scanner::INTEGER:
-               DINT = s.as_integer();
-               break;
-           case scanner::REAL:
-           {
-               double dval = 0.0;
-               float  fval = 0.0;
-               done        = s.as_real(dval, fval) == 0;
-               DDBL        = dval;
-               break;
-           }
-           case scanner::TEXT:
-               DNAT = rt.tok(s.scanned);
-               break;
-           }
-       })
-
 NATIVE(print_error,     OSTREAM; if (out) if (utf8 e = rt.error()) *out << e)
 NATIVE(clear_error,     rt.error(nullptr))
 NATIVE(trap_error,      BR_OFF; if (rt.error()) BRANCH)

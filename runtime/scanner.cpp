@@ -35,10 +35,13 @@
 #include "save.h"
 
 #include <cctype>
+#include <functional>
+#include <locale>
 #include <sstream>
 
 
 const size_t LEB128_MAXSIZE = 16;
+
 RECORDER(scanner,       16, "Scanner");
 RECORDER(scanner_error, 16, "Errors during scanner");
 RECORDER(macros,        16, "Macros");
@@ -52,37 +55,33 @@ bool scanner::scan(bool macro)
     while (!rt.error())
     {
         token tok = next();
-        switch (tok)
+        record(scanner, "Next token is %u: %s", tok, scanned.c_str());
+        if (tok == DONE || tok == ERROR || tok == COMMENT)
+            break;
+
+        // If we are not in an expression,
+        if (!in_expression())
         {
-        case DONE:
-            return macro ? true : validate();
-        case ERROR:
-            return false;
-        case COMMENT:
-            break;
-        case SYMBOL:
-            if (!do_symbol())
-                return false;
-            break;
-        case NAME:
-            if (!do_name())
-                return false;
-            break;
-        case INTEGER:
-            if (!do_integer())
-                return false;
-            break;
-        case REAL:
-            if (!do_real())
-                return false;
-            break;
-        case TEXT:
-            if (!do_text())
-                return false;
-            break;
+            for (auto &e : exprs)
+            {
+                record(scanner, "Append %u %16lld %016llx",
+                       e.type, e.xint, e.xnat);
+                switch (e.type)
+                {
+                case expr::NAT:         append(e.xnat); break;
+                case expr::INT:         append(e.xint); break;
+                case expr::FLT:         append(e.xflt); break;
+                case expr::DBL:         append(e.xdbl); break;
+                case expr::TXT:         append(rt.tok(*e.xtxt)); break;
+                }
+            }
+            exprs.clear();
         }
     }
-    return !rt.error();
+
+    if (rt.error())
+        return false;
+    return macro || validate();
 }
 
 
@@ -121,202 +120,225 @@ bool scanner::validate()
 }
 
 
+ scanner::token scanner::error(cstring msg)
+// ----------------------------------------------------------------------------
+//   Report a scanner error
+// ----------------------------------------------------------------------------
+{
+    record(scanner_error, "%s at byte %zu near %c: %s",
+           msg, input.tellg(), input.peek(), strerror(errno));
+    rt.error(msg);
+    return ERROR;
+}
+
+
+int scanner::skip_spaces()
+// ----------------------------------------------------------------------------
+//   Skip spaces, return peek at first non-space character
+// ----------------------------------------------------------------------------
+{
+    int c = input.peek();
+    if (std::isspace(c))
+    {
+        do { c = input.get(); } while (input.good() && std::isspace(c));
+        if (input.good())
+            input.putback(c);
+    }
+    return c;
+}
+
+
 scanner::token scanner::next()
 // ----------------------------------------------------------------------------
 //  Parse one token from input
 // ----------------------------------------------------------------------------
 {
-    if (input.eof())
-        return DONE;
-    if (input.bad())
+    while (true)
     {
+        token n = next_raw();
+        if (n != COMMENT)
+            return n;
+    }
+}
+
+
+scanner::token scanner::next_raw()
+// ----------------------------------------------------------------------------
+//  Parse one token from input
+// ----------------------------------------------------------------------------
+{
+    if (!input.good())
+    {
+        if (input.eof())
+            return DONE;
         record(scanner_error, "I/O error on scanner input: %s",
                strerror(errno));
         return ERROR;
     }
 
     scanned = "";
-
-    int c = input.get();
-
-    // Skip whitespace
-    while (input.good() && std::isspace(c))
-        c = input.get();
-    if (!input.good())
+    int c = skip_spaces();
+    if (c < 0)
         return input.eof() ? DONE : ERROR;
 
     // Skip comments (C / C++ style syntax)
     if (c == '/')
-    {
-        int nc = input.peek();
-        if (nc == '/')
-        {
-            while (input.good() && c != '\n')
-            {
-                scanned += char(c);
-                c = input.get();
-            }
-            return COMMENT;
-        }
-        else if (nc == '*')
-        {
-            int last = 0;
-            while (input.good() && (c != '/' || last != '*'))
-            {
-                scanned += char(c);
-                last = c;
-                c = input.get();
-            }
-            if (c == '/')
-                scanned += char(c);
-            return COMMENT;
-        }
-        // Otherwise `/` is a symbol
-        return SYMBOL;
-    }
+        return do_comment();
 
     // Scan names
-    if (std::isalpha(c))
-    {
-        while (input.good() && (std::isalnum(c) || c == '_'))
-        {
-            scanned += char(c);
-            c = input.get();
-        }
-        if (input.good())
-            input.putback(c);
-        return NAME;
-    }
+    if (std::isalpha(c) || c == '_')
+        return do_name();
 
     // Scan numbers
-    if (std::isdigit(c) || c == '+' || c == '-')
-    {
-        // Accept specific XL syntax e.g. 16#2.AFE#E-3
-        bool is_real = false;
-        while (input.good() && (std::isalnum(c) || c == '_' || c == '#' ||
-                                c == '+' || c == '-' || c == '.'))
-        {
-            scanned += char(c);
-            if (c == '.')
-                is_real = true;
-            c = input.get();
-        }
-        if (input.good())
-            input.putback(c);
-        return is_real ? REAL : INTEGER;
-    }
+    if (std::isdigit(c) || ((c == '+' || c == '-') && !expr_needs_operator()))
+        return do_number();
 
     // Scan text
     if (c == '\'' || c == '"')
+        return do_text();
+
+    // Anything else is a symbol
+    c = input.get();
+    scanned += char(c);
+    if (c == ';' && stop_at_semicolon)
+        return DONE;
+    return do_symbol(c) ? SYMBOL : ERROR;
+}
+
+
+scanner::token scanner::do_comment()
+// ----------------------------------------------------------------------------
+//   Check if we have a comment
+// ----------------------------------------------------------------------------
+{
+    int c = input.get();
+    if (c != '/')
+        return error("Expecting `/` to start comment");
+
+    int nc = input.peek();
+    if (nc == '/')
     {
-        char delim = c;
-        bool done  = false;
-        while (input.good() && !done)
+        // C++ style // comment
+        while (input.good() && c != '\n')
         {
             scanned += char(c);
             c = input.get();
-            if (c == delim)
-            {
-                scanned += char(c);
-                c = input.get();
-                if (c != delim)
-                    done = true;
-            }
         }
-        if (input.good())
-            input.putback(c);
-        return TEXT;
+        return COMMENT;
     }
-
-    // Anything else is a symbol
-    scanned += char(c);
-    return c == ';' ? DONE : SYMBOL;
-}
-
-
-uintptr_t scanner::as_natural(uint *basep)
-// ----------------------------------------------------------------------------
-//   Parse the value as a positive integer
-// ----------------------------------------------------------------------------
-{
-    uint      base    = 10;
-    uintptr_t value   = 0;
-    bool      hasneg  = false;
-    bool      hasnot  = false;
-    bool      isfirst = true;
-
-    for (char c : scanned)
+    else if (nc == '*')
     {
-        if (isfirst)
+        // C style /* */ comment
+        int last = 0;
+        while (input.good() && (c != '/' || last != '*'))
         {
-            if (c == '+')
-                ;
-            else if (c == '-')
-                hasneg = !hasneg;
-            else if (c == '~')
-                hasnot = !hasnot;
-            else
-                isfirst = false;
-            if (isfirst)
-                continue;
+            scanned += char(c);
+            last = c;
+            c = input.get();
         }
-
-        // Skip '_' in numbers
-        if (c == '_')
-            continue;
-
-        // Based numbers, e.g. 16#FFFF_FFFF
-        if (c == '#')
-        {
-            if (value < 2 || value >= 36)
-            {
-                record(scanner_error, "Invalid base %llu", value);
-                return 0;
-            }
-            base = value;
-            value = 0;
-            continue;
-        }
-
-        // Regular digits
-        uint digit = c - '0';
-        if (c >= 'a')
-            digit = c - 'a' + 10;
-        else if (c >= 'A')
-            digit = c - 'A' + 10;
-
-        if (digit >= base)
-        {
-            record(scanner_error, "Invalid digit '%c' in base %u, value %u",
-                   c, base, digit);
-            break;
-        }
-        value = value * base + digit;
+        if (c == '/')
+            scanned += char(c);
+        return COMMENT;
     }
 
-    if (basep)
-        *basep = base;
-    if (hasneg)
-        value = -value;
-    if (hasnot)
-        value = ~value;
-    return value;
+    // Otherwise `/` is a symbol
+    return do_symbol(c) ? SYMBOL : ERROR;
 }
 
 
-intptr_t scanner::as_integer(uint *basep)
+scanner::token scanner::do_name()
 // ----------------------------------------------------------------------------
-//   Parse the value as a signed integer
+//   Scan a name
 // ----------------------------------------------------------------------------
 {
-    return intptr_t(as_natural(basep));
+    int c = input.get();
+    if (!isalpha(c) && c != '_')
+        return error("Expecting alphabetic of '_' to start name");
+
+    while (input.good() && (std::isalnum(c) || c == '_'))
+    {
+        scanned += char(c);
+        c = input.get();
+    }
+    if (input.good())
+        input.putback(c);
+
+    // Check if we have a macro
+    if (auto found = macros.find(scanned); found != macros.end())
+        return do_macro_use((*found).second) ? COMMENT : ERROR;
+
+    if (!raw)
+    {
+        // Check if we have a constant with that value
+        if (constants.count(scanned))
+            exprs.emplace_back(constants[scanned]);
+        else
+            exprs.emplace_back(rt.tok(scanned));
+        need_operator = true;
+    }
+    return NAME;
 }
 
 
-size_t scanner::as_real(double &dval, float &fval, uint *basep)
+scanner::token scanner::do_text()
 // ----------------------------------------------------------------------------
-//   Parse a number as a real number
+//   Scan a text value
 // ----------------------------------------------------------------------------
+{
+    int c = input.get();
+    if (c != '\'' && c != '"')
+        return error("Expecting quotes to start text constant");
+    char delim = c;
+    bool done  = false;
+    text value;
+    while (input.good() && !done)
+    {
+        scanned += char(c);
+        c = input.get();
+        if (c == delim)
+        {
+            scanned += char(c);
+            c = input.get();
+            if (c != delim)
+                done = true;
+            else
+                value += c;
+        }
+        else
+        {
+            value += c;
+        }
+    }
+    if (input.good())
+        input.putback(c);
+    if (!raw)
+    {
+        exprs.emplace_back(value);
+        need_operator = true;
+    }
+    return delim == '"' ? TEXT : CHARACTER;
+}
+
+
+static inline uint digit_value(int c)
+// ----------------------------------------------------------------------------
+//   Return the digit value in the given base
+// ----------------------------------------------------------------------------
+{
+    uint digit = c - '0';
+    if (c >= 'a')
+        digit = c - 'a' + 10;
+    else if (c >= 'A')
+        digit = c - 'A' + 10;
+    return digit;
+}
+
+
+scanner::token scanner::do_number(uint *basep)
+// ----------------------------------------------------------------------------
+//   Scan the next number using the XL syntax
+// ----------------------------------------------------------------------------
+//   This scans a number, which can be decimal or not, with a base or not
 {
     uint      base    = 10;
     uint      mbase   = 10;
@@ -327,22 +349,31 @@ size_t scanner::as_real(double &dval, float &fval, uint *basep)
     float     fmult   = 1.0;
     bool      isfirst = true;
     bool      hasneg  = false;
+    bool      hasnot  = false;
     bool      hasmneg = false;
     bool      hasdot  = false;
     bool      hasbase = false;
     bool      hasexp  = false;
     bool      hashash = false;
-    uint      size    = sizeof(double);
+    token     kind    = scanner::NATURAL;
 
-    for (char c : scanned)
+    scanned = "";
+    while (input.good())
     {
+        int c = input.get();
+        if (c == EOF)
+            break;
+        scanned += c;
+
         if (isfirst)
         {
-            if (c == '+')
-                ;
-            else if (c == '-')
+            if ((c == '+' || c == '-') && kind == scanner::NATURAL)
+                kind = scanner::INTEGER;
+            if (c == '-' && !hasnot)
                 hasneg = !hasneg;
-            else
+            else if (c == '~' && !hasneg)
+                hasnot = !hasnot;
+            else if (c != '-')
                 isfirst = false;
             if (isfirst)
                 continue;
@@ -359,8 +390,8 @@ size_t scanner::as_real(double &dval, float &fval, uint *basep)
             {
                 if (value < 2 || value >= 36)
                 {
-                    record(scanner_error, "Invalid fp base %llu", value);
-                    return 0;
+                    record(scanner_error, "Invalid base %llu", value);
+                    return ERROR;
                 }
                 base    = value;
                 value   = 0;
@@ -371,6 +402,7 @@ size_t scanner::as_real(double &dval, float &fval, uint *basep)
                 hasbase = true;
                 continue;
             }
+
             // Case of something like 16#FF.FFFE#E3
             value   = 0;
             mbase   = base;
@@ -384,26 +416,25 @@ size_t scanner::as_real(double &dval, float &fval, uint *basep)
         // Check decimal point
         if (c == '.')
         {
-            if (hasdot)
+            int p = input.peek();
+            if (p == '#' || digit_value(p) < base)
             {
-                record(scanner_error, "Two dots in %s", scanned.c_str());
-                break;
+                hasdot = true;
+                kind = scanner::REAL;
+                continue;
             }
-            hasdot = true;
-            continue;
+            // Something like 1..2 or 16#1.X - The `.` is an operator
+            input.putback(c);
+            scanned.pop_back();
+            break;
         }
 
         // Regular digits
-        uint digit = c - '0';
-        if (c >= 'a')
-            digit = c - 'a' + 10;
-        else if (c >= 'A')
-            digit = c - 'A' + 10;
-
+        uint digit = digit_value(c);
         if (digit >= base)
         {
-            char lc = tolower(c);
-            if (lc == 'e')
+            char uc = toupper(c);
+            if (uc == 'E')
             {
                 if (!hasexp)
                 {
@@ -413,20 +444,27 @@ size_t scanner::as_real(double &dval, float &fval, uint *basep)
                     base    = 10;
                     hasneg  = false;
                     isfirst = true;
+                    kind    = scanner::REAL;
                     continue;
                 }
-                if (hasbase)
-                    continue;
             }
-            if (lc == 'f')
-                size = sizeof(float);
-            else if (lc == 'd')
-                size = sizeof(double);
-            if (lc == 'f' || lc == 'd' || lc == 'e')
-                continue;
-            record(scanner_error, "Invalid fp digit '%c' in base %u, value %u",
-                   c, base, digit);
-            return 0;
+            if (kind == scanner::REAL)
+            {
+                if (uc == 'F')
+                {
+                    kind = scanner::FLOAT;
+                    break;
+                }
+                else if (uc == 'D')
+                {
+                    kind = scanner::DOUBLE;
+                    break;
+                }
+            }
+            // we are done here
+            input.putback(c);
+            scanned.pop_back();
+            break;
         }
         value = value * base + digit;
         if (hasexp || hashash)
@@ -482,119 +520,93 @@ size_t scanner::as_real(double &dval, float &fval, uint *basep)
     {
         dvalue = -dvalue;
         fvalue = -fvalue;
+        value = -value;
     }
-    dval = dvalue;
-    fval = fvalue;
+    if (hasnot)
+    {
+        value = ~value;
+        if (kind != scanner::NATURAL)
+        {
+            record(scanner_error, "Bitwise not for type %u", kind);
+            return ERROR;
+        }
+    }
 
     if (basep)
         *basep = base;
-    record(scanner, "as_real %s -> d=%g f=%g sz=%zu",
-           scanned.c_str(), dval, fval, size);
-    return size;
+    record(scanner, "Number [%s] kind %u base %u: %llu %g %g",
+           scanned.c_str(), kind, base, value, dvalue, fvalue);
+    if (raw)
+        return kind;
+
+    switch (kind)
+    {
+    case NATURAL:       exprs.emplace_back(value); break;
+    case INTEGER:       exprs.emplace_back(intptr_t(value)); break;
+    case FLOAT:         exprs.emplace_back(fvalue); break;
+    case REAL:
+    case DOUBLE:        exprs.emplace_back(dvalue); break;
+    default:            record(scanner_error, "Unknown kind %u", kind); break;
+    }
+    need_operator = true;
+    return kind;
 }
 
 
-text scanner::as_text()
+scanner::token scanner::do_expression()
 // ----------------------------------------------------------------------------
-//  Return the inner value, skipping double quotes
+//   Parse an expression
 // ----------------------------------------------------------------------------
 {
-    text result  = "";
-    bool isfirst = true;
-    char delim   = 0;
-    char last    = 0;
-    for (char c : scanned)
+    size_t nops = ops.size();
+    ops.push_back('(');
+    need_operator = false;
+
+    while (ops.size() > nops)
     {
-        if (isfirst)
+        token t = next();
+        if (t == DONE || t == ERROR)
+            return t;
+
+        if (t == SYMBOL && scanned[0] == ')')
         {
-            delim = c;
-            isfirst = false;
+            while (ops.size() > nops && ops.back() != '(')
+            {
+                if (!expr_apply(ops.back()))
+                    return ERROR;
+                ops.pop_back();
+            }
+            if (ops.back() == '(')
+            {
+                ops.pop_back();
+                need_operator = true;
+            }
         }
-        if (c != delim || last == delim)
-            result += c;
-        last = c;
     }
-    return result;
-}
-
-
-bool scanner::do_integer()
-// ----------------------------------------------------------------------------
-//   Process an integer value. If + or - treat it as signed, otherwise unsigned
-// ----------------------------------------------------------------------------
-{
-    if (!scanned.size())
-        return false;
-
-    char c = scanned[0];
-    if (c == '+' || c == '-')
+    if (!exprs.size())
+        return ERROR;
+    expr &e = exprs.back();
+    switch (e.type)
     {
-        intptr_t value = as_integer();
-        append(value);
+    case expr::NAT:     scanned = std::to_string(e.xnat); return NATURAL;
+    case expr::INT:     scanned = std::to_string(e.xint); return INTEGER;
+    case expr::FLT:     scanned = std::to_string(e.xflt); return FLOAT;
+    case expr::DBL:     scanned = std::to_string(e.xdbl); return DOUBLE;
+    case expr::TXT:     scanned = *e.xtxt;                return TEXT;
     }
-    else
-    {
-        uintptr_t value = as_natural();
-        append(value);
-    }
-    return true;
 }
 
 
-bool scanner::do_real()
-// ----------------------------------------------------------------------------
-//  Insert a real number
-// ----------------------------------------------------------------------------
-{
-    char buf[sizeof(double)];
-    double d  = 0.0;
-    float  f  = 0.0;
-    size_t sz = as_real(d, f);
-    memcpy(buf, sz == sizeof(float) ? (void *) &f : (void *) &d, sz);
-    program += text(buf, sz);
-    record(scanner, "do_real %s embedded %zu bytes", scanned.c_str(), sz);
-    return sz != 0;
-}
-
-
-bool scanner::do_text()
-// ----------------------------------------------------------------------------
-//   Insert a token for a text directly in the byte code
-// ----------------------------------------------------------------------------
-{
-    text   t    = as_text();
-    tok_t  tok  = rt.tok(t);
-    append(tok);
-    return true;
-}
-
-
-bool scanner::do_name()
+bool scanner::do_symbol(char c)
 // ----------------------------------------------------------------------------
 //   Process a name by adding the token to the token table
 // ----------------------------------------------------------------------------
 {
-    if (auto found = macros.find(scanned); found != macros.end())
-        return do_macro_use((*found).second);
-    tok_t rtok = rt.tok(scanned);
-    append(rtok);
-    return !rt.error();
-}
+    if (raw)
+        return true;
 
-
-bool scanner::do_symbol()
-// ----------------------------------------------------------------------------
-//   Process a name by adding the token to the token table
-// ----------------------------------------------------------------------------
-{
-    if (!scanned.size())
-        return false;
-
-    char c = scanned[0];
     switch (c)
     {
-    case '=':
-        return do_define();
     case '?':
         return do_extern();
     case '!':
@@ -604,18 +616,42 @@ bool scanner::do_symbol()
     case ':':
         return do_branch_offset();
     case '*':
+        if (in_expression())
+            return expr_binary('*');
         return do_use();
     case '#':
         return do_bytes();
     case '[':
         return do_macro_definition();
-    case ';':
-        return false;
+    case ']':
+        return true;
+    case '(':
+        return do_expression() >= NAME;
+    case ')':
+        return true;
+    case '+':
+    case '-':
+        if (!in_expression())
+            return expr_unary(c);
+    case '=':
+        if (!in_expression())
+            return do_define();
+        // fall through
+    case '<':
+    case '>':
+    case '/':
+    case '%':
+    case '&':
+    case '|':
+    case '^':
+    case '~':
+        if (in_expression())
+            return expr_needs_operator() ? expr_binary(c) : expr_unary(c);
+        // fall through
     default:
-        record(scanner_error, "Unknown symbol %s", scanned.c_str());
-        rt.error("Unknownsymbol");
+        break;
     }
-    return false;
+    return true;
 }
 
 
@@ -629,6 +665,8 @@ bool scanner::do_macro_definition()
 //
 //   Arguments behave as local macros during expansion
 {
+    save raw_symbols(raw, true);
+
     token t = next();
     if (t != NAME)
     {
@@ -720,10 +758,14 @@ bool scanner::do_macro_use(macro m)
            scanned.c_str(), m.parameters.size(), m.definition);
     save<macros_defs> saved(macros, macros);
 
+    // Clear macro definition for stuff like: [fsin[d s] sys fsin d s]
+    macros.erase(scanned);
+
     // Read parameters in the macros
     for (text parm : m.parameters)
     {
         // For each parameter, create a new macro (or overwite existing)
+        save rawparms(raw, true);
         macro p = macros[parm];
         token n = next();
         if (n == ERROR || n == DONE)
@@ -771,20 +813,358 @@ bool scanner::do_macro_use(macro m)
 }
 
 
+int scanner::expr_precedence(char op) const
+// ----------------------------------------------------------------------------
+//   Operator precedence (higher binds tighter)
+// ----------------------------------------------------------------------------
+{
+    switch (op)
+    {
+    case '*':
+    case '/':
+    case '%':   return 60;
+    case '+':
+    case '-':   return 50;
+    case '&':   return 40;
+    case '^':   return 30;
+    case '|':   return 20;
+    case '=':
+    case '<':
+    case '>':   return 10;
+    default:    return -1;
+    }
+}
+
+
+bool scanner::expr_binary(char op)
+// ----------------------------------------------------------------------------
+//   Process a binary operator in an expression
+// ----------------------------------------------------------------------------
+{
+    int prec = expr_precedence(op);
+    if (prec < 0)
+    {
+        error("Invalid operator in expression");
+        return false;
+    }
+    while (!ops.empty() && ops.back() != '(' &&
+           expr_precedence(ops.back()) >= prec)
+    {
+        if (!expr_apply(ops.back()))
+            return false;
+        ops.pop_back();
+    }
+    ops.push_back(op);
+    return true;
+}
+
+
+static inline text operator *(uintptr_t n, text t)
+// ----------------------------------------------------------------------------
+//   Repeat a text pattern
+// ----------------------------------------------------------------------------
+{
+    text result = "";
+    text added  = t;
+    while (n)
+    {
+        if (n & 1)
+            result += added;
+        added += added;
+        n >>= 1;
+    }
+    return result;
+}
+
+
+bool scanner::expr_apply(char op)
+// ----------------------------------------------------------------------------
+//   Apply the top operator to the two operands on the stack
+// ----------------------------------------------------------------------------
+{
+    if (exprs.size() < 2)
+    {
+        rt.error("Missing operand in expression");
+        return false;
+    }
+    expr r = exprs.back();
+    exprs.pop_back();
+    expr l  = exprs.back();
+    exprs.pop_back();
+
+    record(scanner, "Expression[%zu] %u %c %u",
+           exprs.size(), l.type, op, r.type);
+
+    // Check all text operations
+    if (op == '&')
+    {
+        // Deal with text concatenation cases
+        if (l.type == expr::TXT || r.type == expr::TXT)
+        {
+            switch (l.type)
+            {
+            case expr::NAT:     l = std::to_string(l.xnat); break;
+            case expr::INT:     l = std::to_string(l.xint); break;
+            case expr::FLT:     l = std::to_string(l.xflt); break;
+            case expr::DBL:     l = std::to_string(l.xdbl); break;
+            case expr::TXT:                                       break;
+            }
+            switch (r.type)
+            {
+            case expr::NAT:     r = std::to_string(r.xnat); break;
+            case expr::INT:     r = std::to_string(r.xint); break;
+            case expr::FLT:     r = std::to_string(r.xflt); break;
+            case expr::DBL:     r = std::to_string(r.xdbl); break;
+            case expr::TXT:                                       break;
+            }
+
+            record(scanner, "TextUpcast[%zu] %u %c %u",
+                   exprs.size(), l.type, op, r.type);
+
+            exprs.emplace_back(*l.xtxt + *r.xtxt);
+            return true;
+        }
+    }
+    else if (op == '+' && l.type == expr::TXT && r.type == expr::TXT)
+    {
+        exprs.emplace_back(*l.xtxt + *r.xtxt);
+        return true;
+    }
+    else if (op == '+' && l.type == expr::TXT && r.type == expr::NAT)
+    {
+        size_t pos = std::min(r.xnat, l.xtxt->length());
+        exprs.emplace_back(l.xtxt->substr(pos));
+        return true;
+    }
+    else if (op == '-' && l.type == expr::TXT && r.type == expr::NAT)
+    {
+        size_t len = l.xtxt->length();
+        len = len > r.xnat ? len - r.xnat : 0;
+        exprs.emplace_back(l.xtxt->substr(0, len));
+        return true;
+    }
+    else if (op == '*' && l.type == expr::NAT && r.type == expr::TXT)
+    {
+        exprs.emplace_back(l.xnat * *r.xtxt);
+        return true;
+    }
+    else if (op == '*' && r.type == expr::NAT && l.type == expr::TXT)
+    {
+        exprs.emplace_back(r.xnat * *l.xtxt);
+        return true;
+    }
+    else if (l.type == expr::TXT || r.type == expr::TXT)
+    {
+        record(scanner_error,
+               "Invalid operands for operator: %u %c %u",
+               l.type, op, r.type);
+        rt.error("Invalid operands for operator");
+        return false;
+    }
+
+    // Check promotions
+#define PROMOTE(lt, rt, code)                         \
+    do                                                \
+    {                                                 \
+        if (l.type == expr::lt && r.type == expr::rt) \
+        {                                             \
+            code;                                     \
+        }                                             \
+    } while (0)
+
+    PROMOTE(DBL, FLT, r = double(r.xflt));
+    PROMOTE(DBL, INT, r = double(r.xint));
+    PROMOTE(DBL, NAT, r = double(r.xnat));
+    PROMOTE(FLT, INT, r = float (r.xint));
+    PROMOTE(FLT, NAT, r = float(r.xnat));
+    PROMOTE(INT, NAT, r = intptr_t(r.xnat));
+
+    PROMOTE(FLT, DBL, l = double(l.xflt));
+    PROMOTE(INT, DBL, l = double(l.xint));
+    PROMOTE(NAT, DBL, l = double(l.xnat));
+    PROMOTE(INT, FLT, l = float(l.xint));
+    PROMOTE(NAT, FLT, l = float(l.xnat));
+    PROMOTE(NAT, INT, l = intptr_t(l.xnat));
+
+    if (l.type != r.type)
+    {
+        record(scanner_error,
+               "Invalid operands for operator: %u %c %u",
+               l.type, op, r.type);
+        rt.error("Invalid operands for operator");
+        return false;
+    }
+
+#define OP(spelling, oper)                                      \
+    do                                                          \
+    {                                                           \
+        if (op == spelling)                                     \
+        {                                                       \
+            switch (l.type)                                     \
+            {                                                   \
+            case expr::NAT: l = l.xnat oper r.xnat; break;      \
+            case expr::INT: l = l.xint oper r.xint; break;      \
+            case expr::DBL: l = l.xdbl oper r.xdbl; break;      \
+            case expr::FLT: l = l.xflt oper r.xflt; break;      \
+            default: error("Invalid types for " #spelling);     \
+            }                                                   \
+        }                                                       \
+    } while (0)
+
+    OP('+', + );
+    OP('-', - );
+    OP('*', * );
+    OP('/', / );
+    if (op == '%')
+    {
+        switch (l.type)
+        {
+        case expr::NAT: l = l.xnat % r.xnat; break;
+        case expr::INT: l = l.xint % r.xint; break;
+        case expr::DBL: l = std::fmod(l.xdbl, r.xdbl); break;
+        case expr::FLT: l = std::fmod(l.xflt, r.xflt); break;
+        default: error("Invalid types for '%'");
+        }
+    }
+
+    OP('<', < );
+    OP('=', == );
+    OP('>', > );
+
+#define IOP(spelling, oper)                                     \
+    do                                                          \
+    {                                                           \
+        if (op == spelling)                                     \
+        {                                                       \
+            switch (l.type)                                     \
+            {                                                   \
+            case expr::NAT: l = l.xnat oper r.xnat; break;      \
+            case expr::INT: l = l.xint oper r.xint; break;      \
+            default: error("Invalid types for " #spelling);     \
+            }                                                   \
+        }                                                       \
+    } while (0)
+
+    IOP('&', & );
+    IOP('|', | );
+    IOP('^', ^ );
+
+    exprs.emplace_back(l);
+    return true;
+}
+
+
+bool scanner::expr_unary(char op)
+// ----------------------------------------------------------------------------
+//   Unary operator in an expression
+// ----------------------------------------------------------------------------
+{
+    token t = next();
+    if (t == DONE)
+        return true;
+    if (t == ERROR)
+        return false;
+
+    expr  x = exprs.back();
+    exprs.pop_back();
+
+    switch (op)
+    {
+    case '+':
+        // Turn natural numbers into signed integer
+        if (x.type == expr::NAT)
+            x = intptr_t(x.xnat);
+        else if (x.type == expr::TXT)
+            return error("Operator + applying to text"), false;
+        break;
+    case '-':
+        switch (x.type)
+        {
+        case expr::NAT:
+        case expr::INT:
+            x = -intptr_t(x.xnat);
+            break;
+        case expr::FLT:
+            x = -x.xflt;
+            break;
+        case expr::DBL:
+            x = -x.xdbl;
+            break;
+        case expr::TXT:
+            return error("Operator - applying to text"), false;
+        }
+        break;
+    case '~':
+        switch (x.type)
+        {
+        case expr::NAT:
+        case expr::INT:
+            x = ~intptr_t(x.xnat);
+            break;
+        case expr::FLT:
+            x = intptr_t(x.xflt);
+            break;
+        case expr::DBL:
+            x = intptr_t(x.xdbl);
+            break;
+        case expr::TXT:
+            x = x.xtxt->length();
+            break;
+        }
+        break;
+    }
+
+    exprs.emplace_back(x);
+    return true;
+}
+
+
+bool scanner::label_value(expr &e, uint accepted)
+// ----------------------------------------------------------------------------
+//   Check an arbitrary expression
+// ----------------------------------------------------------------------------
+{
+    ops.push_back('!');
+    token t = next();
+    ops.pop_back();
+    if (~accepted & (1 << t))
+        return false;
+    if (!exprs.size())
+        return false;
+    e = exprs.back();
+    exprs.pop_back();
+    return true;
+}
+
+
+bool scanner::label_name()
+// ----------------------------------------------------------------------------
+//   A label name can be either a plain name or a text (possibly expression)
+// ----------------------------------------------------------------------------
+{
+    expr e;
+    if (!label_value(e, (1<<TEXT) | (1<<CHARACTER) | (1<<NAME)))
+        return false;
+    if (e.type == expr::TXT)
+        scanned = *e.xtxt;
+    return true;
+}
+
+
 bool scanner::do_extern()
 // ----------------------------------------------------------------------------
 //   Declare a name that will be defined later ("extern")
 // ----------------------------------------------------------------------------
 //   In the bytecode, ?foo reserves token foo without using it in the stream
 {
-    token t = next();
-    if (t != NAME && t != TEXT)
+    if (!label_name())
     {
-        rt.error("Invalid extern declaration");
+        record(scanner_error,
+               "Extern directive followed by %s",scanned.c_str());
+        rt.error("Invalid '?' extern declaration");
         return false;
     }
-    text  name = t == TEXT ? as_text() : scanned;
-    tok_t callee = rt.tok(name);
+    tok_t callee = rt.tok(scanned);
     if (!rt.defined.count(callee))
         rt.defined[callee] = undef(callee);
     return true;
@@ -798,15 +1178,24 @@ bool scanner::do_set()
 //   In the bytecode, !foo defines value in runtime to whatever is coming next
 //   For example, !foo 2 will define *foo as being 2
 {
-    token t = next();
-    if (t != NAME && t != TEXT)
+    if (!label_name())
     {
-        rt.error("Invalid assignment");
+        record(scanner_error, "Set directive followed by %s", scanned.c_str());
+        rt.error("Invalid '!' assignment name");
         return false;
     }
-    text  name = t == TEXT ? as_text() : scanned;
-    setting = rt.tok(name);
-    return true;
+    text name = scanned;
+    expr e;
+    if (!label_value(e) || e.type != expr::NAT)
+    {
+        record(scanner_error, "Set directive value %s", scanned.c_str());
+        rt.error("Invalid '!' assigned value");
+        return false;
+    }
+
+    tok_t setting = rt.tok(name);
+    rt.defined[setting] = e.xnat;
+    return set(constants, name, e.xnat);
 }
 
 
@@ -820,26 +1209,22 @@ bool scanner::do_bytes()
 //   Names are accepted as long as the associated token is 1-byte
 //   Text is turned into a sequence of bytes
 {
-    token t = next();
-    uintptr_t b = 0;
-
-    switch (t)
+    token      t = next();
+    if (t == DONE || t == ERROR)
     {
-    case INTEGER:
-        b = as_natural();
-        break;
-    case NAME:
-        b = rt.tok(scanned);
-        break;
-    case TEXT:
-        program += as_text();
-        return true;
-    default:
-        record(scanner_error, "Invalid byte token %u: %+s", t, scanned.c_str());
-        rt.error("Invalid byte syntax");
+        error("Invalid code following #");
         return false;
     }
 
+    expr e = exprs.back();
+    exprs.pop_back();
+    if (e.type == expr::TXT)
+    {
+        program += *e.xtxt;
+        return true;
+    }
+
+    uintptr_t b = e.xnat;
     if (b < 256)
     {
         program += char(b);
@@ -857,23 +1242,22 @@ bool scanner::do_use()
 // ----------------------------------------------------------------------------
 //   After using !foo 2, *foo will be the same as insert 2
 {
-    token t = next();
-    if (t != NAME && t != TEXT)
+    if (!label_name())
     {
+        record(scanner_error, "Use directive followed by %s", scanned.c_str());
         rt.error("Can only use a symbol or text");
         return false;
     }
-    text      name  = t == TEXT ? as_text() : scanned;
-    tok_t     ntok  = rt.tok(name);
+    tok_t     ntok  = rt.tok(scanned);
     tok_t     value = 0;
     size_t    pos   = pc();
 
-    if (constants.count(name))
-        value = constants[name];
+    if (constants.count(scanned))
+        value = constants[scanned];
     else if (rt.defined.count(ntok))
         value = rt.defined[ntok];
     else
-        uconstants[name].push_back(pos);
+        uconstants[scanned].push_back(pos);
     cstrefs.push_back(pos);
     append(value);
     return true;
@@ -885,24 +1269,23 @@ bool scanner::do_branch_offset()
 //   Insert a branch offset for the label
 // ----------------------------------------------------------------------------
 {
-    token t = next();
-    if (t != NAME && t != TEXT)
+    if (!label_name())
     {
+        record(scanner_error, "Use directive followed by %s", scanned.c_str());
         rt.error("Branch target must be a symbol or text");
         return false;
     }
-    text     name   = t == TEXT ? as_text() : scanned;
-    auto     it     = labels.find(name);
+    auto     it     = labels.find(scanned);
     bool     seen   = it != labels.end();
     intptr_t delta  = 0;
     size_t   branch = pc();
     if (seen)
         delta = intptr_t((*it).second - branch);
     else
-        ulabels[name].push_back(branch);
+        ulabels[scanned].push_back(branch);
     record(scanner,
            "Branch %zu index %zu to %+s is %+s, delta=%ld",
-           branch, branches.size(), name.c_str(),
+           branch, branches.size(), scanned.c_str(),
            seen ? "known" : "unknown", delta);
     branches.push_back(branch);
     append(delta);
@@ -915,28 +1298,27 @@ bool scanner::do_define()
 //   Record a new definition
 // ----------------------------------------------------------------------------
 {
-    token t = next();
-    if (t != NAME && t != TEXT)
+    if (!label_name())
     {
+        record(scanner_error, "Definition '=' followed by %s", scanned.c_str());
         rt.error("Invalid name for definition");
         return false;
     }
-    text    name = t == TEXT ? as_text() : scanned;
-    if (labels.count(name))
+    if (labels.count(scanned))
     {
         record(scanner_error, "Redefining label %s from %u to definition %u",
-               name.c_str(), labels[name], pc());
+               scanned.c_str(), labels[scanned], pc());
         rt.error("Symbol / label redefinition");
         return false;
     }
 
-    tok_t ntok = rt.tok(name);
+    tok_t ntok = rt.tok(scanned);
     if (rt.defined.count(ntok))
     {
         if (rt.defined[ntok] != undef(ntok))
         {
             record(scanner_error, "Redefinition of %s, previously %zu",
-                   name.c_str(), rt.defined[ntok]);
+                   scanned.c_str(), rt.defined[ntok]);
             rt.error("Symbol redefinition");
             return false;
         }
@@ -953,7 +1335,7 @@ bool scanner::do_define()
     text &cpgm = child.program;
     tok_t callee = rt.tok(cpgm);
     rt.defined[ntok] = callee;
-    return set(constants, name, callee);
+    return set(constants, scanned, callee);
 }
 
 
@@ -962,14 +1344,13 @@ bool scanner::do_label()
 //   Insert a label in the labels table
 // ----------------------------------------------------------------------------
 {
-    token t = next();
-    if (t != NAME && t != TEXT)
+    if (!label_name())
     {
+        record(scanner_error, "Label '.' followed by %s", scanned.c_str());
         rt.error("Label must be a symbol or text");
         return false;
     }
-    text name = t == TEXT ? as_text() : scanned;
-    return set(labels, name, pc());
+    return set(labels, scanned, pc());
 }
 
 
@@ -1182,36 +1563,15 @@ void scanner::patch_label_references(size_t pos, size_t added)
 }
 
 
-bool scanner::set(uintptr_t u)
-// ----------------------------------------------------------------------------
-//   Set the value of a symbol
-// ----------------------------------------------------------------------------
-{
-    if (setting)
-    {
-        size_t sz = 0;
-        utf8 txt = rt.tok(setting, &sz);
-        text name(txt, sz);
-        rt.defined[setting] = u;
-        setting = 0;
-        return set(constants, name, u);
-    }
-    return false;
-}
-
-
 void scanner::append(intptr_t i)
 // ----------------------------------------------------------------------------
 //   Append a signed integer to the program
 // ----------------------------------------------------------------------------
 {
-    if (!set(uintptr_t(i)))
-    {
-        byte   buffer[LEB128_MAXSIZE];
-        byte  *bp = buffer;
-        bp = leb128(bp, i);
-        program += text((char *) buffer, bp - buffer);
-    }
+    byte   buffer[LEB128_MAXSIZE];
+    byte  *bp = buffer;
+    bp = leb128(bp, i);
+    program += text((char *) buffer, bp - buffer);
 }
 
 
@@ -1220,13 +1580,28 @@ void scanner::append(uintptr_t u)
 //  Append an unsigned integer to the program
 // ----------------------------------------------------------------------------
 {
-    if (!set(u))
-    {
-        byte   buffer[LEB128_MAXSIZE];
-        byte  *bp = buffer;
-        bp = leb128(bp, u);
-        program += text((char *) buffer, bp - buffer);
-    }
+    byte   buffer[LEB128_MAXSIZE];
+    byte  *bp = buffer;
+    bp = leb128(bp, u);
+    program += text((char *) buffer, bp - buffer);
+}
+
+
+void scanner::append(float f)
+// ----------------------------------------------------------------------------
+//   Append a float value to the program
+// ----------------------------------------------------------------------------
+{
+    program += text((char *) &f, sizeof(f));
+}
+
+
+void scanner::append(double d)
+// ----------------------------------------------------------------------------
+//   Append a float value to the program
+// ----------------------------------------------------------------------------
+{
+    program += text((char *) &d, sizeof(d));
 }
 
 

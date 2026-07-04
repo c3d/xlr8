@@ -316,6 +316,34 @@ Macros do not emit bytecode by themselves and do not define runtime functions.
 They are a scanner convenience for repeating or parameterizing bytecode
 patterns.
 
+## Compile-time expressions
+
+Parenthesized expressions are evaluated at scan time and their result is
+inserted into the bytecode (via `append`, or as a single byte after `#`).
+
+```xlr8
+nat 0 (1+2*3)                   // register 0 ← 7
+txt 1 ("ABC"+"DEF")             // text token for ABCDEF
+nat 2 (add+1)                   // token value of add, plus 1
+addi 0 #(1+2)                   // emit byte 3 as immediate operand
+```
+
+Supported operators are arithmetic `+` `-` `*` `/` `%`, bitwise logical `&` `|`
+`^` and unary `-`. They follow usual precedence: multiplicative before additive
+before `&` before `^` before `|`.
+
+String literals combine with `+`.
+
+Names expand macros when applicable; otherwise the token index of the name is
+used as a numeric value.
+
+Relational operators and shifts are not implemented yet.
+
+Macro bodies and arguments can use expressions, for example
+`[inc[r] nat 0 (r+1)]`.
+
+See `tests/scanner/expressions.xlr8`.
+
 
 ## Why the `*` in `call *foo`?
 
@@ -373,7 +401,7 @@ Unconditional branches use `bra :label`. Token jumps use `jmp *name`.
 | `1.23`, `1.D` | Insert a 64-bit IEEE-754 floating point value                |
 | `//` …        | Line comment (C++ style)                                     |
 | `/*` … `*/`   | Block comment                                                |
-| `*name`       | Insert a token reference (required for `call`, `jmp`)          |
+| `*name`       | Insert a token reference (required for `call`, `jmp`)        |
 | `!name`       | Forward-declare a user opcode for mutual recursion           |
 | `=name`       | Begin defining a new function; the body runs until `;`       |
 | `;`           | End an opcode definition (also ends the top-level program)   |
@@ -382,6 +410,8 @@ Unconditional branches use `bra :label`. Token jumps use `jmp *name`.
 | `#num`        | Insert a byte value directly, e.g. `#192` for register 192   |
 | `#text`       | Insert a byte sequence directly, e.g. `#"Hello"              |
 | `[name …]`    | Define a scan-time macro; invoke as `name` with arguments    |
+| `(expr)`      | Evaluate a compile-time expression; insert its value         |
+| `#(expr)`     | Evaluate an expression and insert a single byte (0–255)      |
 
 [1] signed branches are relative to the offset itself.
 

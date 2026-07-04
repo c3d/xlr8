@@ -3,7 +3,7 @@
   int 0 :label
   sys write_integer 0 1
   sys write_newline   1
-  int 0 *stuff
+  int 0 (staff-stuff+42)
   sys write_integer 0 1
   sys write_newline   1
   txt 1 "Outer "

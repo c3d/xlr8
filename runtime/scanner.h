@@ -49,29 +49,41 @@ struct scanner
     using patches = std::vector<size_t>;
     using pending = std::map<text, patches>;
     struct macro;
+    struct expr;
 
     scanner(istream &input, runtime &rt)
-        : input(input), rt(rt),scanned(), program(), setting() { }
+        : input(input), rt(rt),scanned(), program() { }
 
-    enum token { DONE, ERROR, COMMENT, NAME, SYMBOL, INTEGER, REAL, TEXT };
+    enum token
+    {
+        DONE, ERROR, COMMENT,
+        NAME, SYMBOL,
+        INTEGER, NATURAL,
+        FLOAT, DOUBLE, REAL,
+        TEXT, CHARACTER
+    };
 
     bool        scan(bool macro = false);
     bool        validate();
+    token       error(cstring error);
+    int         skip_spaces();
 
     token       next();
-
-    uintptr_t   as_natural(uint *base = nullptr);
-    intptr_t    as_integer(uint *base = nullptr);
-    size_t      as_real(double &dval, float &fval, uint *base = nullptr);
-    text        as_text();
-
-    bool        do_integer();
-    bool        do_real();
-    bool        do_text();
-    bool        do_name();
-    bool        do_symbol();
+    token       next_raw();
+    token       do_comment();
+    token       do_name();
+    token       do_text();
+    token       do_number(uint *base = nullptr);
+    token       do_expression();
+    bool        do_symbol(char c);
     bool        do_macro_definition();
     bool        do_macro_use(macro m);
+    bool        do_expr_name();
+    bool        do_expr_symbol();
+    bool        expr_binary(char op);
+    bool        expr_unary(char op);
+    bool        expr_apply(char op);
+    int         expr_precedence(char op) const;
     bool        do_extern();
     bool        do_set();
     bool        do_use();
@@ -85,13 +97,18 @@ struct scanner
     void        patch_cstref(size_t cstref, tok_t target);
     void        patch_label_references(size_t pos, size_t added);
 
-    bool        set(uintptr_t u);
     void        append(intptr_t i);
     void        append(uintptr_t u);
+    void        append(float f);
+    void        append(double d);
     tok_t       undef(tok_t id);
 
-    pos_t       position()      { return input.tellg(); }
-    size_t      pc()            { return program.size(); }
+    bool        label_name();
+    bool        label_value(expr &e, uint accepted = ~0U);
+    bool        expr_needs_operator() const     { return need_operator; }
+    bool        in_expression() const           { return !ops.empty(); }
+    pos_t       position()                      { return input.tellg(); }
+    size_t      pc()                            { return program.size(); }
 
 public:
     istream &   input;          // Input stream
@@ -104,7 +121,6 @@ public:
     symbols     constants;      // Constant values we already know
     pending     uconstants;     // Labels with unknown address
     patches     cstrefs;        // Reference to constants
-    tok_t       setting;        // Value being set
 
     struct macro
     // ------------------------------------------------------------------------
@@ -117,6 +133,60 @@ public:
     };
     using macros_defs = std::map<text, macro>;
     macros_defs macros;
+
+
+    struct expr
+    // ------------------------------------------------------------------------
+    //    Implementation of expressions, e.g. (1+2*3)
+    // ------------------------------------------------------------------------
+    {
+        enum expr_type { NAT, INT, FLT, DBL, TXT };
+
+        expr(bool x = 0) : type(NAT),  xnat(x) {}
+        expr(uintptr_t x): type(NAT),  xnat(x) {}
+        expr(intptr_t  x): type(INT),  xint(x) {}
+        expr(float     x): type(FLT),  xflt(x) {}
+        expr(double    x): type(DBL),  xdbl(x) {}
+        expr(text      x): type(TXT),  xtxt(new text(x)) {}
+        expr(const expr &e): type(e.type), xnat(e.xnat)
+        {
+            if (type == TXT)
+                xtxt = new text(*e.xtxt);
+        }
+        expr(expr &&e): type(e.type), xnat(e.xnat)
+        {
+            if (type == TXT)
+                e.type = NAT;
+        }
+        ~expr()
+        {
+            if (type == TXT)
+                delete xtxt;
+        }
+        expr &operator=(expr other)
+        {
+            type = other.type;
+            xnat = other.xnat;
+            if (type == TXT)
+                xtxt = new text(*xtxt);
+            return *this;
+        }
+
+        expr_type type;
+        union
+        {
+            uintptr_t xnat;
+            intptr_t  xint;
+            float     xflt;
+            double    xdbl;
+            text     *xtxt;
+        };
+    };
+    std::vector<expr> exprs;
+    std::vector<char> ops;
+    bool              stop_at_semicolon = true;
+    bool              need_operator     = false;
+    bool              raw               = false;
 };
 
 RECORDER_DECLARE(scanner);
