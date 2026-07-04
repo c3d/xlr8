@@ -7,7 +7,7 @@ do
     then
         time=$(cat $I)
         ref=$(cat ${I}ref)
-        cmp=$(bc -e "$time < $ref")
+        cmp=$(bc <<< "$time < $ref")
         if [ $cmp -eq 1 ]
         then
             echo "Updating $I from $ref to $time"
