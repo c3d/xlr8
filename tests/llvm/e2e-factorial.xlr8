@@ -1,0 +1,44 @@
+// llvm: .file "e2e-factorial.ll"
+?fact
+// llvm: -- Begin function fact
+// llvm: .section .text
+// llvm: .globl fact
+// llvm: .type fact, @function
+// llvm: fact:
+=fact
+.entry
+get 0 0
+cmplei 8 0 +1
+bfalse 8 :L0_2
+bra :L0_1
+.L0_1
+nat 0 #1
+ret
+.L0_2
+copy 1 0
+addi 1 -1
+push 0
+copy 0 1
+call *fact
+pop 1
+mul 1 0
+copy 0 1
+ret
+// llvm: .size fact, <code>
+// llvm: -- End function fact
+;
+
+// llvm: -- Begin function main
+// llvm: .section .text
+// llvm: .globl main
+// llvm: .type main, @function
+// llvm: main:
+
+.entry
+nat 0 #5
+call *fact
+nat 1 #0
+sys write_integer 1 0
+sys write_newline 1
+copy 0 1
+end
