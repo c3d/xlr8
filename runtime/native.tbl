@@ -55,6 +55,10 @@ NATIVE(write_text,      SRC; OSTREAM; OSTREAM_WR(rt.as_text(SNAT)))
 NATIVE(write_newline,        OSTREAM; OSTREAM_WR('\n'))
 
 NATIVE(read_scanner,    DST; ISTREAM; scanner::scan(in, d, d+1, rt))
+NATIVE(nat,             SRC; OSTREAM; scanner::append(out, SNAT))
+NATIVE(int,             SRC; OSTREAM; scanner::append(out, SINT))
+NATIVE(flt,             SRC; OSTREAM; scanner::append(out, SFLT))
+NATIVE(dbl,             SRC; OSTREAM; scanner::append(out, SDBL))
 
 NATIVE(print_error,     OSTREAM; if (out) if (utf8 e = rt.error()) *out << e)
 NATIVE(clear_error,     rt.error(nullptr))

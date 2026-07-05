@@ -85,27 +85,27 @@ runtime::~runtime()
 }
 
 
-bool runtime::iosetup(size_t index, std::ostream &stream)
+std::ostream *runtime::iosetup(size_t index, std::ostream *stream)
 // ----------------------------------------------------------------------------
 //   Setup the given I/O channel
 // ----------------------------------------------------------------------------
 {
     if (index >= outputs.size())
         outputs.resize(index + 1);
-    outputs[index] = &stream;
-    return true;
+    std::swap(outputs[index], stream);
+    return stream;
 }
 
 
-bool runtime::iosetup(size_t index, std::istream &stream)
+std::istream *runtime::iosetup(size_t index, std::istream *stream)
 // ----------------------------------------------------------------------------
 //   Setup the given I/O channel
 // ----------------------------------------------------------------------------
 {
     if (index >= inputs.size())
         inputs.resize(index + 1);
-    inputs[index] = &stream;
-    return true;
+    std::swap(inputs[index], stream);
+    return stream;
 }
 
 
@@ -244,8 +244,6 @@ bool runtime::run()
 //    The main runtime loop
 // ----------------------------------------------------------------------------
 {
-    enter(CALL_CLOBBERED_REGS);
-
     if (RECORDER_TRACE(runtime) > 1)
         return trace();
 
@@ -254,7 +252,7 @@ bool runtime::run()
     byte_p        pc     = rt.pc;
     stack_p       frame  = rt.frame;
     stack_p       args   = rt.frame;
-    std::istream *stdin  = inputs.size() > 1 ? inputs[0] : nullptr;
+    std::istream *stdin  = inputs.size()  > 1 ? inputs[0]  : nullptr;
     std::ostream *stdout = outputs.size() > 2 ? outputs[1] : nullptr;
     std::ostream *stderr = outputs.size() > 3 ? outputs[2] : nullptr;
     tok_t         called = 0;
@@ -279,12 +277,9 @@ bool runtime::run()
 
     // Pass state down to next runtime execution if any
     this->pc = pc;
-    if (stdin)
-        iosetup(0, *stdin);
-    if (stdout)
-        iosetup(1, *stdout);
-    if (stderr)
-        iosetup(2, *stderr);
+    iosetup(0, stdin);
+    iosetup(1, stdout);
+    iosetup(2, stderr);
 
     record(runtime, "Done pc=%p frame=%p %s",
            pc, frame, error() ? error() : "SUCCESS");
@@ -473,12 +468,9 @@ bool runtime::trace()
 
     // Pass state down to next runtime execution if any
     this->pc = pc;
-    if (stdin)
-        iosetup(0, *stdin);
-    if (stdout)
-        iosetup(1, *stdout);
-    if (stderr)
-        iosetup(2, *stderr);
+    iosetup(0, stdin);
+    iosetup(1, stdout);
+    iosetup(2, stderr);
 
     record(runtime, "Done pc=%p frame=%p %s",
            pc, frame, error() ? error() : "SUCCESS");

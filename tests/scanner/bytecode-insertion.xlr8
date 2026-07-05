@@ -1,0 +1,23 @@
+// Check that we can load and execute bytecode during bytecode load
+
+// This defines a bytecode function that can be used in the bytecode
+// That function can then be used to make the rest of the bytecode denser
+{fact [n]                 // Define a fact as bytecode function with 1 arg
+ enter 2                  // We need 2 registers
+ nat 0 1                  // Put natural number 1 into register 0
+ get 1 n                  // Put argument n into register 1
+ beq 1 :done              // Special case of 0!
+ .loop                    // Loop label
+   mul 0 1                // Multiply result by N
+   dbra 1 :loop           // Decremand 1 and branch on loop
+ .done                    // Exit label
+ sys nat 0 0              // Insert result as a natural in the bytecode
+ leave                    // Pop the registers
+ end}                     // Return to calling bytecode
+
+
+// Here is an example that generates a bytecode containing "nat 0 720"
+// by evaluating the bytecode above to generate data for fact 6.
+nat 0 fact 6
+sys write_natural 0 1
+sys write_newline 1

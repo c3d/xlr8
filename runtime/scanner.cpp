@@ -38,6 +38,7 @@
 #include <functional>
 #include <locale>
 #include <sstream>
+#include <cmath>
 
 
 const size_t LEB128_MAXSIZE = 16;
@@ -61,27 +62,34 @@ bool scanner::scan(bool macro)
 
         // If we are not in an expression,
         if (!in_expression())
-        {
-            for (auto &e : exprs)
-            {
-                record(scanner, "Append %u %16lld %016llx",
-                       e.type, e.xint, e.xnat);
-                switch (e.type)
-                {
-                case expr::NAT:         append(e.xnat); break;
-                case expr::INT:         append(e.xint); break;
-                case expr::FLT:         append(e.xflt); break;
-                case expr::DBL:         append(e.xdbl); break;
-                case expr::TXT:         append(rt.tok(*e.xtxt)); break;
-                }
-            }
-            exprs.clear();
-        }
+            append_expressions();
     }
 
     if (rt.error())
         return false;
     return macro || validate();
+}
+
+
+void scanner::append_expressions()
+// ----------------------------------------------------------------------------
+//   Append all pending expressions
+// ----------------------------------------------------------------------------
+{
+    for (auto &e : exprs)
+    {
+        record(scanner, "Append %u %16lld %016llx",
+               e.type, e.xint, e.xnat);
+        switch (e.type)
+        {
+        case expr::NAT:         append(e.xnat); break;
+        case expr::INT:         append(e.xint); break;
+        case expr::FLT:         append(e.xflt); break;
+        case expr::DBL:         append(e.xdbl); break;
+        case expr::TXT:         append(rt.tok(*e.xtxt)); break;
+        }
+    }
+    exprs.clear();
 }
 
 
@@ -263,9 +271,11 @@ scanner::token scanner::do_name()
     if (input.good())
         input.putback(c);
 
-    // Check if we have a macro
+    // Check if we have a macro or bytecode
     if (auto found = macros.find(scanned); found != macros.end())
         return do_macro_use((*found).second) ? COMMENT : ERROR;
+    if (auto found = bytecodes.find(scanned); found != bytecodes.end())
+        return do_bytecode_use((*found).second) ? COMMENT : ERROR;
 
     if (!raw)
     {
@@ -594,6 +604,8 @@ scanner::token scanner::do_expression()
     case expr::DBL:     scanned = std::to_string(e.xdbl); return DOUBLE;
     case expr::TXT:     scanned = *e.xtxt;                return TEXT;
     }
+    record(scanner_error, "Invalid expression type %u", e.type);
+    return ERROR;
 }
 
 
@@ -629,6 +641,10 @@ bool scanner::do_symbol(char c)
         return do_expression() >= NAME;
     case ')':
         return true;
+    case '{':
+        return do_bytecode_definition();
+    case '}':
+        return true;
     case '+':
     case '-':
         if (!in_expression())
@@ -655,7 +671,7 @@ bool scanner::do_symbol(char c)
 }
 
 
-bool scanner::do_macro_definition()
+bool scanner::do_macro_definition(bool bytecode)
 // ----------------------------------------------------------------------------
 //   Enter a macro definition in our table
 // ----------------------------------------------------------------------------
@@ -665,26 +681,34 @@ bool scanner::do_macro_definition()
 //
 //   Arguments behave as local macros during expansion
 {
-    save raw_symbols(raw, true);
-
+    save  raw_symbols(raw, true);
     token t = next();
     if (t != NAME)
     {
-        record(scanner_error, "Invalid macro name %s", scanned.c_str());
-        rt.error("Invalid macro name");
+        record(scanner_error, "Invalid %+s name %s",
+               bytecode ? "bytecode" : "macro", scanned.c_str());
+        rt.error(bytecode ? "Invalid bytecode name" : "Invalid macro name");
         return false;
     }
 
     bool   first = true;
     bool   done  = false;
     bool   parms = false;
-    uint   depth = 0;
     text   name  = scanned;
+    char   open  = '[';
+    char   close = ']';
+    char   scan;
     macro  here;
-    record(macros, "Define[%s]=%s", scanned.c_str(), here.definition.c_str());
-    here.definition = "";
+    text   parens;
+
+    record(macros, "Define[%s]=%u bytes %s",
+           scanned.c_str(), here.definition.size(),
+           bytecode ? "<bytecode>" : here.definition.c_str());
     while (!done)
     {
+        if (bytecode && !first && !parms)
+            raw = false;
+
         t = next();
         switch (t)
         {
@@ -697,32 +721,58 @@ bool scanner::do_macro_definition()
             if (parms)
             {
                 here.parameters.push_back(scanned);
+                if (bytecode)
+                {
+                    size_t index = 2 * here.parameters.size() - 1;
+                    text   regdef = std::to_string(index);
+                    macro  parm = regdef;
+                    macros[scanned] = parm;
+                }
                 continue;
             }
             break;
         case SYMBOL:
-            switch (scanned[0])
+            scan  = scanned.size() ? scanned[0] : 0;
+            open  = scan == '[' || scan == '(' || scan == '{';
+            close = scan == '}' || scan == ')' || scan == ']';
+            if (first && open)
             {
-            case '[':
-                depth++;
-                if (first)
-                {
-                    parms = true;
-                    first = false;
+                parms = true;
+                first = false;
+            }
+
+            if (open)
+            {
+                open = scan;
+                close = open == '[' ? ']'
+                      : open == '(' ? ')'
+                      : open == '{' ? '}'
+                                    : 0;
+                parens += close;
+                if (parms)
                     continue;
-                }
-                break;
-            case ']':
-                done = !depth;
-                --depth;
-                if (depth == 0 && parms)
+            }
+            else if (close)
+            {
+                done = parens.empty();
+                if (!done)
                 {
-                    parms = false;
-                    continue;
+                    if (scan != parens.back())
+                    {
+                        error("Mismatched parentheses");
+                        return false;
+                    }
+                    parens.pop_back();
+                    if (parens.empty())
+                    {
+                        parms = false;
+                        if (first)
+                            continue;
+                    }
                 }
-                break;
             }
             break;
+
         default:
             break;
         }
@@ -733,17 +783,36 @@ bool scanner::do_macro_definition()
             if (parms && t != NAME)
             {
                 record(scanner_error,
-                       "Invalid macro parameter %s", scanned.c_str());
-                rt.error("Invalid macro parameter");
+                       "Invalid %+s parameter %s",
+                       bytecode ? "bytecode" : "macro", scanned.c_str());
+                rt.error(bytecode ? "Invalid bytecode parameter"
+                                  : "Invalid macro parameter");
                 return false;
             }
-            if (here.definition.length())
-                here.definition += ' ';
-            here.definition += scanned;
+            if (bytecode)
+            {
+                append_expressions();
+            }
+            else
+            {
+                if (here.definition.length())
+                    here.definition += ' ';
+                here.definition += scanned;
+            }
         }
     }
-    record(macros, "Defined[%s]=[%s]", name.c_str(), here.definition.c_str());
-    macros[name] = here;
+
+    if (bytecode)
+        here.definition = program;
+
+    record(macros,
+           "Defined[%s]=%u bytes [%s]",
+           name.c_str(),
+           here.definition.size(),
+           bytecode ? "<bytecode>" : here.definition.c_str());
+    macro_defs &defs = bytecode ? bytecodes : macros;
+    defs[name] = here;
+
     return true;
 }
 
@@ -756,7 +825,7 @@ bool scanner::do_macro_use(macro m)
     record(macros,
            "Macro[%s(%zu args)]=%s",
            scanned.c_str(), m.parameters.size(), m.definition);
-    save<macros_defs> saved(macros, macros);
+    save saved(macros, macros);
 
     // Clear macro definition for stuff like: [fsin[d s] sys fsin d s]
     macros.erase(scanned);
@@ -809,6 +878,69 @@ bool scanner::do_macro_use(macro m)
     std::streambuf    *sbuf = input.rdbuf(definition.rdbuf());
     bool               ok   = scan(true);
     input.rdbuf(sbuf);
+    return ok;
+}
+
+
+bool scanner::do_bytecode_definition()
+// ----------------------------------------------------------------------------
+//   Enter a bytecode definition
+// ----------------------------------------------------------------------------
+//   A bytecode definition is very similar to a macro definition, but the
+//   bytecode is already compiled. Furthermore, it is evaluated on use
+{
+    save args(macros, macros);
+    save pgm(program, text());
+    save lbls(labels, symbols());
+    save ulbls(ulabels, pending());
+    save brs(branches, patches());
+    save csts(constants, symbols());
+    save ucsts(uconstants, pending());
+    save crefs(cstrefs, patches());
+    if (!do_macro_definition(true))
+        return false;
+    return validate();
+}
+
+
+bool scanner::do_bytecode_use(macro m)
+// ----------------------------------------------------------------------------
+//   Evaluate a bytecode
+// ----------------------------------------------------------------------------
+{
+    record(macros,
+           "Bytecode[%s(%zu args)]=%s",
+           scanned.c_str(), m.parameters.size(), m.definition);
+
+    // Read parameters in the macros
+    size_t arg = 0;
+    rt.enter(2 * m.parameters.size());
+    for (text parm : m.parameters)
+    {
+        // For each parameter, create a new macro (or overwite existing)
+        token n = next();
+        if (n == ERROR || n == DONE || exprs.size() == 0)
+        {
+            rt.error("Invalid bytecode argument");
+            record(scanner_error, "Invalid bytecode argument %s: %s",
+                   parm.c_str(), scanned.c_str());
+            return false;
+        }
+
+        expr e = exprs.back();
+        exprs.pop_back();
+        rt.frame[arg++] = e.type;
+        rt.frame[arg++] = e.type == expr::TXT ? rt.tok(*e.xtxt) : e.xnat;
+    }
+
+    save pc(rt.pc, byte_p(m.definition.data()));
+    std::ostringstream out;
+    ostream *outp = rt.iosetup(0, &out);
+    bool ok = rt.run();
+    rt.iosetup(0, outp);
+    rt.leave();
+    if (ok)
+        program += out.str();
     return ok;
 }
 
@@ -1602,6 +1734,56 @@ void scanner::append(double d)
 // ----------------------------------------------------------------------------
 {
     program += text((char *) &d, sizeof(d));
+}
+
+
+void scanner::append(ostream *out, intptr_t i)
+// ----------------------------------------------------------------------------
+//   Append a signed integer to the stream
+// ----------------------------------------------------------------------------
+{
+    if (out)
+    {
+        byte   buffer[LEB128_MAXSIZE];
+        byte  *bp = buffer;
+        bp = leb128(bp, i);
+        *out << text((char *) buffer, bp - buffer);
+    }
+}
+
+
+void scanner::append(ostream *out, uintptr_t u)
+// ----------------------------------------------------------------------------
+//  Append an unsigned integer to the program
+// ----------------------------------------------------------------------------
+{
+    if (out)
+    {
+        byte   buffer[LEB128_MAXSIZE];
+        byte  *bp = buffer;
+        bp = leb128(bp, u);
+        *out << text((char *) buffer, bp - buffer);
+    }
+}
+
+
+void scanner::append(ostream *out, float f)
+// ----------------------------------------------------------------------------
+//   Append a float value to the program
+// ----------------------------------------------------------------------------
+{
+    if (out)
+        *out << text((char *) &f, sizeof(f));
+}
+
+
+void scanner::append(ostream *out, double d)
+// ----------------------------------------------------------------------------
+//   Append a float value to the program
+// ----------------------------------------------------------------------------
+{
+    if (out)
+        *out << text((char *) &d, sizeof(d));
 }
 
 

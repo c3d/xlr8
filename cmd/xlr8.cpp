@@ -71,11 +71,16 @@ static bool run(runtime &rt, std::istream &input)
 // ----------------------------------------------------------------------------
 {
     scanner s(input, rt);
-    bool ok = (s.scan()                      &&
-               rt.iosetup(0, input)          &&
-               rt.iosetup(1, std::cout)      &&
-               rt.iosetup(2, std::cerr)      &&
-               rt.run());
+    bool    ok = s.scan();
+    if (ok)
+    {
+        rt.iosetup(0, &input);
+        rt.iosetup(1, &std::cout);
+        rt.iosetup(2, &std::cerr);
+        ok = rt.enter(rt.CALL_CLOBBERED_REGS);
+        if (ok)
+            ok = rt.run();
+    }
     if (!ok)
         record(main_error, "%s", rt.error());
     return ok;

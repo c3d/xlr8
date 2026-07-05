@@ -44,6 +44,7 @@ struct scanner
 // ----------------------------------------------------------------------------
 {
     using istream = std::istream;
+    using ostream = std::ostream;
     using pos_t   = std::streampos;
     using symbols = std::map<text, size_t>;
     using patches = std::vector<size_t>;
@@ -64,6 +65,7 @@ struct scanner
     };
 
     bool        scan(bool macro = false);
+    void        append_expressions();
     bool        validate();
     token       error(cstring error);
     int         skip_spaces();
@@ -77,8 +79,10 @@ struct scanner
     token       do_number(uint *base = nullptr);
     token       do_expression();
     bool        do_symbol(char c);
-    bool        do_macro_definition();
+    bool        do_macro_definition(bool bytecode=false);
     bool        do_macro_use(macro m);
+    bool        do_bytecode_definition();
+    bool        do_bytecode_use(macro m);
     bool        do_expr_name();
     bool        do_expr_symbol();
     bool        expr_binary(char op);
@@ -102,6 +106,12 @@ struct scanner
     void        append(uintptr_t u);
     void        append(float f);
     void        append(double d);
+
+    static void append(ostream *out, intptr_t value);
+    static void append(ostream *out, uintptr_t u);
+    static void append(ostream *out, float f);
+    static void append(ostream *out, double d);
+
     tok_t       undef(tok_t id);
 
     bool        label_name();
@@ -129,11 +139,13 @@ public:
     // ------------------------------------------------------------------------
     {
         using texts = std::vector<text>;
+        macro(text def = ""): parameters(), definition(def) {}
         texts   parameters;
         text    definition;
     };
-    using macros_defs = std::map<text, macro>;
-    macros_defs macros;
+    using macro_defs = std::map<text, macro>;
+    macro_defs macros;
+    macro_defs bytecodes;
 
 
     struct expr

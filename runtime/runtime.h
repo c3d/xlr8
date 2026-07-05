@@ -508,8 +508,8 @@ struct runtime
     }
 
 
-    bool iosetup(size_t index, std::ostream &output);
-    bool iosetup(size_t index, std::istream &input);
+    std::ostream *iosetup(size_t index, std::ostream *output);
+    std::istream *iosetup(size_t index, std::istream *input);
     // ------------------------------------------------------------------------
     //    Setup an I/O stream for this runtime
     // ------------------------------------------------------------------------
