@@ -262,7 +262,8 @@ struct runtime
     }
 
 
-    byte_p dispatch(byte_p pc, value_t ref)
+    template <typename Compare>
+    byte_p dispatch(byte_p pc, value_t ref, Compare compare)
     // ------------------------------------------------------------------------
     //   Dispatch branches
     // ------------------------------------------------------------------------
@@ -283,7 +284,7 @@ struct runtime
             value_t test = arg<value_t>(pc);
             byte_p  bpc  = pc;
             broff_t offs = arg<broff_t>(pc);
-            if (ref >= test)
+            if (compare(ref, test))
                 target = bpc + offs;
         }
         if (target)
