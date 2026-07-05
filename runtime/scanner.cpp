@@ -1616,3 +1616,21 @@ tok_t scanner::undef(tok_t id)
     bp       = leb128(bp, id);
     return rt.tok(utf8(buffer), bp - buffer);
 }
+
+
+bool scanner::scan(istream *in, byte itok, byte ival, runtime &rt)
+// ----------------------------------------------------------------------------
+//   Scanner interface for generated code
+// ----------------------------------------------------------------------------
+{
+    if (!in)
+        return false;
+
+    scanner s(*in, rt);
+    expr    e;
+    if (!s.label_value(e))
+        return false;
+    rt.frame[itok] = e.type;
+    rt.frame[ival] = e.xnat;
+    return true;
+}

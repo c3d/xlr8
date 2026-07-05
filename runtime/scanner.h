@@ -67,6 +67,7 @@ struct scanner
     bool        validate();
     token       error(cstring error);
     int         skip_spaces();
+    static bool scan(istream *input, byte itok, byte ival, runtime &rt);
 
     token       next();
     token       next_raw();
