@@ -93,7 +93,8 @@ define diff
   $(UPDATE_CMD)						\
   $(call result,$1,					\
     diff $(firstword $(wildcard $1$(OPTLEVEL).ref)	\
-		     $(wildcard $1.ref))		\
+		     $(wildcard $1.ref)			\
+		     $1.output)				\
          $1.output > $1.diff 2>&1)			\
   fi
 endef
