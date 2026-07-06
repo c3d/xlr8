@@ -7,5 +7,8 @@ st1 0 1
 nat 1 22
 st1o 0 1 +2
 ld1o 3 0 +2
-sys write_natural 3 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_natural STDOUT 3
+sys write_newline STDOUT

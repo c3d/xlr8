@@ -2,12 +2,15 @@
 
 dbl 0 16#A.A#E-1
 txt 1 "16#A.A#E-1="
-sys write_text 1 1
-sys write_double 0 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_text STDOUT 1
+sys write_double STDOUT 0
+sys write_newline STDOUT
 
 dbl 0 16#2.AFE#E-3
 txt 1 "16#2.AFE#E-3="
-sys write_text 1 1
-sys write_double 0 1
-sys write_newline 1
+sys write_text STDOUT 1
+sys write_double STDOUT 0
+sys write_newline STDOUT

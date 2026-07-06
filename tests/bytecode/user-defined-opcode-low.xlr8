@@ -6,6 +6,9 @@
 // The user-defined opcode 199 should now emit a debug message
 
 .loop
-  sys write_integer 0 1
+
+[STDOUT 1]
+
+  sys write_integer STDOUT 0
   #122 #": Hello, I just executed a low-range user-defined opcode" #16#0A #0
   dbra 0 :loop

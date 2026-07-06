@@ -1,11 +1,14 @@
 // Check that we have a nested function definition
 .label
   int 0 :label
-  sys write_integer 0 1
-  sys write_newline   1
+
+[STDOUT 1]
+
+  sys write_integer STDOUT 0
+  sys write_newline   STDOUT
   int 0 (staff-stuff+42)
-  sys write_integer 0 1
-  sys write_newline   1
+  sys write_integer STDOUT 0
+  sys write_newline   STDOUT
   txt 1 "Outer "
   txt 2 "Inner "
 
@@ -14,10 +17,12 @@
   // Nested function staff
   =staff
   addi 0 1
-  sys write_text    1 1
-  sys write_text    2 1
-  sys write_integer 0 1
-  sys write_newline   1
+[STDOUT 1]
+
+  sys write_text    STDOUT 1
+  sys write_text    STDOUT 2
+  sys write_integer STDOUT 0
+  sys write_newline   STDOUT
   ret
   ;
 txt 2 "staff[1] "

@@ -4,14 +4,17 @@
 // Load a constant and display it
 #199 #"Constant FOO (numerical value): " #0
 nat 0 *FOO
-sys write_integer 0 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_integer STDOUT 0
+sys write_newline STDOUT
 
 // Load a token constant and display it
 #199 #"Load token for generated code: " #0
 nat 0 *BAR
-sys write_integer 0 1
-sys write_newline 1
+sys write_integer STDOUT 0
+sys write_newline STDOUT
 
 // Load address for BAR
 #199 #"Read token address" #10 #0
@@ -22,8 +25,8 @@ sys tok 1 0
 .loop
     #199 #"  " #0
     ld1 0 1
-    sys write_integer 0 1
-    sys write_newline 1
+    sys write_integer STDOUT 0
+    sys write_newline STDOUT
     incr 1
     bne 0 :loop
 end

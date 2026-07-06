@@ -5,5 +5,8 @@ sys kmalloc 0 2
 nat 1 100
 st2o 0 1 +4
 ld2o 3 0 +4
-sys write_natural 3 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_natural STDOUT 3
+sys write_newline STDOUT

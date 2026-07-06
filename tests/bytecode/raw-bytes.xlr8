@@ -1,12 +1,14 @@
 // Check that we can emit raw bytes in the bytecode
 
-
 pca 1 :mytext
 
 .chars
 ld1 0 1
 beq 0 :done
-sys write_char 0 1
+
+[STDOUT 1]
+
+sys write_char STDOUT 0
 incr 1
 bra :chars
 

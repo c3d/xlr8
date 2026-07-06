@@ -5,5 +5,8 @@ copy 2 0
 int 1 +42
 sys i2leb 0 1
 sys leb2i 3 2
-sys write_integer 3 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_integer STDOUT 3
+sys write_newline STDOUT

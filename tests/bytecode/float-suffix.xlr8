@@ -5,10 +5,13 @@ flt 0
 dbl 2
 3.0
 txt 3 "float="
-sys write_text 3 1
-sys write_float 0 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_text STDOUT 3
+sys write_float STDOUT 0
+sys write_newline STDOUT
 txt 3 "double="
-sys write_text 3 1
-sys write_double 2 1
-sys write_newline 1
+sys write_text STDOUT 3
+sys write_double STDOUT 2
+sys write_newline STDOUT

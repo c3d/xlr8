@@ -6,5 +6,8 @@ nat 2 1
 nat 3 0
 cmpule 0 0 1
 select 0 4 2 3
-sys write_natural 4 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_natural STDOUT 4
+sys write_newline STDOUT

@@ -1,22 +1,24 @@
 // Check that we can use sys functions to write stuff
 
-
 int 0 42
-sys write_integer 0 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_integer STDOUT 0
+sys write_newline STDOUT
 
 nat 0 4547
-sys write_natural 0 1
-sys write_newline 1
+sys write_natural STDOUT 0
+sys write_newline STDOUT
 
 flt 0 42.4547f
-sys write_float   0 1
-sys write_newline 1
+sys write_float   STDOUT 0
+sys write_newline STDOUT
 
 dbl 0 3.1415926
-sys write_double  0 1
-sys write_newline 1
+sys write_double  STDOUT 0
+sys write_newline STDOUT
 
 txt 0 "Hello, did the test succeed?"
-sys write_text    0 1
-sys write_newline 1
+sys write_text    STDOUT 0
+sys write_newline STDOUT

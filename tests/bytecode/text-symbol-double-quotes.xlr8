@@ -7,6 +7,9 @@ ret
 
 call *"this is a ""function"""
 txt 1 "this is a ""function""="
-sys write_text 1 1
-sys write_integer 0 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_text STDOUT 1
+sys write_integer STDOUT 0
+sys write_newline STDOUT

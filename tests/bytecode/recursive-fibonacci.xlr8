@@ -31,12 +31,15 @@ subi 1 10                       // Exit when n > 10
 bgt 1 :done
 call *fib                      // R0 = n!
 txt 1 "Fibonacci of "
-sys write_text 1 1
-sys write_integer 3 1
+
+[STDOUT 1]
+
+sys write_text STDOUT 1
+sys write_integer STDOUT 3
 txt 1 " is "
-sys write_text 1 1
-sys write_integer 0 1
-sys write_newline 1
+sys write_text STDOUT 1
+sys write_integer STDOUT 0
+sys write_newline STDOUT
 incr 3                          // n++
 copy 0 3                        // R0 = n for next iteration
 bra :loop

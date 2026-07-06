@@ -15,9 +15,11 @@
  leave                    // Pop the registers
  end}                     // Return to calling bytecode
 
-
 // Here is an example that generates a bytecode containing "nat 0 720"
 // by evaluating the bytecode above to generate data for fact 6.
 nat 0 fact 6
-sys write_natural 0 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_natural STDOUT 0
+sys write_newline STDOUT

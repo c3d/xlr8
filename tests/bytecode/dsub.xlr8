@@ -4,6 +4,9 @@ dbl 0 5.0
 dbl 1 2.0
 dsub 0 1
 txt 1 "5.0-2.0="
-sys write_text 1 1
-sys write_double 0 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_text STDOUT 1
+sys write_double STDOUT 0
+sys write_newline STDOUT

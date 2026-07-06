@@ -1,6 +1,5 @@
 // Check that we can read the tokens and the LEB128 data
 
-
 nat 0 0                                 // R0: Token index
 
 .loop
@@ -9,15 +8,18 @@ nat 0 0                                 // R0: Token index
 
   // Write tok[n]=(size) 'tokval'
   txt 2 "tok["                          // R2: Text / temporary
-  sys write_text    2 1
-  sys write_integer 0 1
+
+[STDOUT 1]
+
+  sys write_text    STDOUT 2
+  sys write_integer STDOUT 0
   txt 2 "]=("
-  sys write_text    2 1
+  sys write_text    STDOUT 2
 
   sys leb2u 3 1                         // R3: length
-  sys write_natural 3 1
+  sys write_natural STDOUT 3
   txt 2 ") '"
-  sys write_text    2 1
+  sys write_text    STDOUT 2
 
   beq 3 :empty
 
@@ -30,23 +32,23 @@ nat 0 0                                 // R0: Token index
     nat 5 126
     sub 5 2
     blt 5 :charval
-    sys write_char 2 1
+    sys write_char STDOUT 2
     dbra 3 :chars
     bra :empty
 
   .charval
     txt 5 "["
-    sys write_text 5 1
-    sys write_integer 2 1
+    sys write_text STDOUT 5
+    sys write_integer STDOUT 2
     txt 5 "]"
-    sys write_text 5 1
+    sys write_text STDOUT 5
     dbra 3 :chars
 
   .empty
 
   txt 2 "'"
-  sys write_text 2 1
-  sys write_newline 1
+  sys write_text STDOUT 2
+  sys write_newline STDOUT
 
   incr 0
   bra :loop
@@ -54,5 +56,5 @@ nat 0 0                                 // R0: Token index
 .done
 
 txt 0 "Done!"
-sys write_text  0 1
-sys write_newline 1
+sys write_text  STDOUT 0
+sys write_newline STDOUT

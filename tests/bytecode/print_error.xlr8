@@ -1,6 +1,6 @@
 // Print the current error message
 
-sys write_integer 0 #99
+sys write_integer #99 0
 sys print_error #1
 sys write_newline #1
 sys clear_error

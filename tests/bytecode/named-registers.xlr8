@@ -11,15 +11,15 @@
 
 nat *INDEX *LOOPS
 .loop
-    sys write_integer *INDEX *STDOUT
+    sys write_integer *STDOUT *INDEX
     txt *TEXT "x"
-    sys write_text *TEXT *STDOUT
+    sys write_text *STDOUT *TEXT
     nat *TEXT *MULTIPLIER
-    sys write_integer *TEXT *STDOUT
+    sys write_integer *STDOUT *TEXT
     txt *TEXT "="
-    sys write_text *TEXT *STDOUT
+    sys write_text *STDOUT *TEXT
     copy *TMP *INDEX
     mulu *TMP *MULTIPLIER
-    sys write_integer *TMP *STDOUT
+    sys write_integer *STDOUT *TMP
     sys write_newline *STDOUT
     dbra *INDEX :loop

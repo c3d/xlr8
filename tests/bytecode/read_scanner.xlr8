@@ -1,5 +1,8 @@
 // read_scanner returns DONE at EOF
 
 sys read_scanner 0 +0
-sys write_natural 0 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_natural STDOUT 0
+sys write_newline STDOUT

@@ -15,9 +15,12 @@ bne 3 :loop                     // If not zero, loop
 
 // Exit loop, display final counter
 txt 3 "I="                      // Put token for "I=" in R3
-sys write_text 3 1           // Emit text on std::cout
-sys write_integer 0 1        // Emit counter
-sys write_newline 1          // Emit end of line 1
+
+[STDOUT 1]
+
+sys write_text STDOUT 3           // Emit text on std::cout
+sys write_integer STDOUT 0        // Emit counter
+sys write_newline STDOUT          // Emit end of line 1
 
 copy 3 2
 sub 3 0

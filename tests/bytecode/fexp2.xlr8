@@ -2,5 +2,8 @@
 
 flt 0 3.0f
 sys fexp2 0 0
-sys write_float 0 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_float STDOUT 0
+sys write_newline STDOUT

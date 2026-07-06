@@ -3,20 +3,22 @@
 // CHECK=./check-time %f
 // TIMEOUT=500
 
-
 nat 0 0
 
 .loop
   txt 1 "arg["
-  sys write_text 1 1
-  sys write_integer 0 1
+
+[STDOUT 1]
+
+  sys write_text STDOUT 1
+  sys write_integer STDOUT 0
   txt 1 "]='"
-  sys write_text 1 1
+  sys write_text STDOUT 1
   sys cmdline 2 0
-  sys write_text 2 1
+  sys write_text STDOUT 2
   txt 1 "'"
-  sys write_text 1 1
-  sys write_newline 1
+  sys write_text STDOUT 1
+  sys write_newline STDOUT
   incr 0
  bne 2 :loop
 
@@ -27,5 +29,5 @@ nat 1 50_000_000
  dbra 1 :perfloop
 
 txt 1 "Done!"
-sys write_text 1 1
-sys write_newline 1
+sys write_text STDOUT 1
+sys write_newline STDOUT

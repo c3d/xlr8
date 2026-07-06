@@ -10,8 +10,11 @@ bra :done
 .ok
 txt 0 "OK true"
 .done
-sys write_text 0 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_text STDOUT 0
+sys write_newline STDOUT
 
 false 5
 enter 1
@@ -23,5 +26,5 @@ bra :write
 .bad
 txt 0 "FAIL false"
 .write
-sys write_text 0 1
-sys write_newline 1
+sys write_text STDOUT 0
+sys write_newline STDOUT

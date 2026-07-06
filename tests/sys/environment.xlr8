@@ -3,19 +3,20 @@
 
 =showenv
   txt 1 "env["
-  sys write_text 1 1
-  sys write_text 0 1
+
+[STDOUT 1]
+
+  sys write_text STDOUT 1
+  sys write_text STDOUT 0
   txt 1 "]='"
-  sys write_text 1 1
+  sys write_text STDOUT 1
   sys env 1 0
-  sys write_text 1 1
+  sys write_text STDOUT 1
   txt 1 "'"
-  sys write_text 1 1
-  sys write_newline 1
+  sys write_text STDOUT 1
+  sys write_newline STDOUT
   ret
 ;
-
-
 
 txt 0 "HELLO"
 call *showenv

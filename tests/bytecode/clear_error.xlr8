@@ -1,6 +1,6 @@
 // Clear the current error and verify trap no longer fires
 
-sys write_integer 0 #99
+sys write_integer #99 0
 sys clear_error
 sys trap_error :trapped
 int 0 +1
@@ -8,5 +8,8 @@ bra :done
 .trapped
 int 0 +2
 .done
-sys write_integer 0 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_integer STDOUT 0
+sys write_newline STDOUT

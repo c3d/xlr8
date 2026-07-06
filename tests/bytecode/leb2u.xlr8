@@ -6,5 +6,8 @@ copy 2 0
 nat 1 42
 sys u2leb 0 1
 sys leb2u 3 2
-sys write_natural 3 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_natural STDOUT 3
+sys write_newline STDOUT

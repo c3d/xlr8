@@ -2,11 +2,14 @@
 
 dbl 0 16#1.Af
 txt 1 "16#1.Af="
-sys write_text 1 1
-sys write_double 0 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_text STDOUT 1
+sys write_double STDOUT 0
+sys write_newline STDOUT
 flt 0 16#1.A#f
 txt 1 "16#1.A#f="
-sys write_text 1 1
-sys write_float 0 1
-sys write_newline 1
+sys write_text STDOUT 1
+sys write_float STDOUT 0
+sys write_newline STDOUT

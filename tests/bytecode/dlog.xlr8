@@ -2,5 +2,8 @@
 
 dbl 0 1.0
 sys dlog 0 0
-sys write_double 0 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_double STDOUT 0
+sys write_newline STDOUT

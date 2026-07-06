@@ -2,5 +2,8 @@
 
 nat 0 128
 sys sext 0 8
-sys write_integer 0 1
-sys write_newline 1
+
+[STDOUT 1]
+
+sys write_integer STDOUT 0
+sys write_newline STDOUT
