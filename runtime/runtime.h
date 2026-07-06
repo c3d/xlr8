@@ -310,7 +310,7 @@ struct runtime
         }
         stack -= locals;
         size_t finfo = ((frame - stack) << 16) | (byte(flags) << 8) | locals;
-        frame        = stack;
+        frame = stack;
         if (!push(finfo))
         {
             error("Cannot push frame size - Inernal error");
@@ -320,7 +320,7 @@ struct runtime
     }
 
 
-    stack_p leave(bool saveheap = false)
+    stack_p leave()
     // ------------------------------------------------------------------------
     //    Free the number of locals and return to previous frame
     // ------------------------------------------------------------------------
@@ -330,11 +330,11 @@ struct runtime
             error("Stack is above frame pointer");
             return nullptr;
         }
-        size_t finfo  = pop();
+        size_t finfo  = frame[-1];
         size_t locals = byte(finfo);
         flags = byte(finfo >> 8) | ((flags >> 8) << 8);
+        stack = frame + locals;
         frame += finfo >> 16;
-        stack += locals;
         return frame;
     }
 
