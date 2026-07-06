@@ -271,14 +271,14 @@ scanner::token scanner::do_name()
     if (input.good())
         input.putback(c);
 
-    // Check if we have a macro or bytecode
-    if (auto found = macros.find(scanned); found != macros.end())
-        return do_macro_use((*found).second) ? COMMENT : ERROR;
-    if (auto found = bytecodes.find(scanned); found != bytecodes.end())
-        return do_bytecode_use((*found).second) ? COMMENT : ERROR;
-
     if (!raw)
     {
+        // Check if we have a macro or bytecode
+        if (auto found = macros.find(scanned); found != macros.end())
+            return do_macro_use((*found).second) ? COMMENT : ERROR;
+        if (auto found = bytecodes.find(scanned); found != bytecodes.end())
+            return do_bytecode_use((*found).second) ? COMMENT : ERROR;
+
         // Check if we have a constant with that value
         if (constants.count(scanned))
             exprs.emplace_back(constants[scanned]);
@@ -707,7 +707,7 @@ bool scanner::do_macro_definition(bool bytecode)
     while (!done)
     {
         if (bytecode && !first && !parms)
-            raw = false;
+            raw = raw_symbols.saved;
 
         t = next();
         switch (t)

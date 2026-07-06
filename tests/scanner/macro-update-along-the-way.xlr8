@@ -1,0 +1,27 @@
+[VALUE 42]
+[STDOUT 1]
+[ShowValue [t n]
+
+ txt 0 t
+ sys write_text STDOUT 0
+ sys write_newline STDOUT
+
+ txt 0 "  Value="
+ sys write_text STDOUT 0
+ nat 0 VALUE
+ sys write_integer STDOUT 0
+ sys write_newline STDOUT
+
+ txt 0 "  n="
+ sys write_text STDOUT 0
+ nat 0 n
+ sys write_integer STDOUT 0
+ sys write_newline STDOUT]
+
+ShowValue "With VALUE=42" VALUE
+
+[VALUE 1776]
+ShowValue "With VALUE=1776" VALUE
+
+[VALUE[] (n+1)]
+ShowValue "With VALUE=(n+1) and n=1968" 1968
