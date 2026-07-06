@@ -31,6 +31,7 @@
 #include "runtime.h"
 #include "scanner.h"
 #include "types.h"
+#include "save.h"
 
 #include <iostream>
 #include <fstream>
@@ -71,15 +72,19 @@ static bool run(runtime &rt, std::istream &input)
 // ----------------------------------------------------------------------------
 {
     scanner s(input, rt);
-    bool    ok = s.scan();
-    if (ok)
+    bool    ok = rt.enter(rt.CALL_CLOBBERED_REGS);
+    while (ok && input.good())
     {
-        rt.iosetup(0, &input);
-        rt.iosetup(1, &std::cout);
-        rt.iosetup(2, &std::cerr);
-        ok = rt.enter(rt.CALL_CLOBBERED_REGS);
+        save frame(rt.frame, rt.frame);
+        ok = s.scan();
         if (ok)
-            ok = rt.run();
+        {
+            rt.iosetup(0, &input);
+            rt.iosetup(1, &std::cout);
+            rt.iosetup(2, &std::cerr);
+            if (ok)
+                ok = rt.run();
+        }
     }
     if (!ok)
         record(main_error, "%s", rt.error());

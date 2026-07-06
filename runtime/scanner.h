@@ -53,7 +53,7 @@ struct scanner
     struct expr;
 
     scanner(istream &input, runtime &rt)
-        : input(input), rt(rt),scanned(), program() { }
+        : input(input), rt(rt), pgmid(), program(), scanned() { }
 
     enum token
     {
@@ -124,8 +124,9 @@ struct scanner
 public:
     istream &   input;          // Input stream
     runtime &   rt;             // Runtime to use
-    text        scanned;        // Last token scanned
+    tok_t       pgmid;          // Program ID
     text        program;        // Bytecode being built
+    text        scanned;        // Last token scanned
     symbols     labels;         // Labels where we already know the address
     pending     ulabels;        // Labels with unknown address
     patches     branches;       // Branch points in the code

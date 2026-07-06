@@ -1,0 +1,27 @@
+// Check that we can execute multiple bytecode sequences
+
+[STDOUT 1]
+
+[Reg [t n]
+  push 0
+  txt 0 t
+  sys write_text STDOUT 0
+  pop 0
+  sys write_integer STDOUT n
+  sys write_newline STDOUT]
+
+nat 0 231
+Reg "First execution 231=" 0
+
+nat 1 1968
+end;
+
+Reg "Second execution 1968=" 1
+enter 24
+nat 1 1999
+Reg "Second exection 1999=" 1
+;
+
+add 0 1
+Reg "Third execution 231+1968=" 0
+Reg "Third execution 1968=" 1

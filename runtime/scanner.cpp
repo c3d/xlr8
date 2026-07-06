@@ -117,13 +117,27 @@ bool scanner::validate()
     }
 
     program += text(1, char(runtime::op_end));
-    tok_t prog = rt.tok(program);
-    rt.entry = byte_p(rt.tok(prog));
+    pgmid = rt.tok(program);
+    rt.entry = byte_p(rt.tok(pgmid));
     rt.pc = rt.entry;
     record(scanner, "Scanned %lu bytes entry %p", program.size(), rt.entry);
     if (RECORDER_TRACE(scanner) > 1)
         for (size_t i = 0; i < program.size(); i++)
             record(scanner, "  [%zu] = %02x", i, (byte) program[i]);
+
+    // Cleanup
+    program = "";
+    labels.clear();
+    ulabels.clear();
+    branches.clear();
+    constants.clear();
+    uconstants.clear();
+    cstrefs.clear();
+    exprs.clear();
+    ops.clear();
+    need_operator = false;
+    raw = false;
+
     return true;
 }
 
@@ -1464,8 +1478,7 @@ bool scanner::do_define()
     bool    result = child.scan();
     if (!result)
         return false;
-    text &cpgm = child.program;
-    tok_t callee = rt.tok(cpgm);
+    tok_t callee = child.pgmid;
     rt.defined[ntok] = callee;
     return set(constants, scanned, callee);
 }
