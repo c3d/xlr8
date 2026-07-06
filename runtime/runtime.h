@@ -143,6 +143,34 @@ struct runtime
     }
 
 
+    stack_p alloca(intptr_t size)
+    // ------------------------------------------------------------------------
+    //   Allocate (size>0) or free (size<0) the number of bytes, rounded up
+    // ------------------------------------------------------------------------
+    {
+        if (size > 0)
+        {
+            size = ((size + 7) & ~7LL) / 8;
+            if (stack - size <= (stack_p) heap)
+            {
+                error("Stack allocation below heap");
+                return nullptr;
+            }
+        }
+        else
+        {
+            size = -((-size + 7) & ~7LL) / 8;
+            if (stack - size > histack)
+            {
+                error("Stack deallocation is outside of stack");
+                return nullptr;
+            }
+        }
+        stack -= size;
+        return stack;
+    }
+
+
     bool args(size_t count, cstring msg)
     // ------------------------------------------------------------------------
     //   Check if we can take count args

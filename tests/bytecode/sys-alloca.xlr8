@@ -1,0 +1,76 @@
+// Check dynamic stack allocation
+[STDOUT 1]
+[Info [Txt]
+    push 0
+    txt 0 Txt
+    sys write_text    STDOUT 0
+    sys write_newline STDOUT
+    pop 0]
+
+[RegInfo [Txt Reg]
+    push 0
+    txt 0 Txt
+    sys write_text    STDOUT 0
+    pop 0
+    sys write_integer STDOUT Reg
+    sys write_newline STDOUT]
+
+nat 0 42                // Populate
+nat 1 13
+nat 2 02
+nat 3 1979
+nat 4 5
+nat 5 12
+nat 7 1968
+
+Info "Before enter:"
+RegInfo " R0=" 0
+RegInfo " R1=" 1
+RegInfo " R2=" 2
+RegInfo " R3=" 3
+RegInfo " R4=" 4
+RegInfo " R5=" 5
+RegInfo " R6=" 6
+RegInfo " R7=" 7
+
+enter 12                // Allocate 12 registers
+
+sys alloca 1 8          // Allocate 8 bytes
+nat 0 99
+st8 1 0                 // Store 99 in that first slot
+
+sys alloca 2 7          // Allocate 7 bytes
+nat 0 42
+st8 2 0                 // Store 42 in that second slot
+
+
+addi 0 +100             // Allocate 142 byte (WARNING: signed)
+sys valloca 3 0
+st8 3 0                 // Store 142 in that slot
+
+copy 4 2
+sub  4 3
+RegInfo "VAlloca Delta=" 4
+
+copy 4 1
+sub  4 2
+RegInfo "Alloca(7) Delta=" 4
+
+neg 0
+sys valloca 3 0
+
+copy 4 2
+sub 4 3
+RegInfo "Valloca Delta after Free=" 4
+
+leave
+
+Info "After leave:"
+RegInfo " R0=" 0
+RegInfo " R1=" 1
+RegInfo " R2=" 2
+RegInfo " R3=" 3
+RegInfo " R4=" 4
+RegInfo " R5=" 5
+RegInfo " R6=" 6
+RegInfo " R7=" 7
