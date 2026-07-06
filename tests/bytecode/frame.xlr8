@@ -1,0 +1,12 @@
+// Check that we can take the address of a register
+
+  nat 0 42
+  frame 1 0
+  ld8 2 1
+  muli 2 42
+  addi 2 12
+  st8 1 2
+
+  [STDOUT 1]
+  sys write_integer STDOUT 0
+  sys write_newline STDOUT
