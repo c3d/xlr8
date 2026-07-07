@@ -35,10 +35,11 @@
 #include "save.h"
 
 #include <cctype>
+#include <cmath>
 #include <functional>
 #include <locale>
+#include <memory>
 #include <sstream>
-#include <cmath>
 
 
 const size_t LEB128_MAXSIZE = 16;
@@ -1023,6 +1024,117 @@ static inline text operator *(uintptr_t n, text t)
 }
 
 
+template <typename T>
+static inline text format(text fmt, T value)
+// ----------------------------------------------------------------------------
+//   Format a single argument in a text
+// ----------------------------------------------------------------------------
+{
+    int sz = std::snprintf(nullptr, 0, fmt.c_str(), value);
+    if (sz <= 0)
+        return fmt;
+    std::unique_ptr<char[]> buf(new char[size_t(sz+1)]);
+    char *buffer = buf.get();
+    std::snprintf(buffer, sz+1, fmt.c_str(), value);
+    return text(buffer, size_t(sz));
+}
+
+
+static inline text format(text fmt, const scanner::expr &e)
+// ----------------------------------------------------------------------------
+//   Apply printf-style formats to the expression
+// ----------------------------------------------------------------------------
+{
+    auto pos    = fmt.begin();
+    bool infmt  = false;
+    bool done   = false;
+    text result = "";
+    text style  = "";
+    while (pos != fmt.end() && !done)
+    {
+        char c = *pos++;
+        if (infmt)
+        {
+            style += c;
+            switch (c)
+            {
+            case '%':
+                result += c;
+                infmt = false;
+                break;
+
+            case 'u':
+            case 'x':
+            case 'p':
+            case 'X':
+            case 'o':
+            case 'b':
+                if (e.type == scanner::expr::NAT)
+                    result += format(style, e.xnat);
+                done = true;
+                break;
+
+            case 'd':
+            case 'i':
+                if (e.type == scanner::expr::INT)
+                    result += format(style, e.xint);
+                done = true;
+                break;
+
+
+            case 'f':
+            case 'g':
+            case 'e':
+            case 'G':
+            case 'E':
+                if (e.type == scanner::expr::FLT)
+                    result += format(style, double(e.xflt));
+                else if (e.type == scanner::expr::DBL)
+                    result += format(style, e.xdbl);
+                done = true;
+                break;
+
+            case 'c':
+                if (e.type == scanner::expr::NAT ||
+                    e.type == scanner::expr::INT)
+                    result += format(style, e.xint);
+                else if (e.type == scanner::expr::TXT && e.xtxt->length() > 0)
+                    result += format(style, (*e.xtxt)[0]);
+                done = true;
+                break;
+
+            case 's':
+            {
+                text astxt;
+                switch (e.type)
+                {
+                case scanner::expr::TXT: astxt = *e.xtxt; break;
+                case scanner::expr::NAT: astxt = std::to_string(e.xnat); break;
+                case scanner::expr::INT: astxt = std::to_string(e.xint); break;
+                case scanner::expr::FLT: astxt = std::to_string(e.xflt); break;
+                case scanner::expr::DBL: astxt = std::to_string(e.xdbl); break;
+                }
+                result += format(style, astxt.c_str());
+                done = true;
+                break;
+            }
+            }
+        }
+        else if (c == '%')
+        {
+            infmt = true;
+            style = c;
+        }
+        else
+        {
+            result += c;
+        }
+    }
+    result += text(pos, fmt.end());
+    return result;
+}
+
+
 bool scanner::expr_apply(char op)
 // ----------------------------------------------------------------------------
 //   Apply the top operator to the two operands on the stack
@@ -1097,6 +1209,11 @@ bool scanner::expr_apply(char op)
     else if (op == '*' && r.type == expr::NAT && l.type == expr::TXT)
     {
         exprs.emplace_back(r.xnat * *l.xtxt);
+        return true;
+    }
+    else if (op == '%' && l.type == expr::TXT)
+    {
+        exprs.emplace_back(format(*l.xtxt, r));
         return true;
     }
     else if (l.type == expr::TXT || r.type == expr::TXT)

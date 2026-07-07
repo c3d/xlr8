@@ -1,0 +1,15 @@
+// Check that the printf-style formatting works in expressions
+
+[STDOUT 1]
+
+txt 0 ("Hello, 33=%08X 42=[%8s] 1979=[%-8s]" % 33 % 42 % 1979)
+sys write_text STDOUT 0
+sys write_newline STDOUT
+
+txt 0 ("Hello %s the year was %s (0x%x)" % "World" % 1979 % 1979)
+sys write_text STDOUT 0
+sys write_newline STDOUT
+
+txt 0 ("Floating-point formatting using %%g: %g" % 1.2345e-6)
+sys write_text STDOUT 0
+sys write_newline STDOUT

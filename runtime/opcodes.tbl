@@ -36,7 +36,7 @@ OP(int,         DST; KINT; DINT = kint)
 OP(nat,         DST; KNAT; DNAT = knat)
 OP(flt,         DST; memcpy(&DFLT, pc, sizeof(float)); pc += sizeof(float))
 OP(dbl,         DST; memcpy(&DDBL, pc, sizeof(double)); pc += sizeof(double))
-OP(txt,         DST; TOK; DINT = t)
+OP(txt,         DST; TOK; DNAT = t)
 
 OP(copy,        DST; SRC; DALL = SALL)
 OP(swap,        DST; SRC; std::swap(DALL, SALL))
