@@ -39,6 +39,13 @@ NATIVE(valloca,         DST; SRC; DTYPE(stack_p) = rt.alloca(SINT))
 NATIVE(cmdline,         DST; SRC; DNAT = rt.argv(SNAT))
 NATIVE(env,             DST; SRC; DNAT = rt.env(SNAT))
 
+NATIVE(infix,           rt.infix())
+NATIVE(prefix,          rt.prefix())
+NATIVE(postfix,         rt.postfix())
+NATIVE(block,           rt.block())
+NATIVE(builtin,         rt.parsing_mode(false))
+NATIVE(parsing,         rt.parsing_mode(true))
+
 NATIVE(branch_on_eof,   BR_OFF; ISTREAM; if (in && (*in).eof()) BRANCH)
 NATIVE(branch_on_bad,   BR_OFF; ISTREAM; if (in && (*in).bad()) BRANCH)
 

@@ -72,7 +72,8 @@ static bool run(runtime &rt, std::istream &input)
 // ----------------------------------------------------------------------------
 {
     scanner s(input, rt);
-    bool    ok = rt.enter(rt.CALL_CLOBBERED_REGS);
+    scanner *olds = rt.scanning(&s);
+    bool     ok   = rt.enter(rt.CALL_CLOBBERED_REGS);
     while (ok && input.good())
     {
         save frame(rt.frame, rt.frame);
@@ -86,6 +87,9 @@ static bool run(runtime &rt, std::istream &input)
                 ok = rt.run();
         }
     }
+    rt.scanning(olds);
+    if (ok)
+        ok = rt.leave();
     if (!ok)
         record(main_error, "%s", rt.error());
     return ok;

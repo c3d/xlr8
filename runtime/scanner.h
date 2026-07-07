@@ -43,12 +43,16 @@ struct scanner
 //   Scanner for some input stream
 // ----------------------------------------------------------------------------
 {
-    using istream = std::istream;
-    using ostream = std::ostream;
-    using pos_t   = std::streampos;
-    using symbols = std::map<text, size_t>;
-    using patches = std::vector<size_t>;
-    using pending = std::map<text, patches>;
+    using istream     = std::istream;
+    using ostream     = std::ostream;
+    using pos_t       = std::streampos;
+    using symbols     = std::map<text, size_t>;
+    using patches     = std::vector<size_t>;
+    using pending     = std::map<text, patches>;
+    using precedences = std::map<text, int>;
+    using texts       = std::vector<text>;
+    using text_map    = std::map<text, text>;
+
     struct macro;
     struct expr;
 
@@ -57,7 +61,7 @@ struct scanner
 
     enum token
     {
-        DONE, ERROR, COMMENT,
+        DONE, ERROR, COMMENT, MACRO,
         NAME, SYMBOL,
         INTEGER, NATURAL,
         FLOAT, DOUBLE, REAL,
@@ -121,6 +125,15 @@ struct scanner
     pos_t       position()                      { return input.tellg(); }
     size_t      pc()                            { return program.size(); }
 
+    void        infix(text tok, int prec)       { infixen[tok] = prec; }
+    void        prefix(text tok, int prec)      { prefixen[tok] = prec; }
+    void        postfix(text tok, int prec)     { postfixen[tok] = prec; }
+    void        block(text op, text cl, int prec)
+    {
+        blocks[op] = prec;
+        closing[op] = cl;
+    }
+
 public:
     istream &   input;          // Input stream
     runtime &   rt;             // Runtime to use
@@ -139,14 +152,14 @@ public:
     //   Implementation of macros
     // ------------------------------------------------------------------------
     {
-        using texts = std::vector<text>;
         macro(text def = ""): parameters(), definition(def) {}
         texts   parameters;
         text    definition;
     };
     using macro_defs = std::map<text, macro>;
-    macro_defs macros;
-    macro_defs bytecodes;
+    macro_defs  macros;
+    macro_defs  bytecodes;
+    texts       expanded;
 
 
     struct expr
@@ -198,7 +211,14 @@ public:
     };
     std::vector<expr> exprs;
     std::vector<char> ops;
-    bool              stop_at_semicolon = true;
+
+    precedences       infixen;
+    precedences       prefixen;
+    precedences       postfixen;
+    precedences       blocks;
+    text_map          closing;
+
+    bool              parsing           = false;
     bool              need_operator     = false;
     bool              raw               = false;
 };

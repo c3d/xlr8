@@ -476,3 +476,122 @@ bool runtime::trace()
            pc, frame, error() ? error() : "SUCCESS");
     return error() == nullptr;
 }
+
+
+
+// ============================================================================
+//
+//   Scanner / parser configuration
+//
+// ============================================================================
+
+
+bool runtime::parsing_mode(bool mode)
+// ----------------------------------------------------------------------------
+//   Select parsing mode for the scanner
+// ----------------------------------------------------------------------------
+{
+    if (!input)
+        return false;
+    std::swap(mode, input->parsing);
+    return mode;
+}
+
+
+bool runtime::symbol_precedence(cstring directive,
+                                int *prec, text *symbol, text *closing)
+// ----------------------------------------------------------------------------
+//   Extract symbol precedence from current arguments
+// ----------------------------------------------------------------------------
+{
+    if (!input)
+    {
+        record(runtime_error,
+               "'%+s' directive without an input scanner", directive);
+        error("Precedence directive without a valid input scanner");
+        return false;
+    }
+
+    stack_p args = frame;
+    if (args[0] != scanner::expr::INT && args[0] != scanner::expr::NAT)
+    {
+        record(runtime_error,
+               "'%+s' directive first argument is %u", directive, args[0]);
+        error("Precedence directive first argument should be integer");
+        return false;
+    }
+    if (prec)
+        *prec = args[1];
+
+    for (uint a = 0; a < 2; a++)
+    {
+        text *tptr = a ? closing : symbol;
+        stack_p arg = args + 2 * a + 2;
+        if (tptr)
+        {
+            if (arg[0] == scanner::expr::TXT || arg[0] == scanner::expr::NAT)
+            {
+                *tptr = as_text(arg[1]);
+            }
+            else
+            {
+                record(runtime_error,
+                       "'%+s' directive argument %u is %u",
+                       directive, a + 2, arg[0]);
+                error("Precedence directive has invalid symbol name");
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+
+void runtime::infix()
+// ----------------------------------------------------------------------------
+//   Select an infix precedence in current scanner
+// ----------------------------------------------------------------------------
+//   args[0] = precedence
+//   args[1] = token or symbol
+{
+    int  precedence;
+    text symbol;
+    if (symbol_precedence("infix", &precedence, &symbol))
+        input->infix(symbol, precedence);
+}
+
+
+void runtime::prefix()
+// ----------------------------------------------------------------------------
+//   Select an infix precedence in current scanner
+// ----------------------------------------------------------------------------
+{
+    int  precedence;
+    text symbol;
+    if (symbol_precedence("prefix", &precedence, &symbol))
+        input->prefix(symbol, precedence);
+}
+
+
+void runtime::postfix()
+// ----------------------------------------------------------------------------
+//   Select an infix precedence in current scanner
+// ----------------------------------------------------------------------------
+{
+    int  precedence;
+    text symbol;
+    if (symbol_precedence("postfix", &precedence, &symbol))
+        input->postfix(symbol, precedence);
+}
+
+
+void runtime::block()
+// ----------------------------------------------------------------------------
+//   Select an infix precedence in current scanner
+// ----------------------------------------------------------------------------
+{
+    int  precedence;
+    text open, close;
+    if (symbol_precedence("postfix", &precedence, &open, &close))
+        input->block(open, close, precedence);
+}

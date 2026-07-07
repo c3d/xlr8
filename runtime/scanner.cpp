@@ -223,7 +223,7 @@ scanner::token scanner::next_raw()
     // Anything else is a symbol
     c = input.get();
     scanned += char(c);
-    if (c == ';' && stop_at_semicolon)
+    if (c == ';' && !parsing)
         return DONE;
     return do_symbol(c) ? SYMBOL : ERROR;
 }
@@ -290,9 +290,9 @@ scanner::token scanner::do_name()
     {
         // Check if we have a macro or bytecode
         if (auto found = macros.find(scanned); found != macros.end())
-            return do_macro_use((*found).second) ? COMMENT : ERROR;
+            return do_macro_use((*found).second) ? MACRO : ERROR;
         if (auto found = bytecodes.find(scanned); found != bytecodes.end())
-            return do_bytecode_use((*found).second) ? COMMENT : ERROR;
+            return do_bytecode_use((*found).second) ? MACRO : ERROR;
 
         // Check if we have a constant with that value
         if (constants.count(scanned))
@@ -818,7 +818,11 @@ bool scanner::do_macro_definition(bool bytecode)
     }
 
     if (bytecode)
-        here.definition = program;
+    {
+        if (!validate())
+            return false;
+        here.definition = rt.as_text(pgmid);
+    }
 
     record(macros,
            "Defined[%s]=%u bytes [%s]",
@@ -912,9 +916,7 @@ bool scanner::do_bytecode_definition()
     save csts(constants, symbols());
     save ucsts(uconstants, pending());
     save crefs(cstrefs, patches());
-    if (!do_macro_definition(true))
-        return false;
-    return validate();
+    return do_macro_definition(true);
 }
 
 
@@ -933,7 +935,9 @@ bool scanner::do_bytecode_use(macro m)
     for (text parm : m.parameters)
     {
         // For each parameter, create a new macro (or overwite existing)
+        ops.push_back(' ');
         token n = next();
+        ops.pop_back();
         if (n == ERROR || n == DONE || exprs.size() == 0)
         {
             rt.error("Invalid bytecode argument");

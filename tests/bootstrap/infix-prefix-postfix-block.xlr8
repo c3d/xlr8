@@ -1,0 +1,18 @@
+// Check that we can create the infix / prefix / postfix keywords
+// This can then be used to populate the precedence table
+{infix   [prec name]    sys infix}
+{prefix  [prec name]    sys prefix}
+{postfix [prec name]    sys postfix}
+{block   [prec op cl]   sys block}
+{builtin []             sys builtin}
+{parsing []             sys parsing}
+
+[NEWLINE "
+"]
+
+infix 11 NEWLINE
+infix 11 ";"
+
+infix 21 is
+
+parsing

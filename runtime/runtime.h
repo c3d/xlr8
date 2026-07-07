@@ -41,6 +41,9 @@
 #include <vector>
 
 
+struct scanner;
+
+
 struct runtime
 // ----------------------------------------------------------------------------
 //  The execution runtime
@@ -594,6 +597,35 @@ struct runtime
     }
 
 
+    scanner *scanning(scanner *s)
+    // ------------------------------------------------------------------------
+    //   Switch to the given scanner, return previous one
+    // ------------------------------------------------------------------------
+    {
+        std::swap(input, s);
+        return s;
+    }
+
+
+
+    // ========================================================================
+    //
+    //    Scanner / parser configuration
+    //
+    // ========================================================================
+
+    // Switch between bytecode scanning and high-level parsing modes
+    bool parsing_mode(bool mode);
+
+    // Select precedence for infix (A+B), prefix (+A), postfix (A%) and block
+    bool symbol_precedence(cstring directive,
+                           int *prec, text *symbol, text *closing = nullptr);
+    void infix();
+    void prefix();
+    void postfix();
+    void block();
+
+
 public:
     // ========================================================================
     //
@@ -637,6 +669,8 @@ public:
 
     using argument_list = std::vector<text>;
     argument_list       cmdline;
+
+    scanner            *input;
 };
 
 #endif // RUNTIME_H
