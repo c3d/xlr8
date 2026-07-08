@@ -44,6 +44,12 @@ make
 The default memory arena is 32 Ki. The `-m` option selects a size in kilobytes.
 Programs can also be read from standard input (`xlr8 -`).
 
+A single input file may contain **several bytecode sections** separated by `;`.
+The driver scans and runs each section in order while input remains available.
+Later sections can redefine symbols or continue execution with updated register
+state. See `tests/bytecode/repeated-execution.xlr8` and
+`tests/bytecode/multi-section-data.xlr8`.
+
 To run the test suite, use `make tests`. To update a test reference,
 use `make ref-pattern`, where `pattern` is a part of the name of the test to
 update.
@@ -62,7 +68,7 @@ Below a commented example of bytecode that writes a null-terminated string:
 .chars                                  // Symbolic label [chars]
     ld1 0 1                             // R0 = byte at address R1
     beq 0 :done                         // Branch to [done] if R0==0
-    sys write_char 0 1                  // Write R0 to stream 1=stdout
+    sys write_char 1 0                  // Write R0 to stream 1=stdout
     incr 1                              // Increment R1 (next character)
     bra :chars                          // Loop back to [chars]
 .mytext                                 // Label [mytext] used in pca above
@@ -225,6 +231,10 @@ value `2`.
   for the `call` instruction, but `nat 0 *foo` will set register `0`
 * `[foo …]` defines a **macro** that expands at scan time (see [Macros](#macros)).
   Invoke with `foo` followed by one argument per formal parameter.
+* `{foo …}` defines a **bytecode function** evaluated at scan time (see
+  [Bytecode definitions](#bytecode-definitions)). Invoke with `foo` followed by
+  one argument per formal parameter; the body runs in a mini-runtime and its
+  output bytes are spliced into the enclosing program.
 
 ## Comments
 
@@ -306,15 +316,40 @@ Macro definitions may nest other macro definitions in their body. Those inner
 definitions are stored as part of the outer macro's text and take effect only
 when the outer macro is expanded.
 
+## Bytecode definitions
+
+Curly-brace definitions `{name …}` look like macros but behave differently:
+the body is **executed** during scanning, not textually substituted. Arguments
+are passed as typed values (natural, integer, float, double, or text). The
+body may use normal opcodes; output written to stream `0` during execution is
+appended to the enclosing bytecode buffer.
+
+```xlr8
+{fact [n]                 // factorial as a scan-time bytecode generator
+ enter 2
+ nat 0 1
+ get 1 n
+ beq 1 :done
+ .loop
+   mul 0 1
+   dbra 1 :loop
+ .done
+ sys nat 0 0              // emit the result as a natural constant
+ leave
+ end}
+
+nat 0 fact 6               // expands to nat 0 720 at scan time
+```
+
+Use `sys nat`, `sys int`, `sys flt`, or `sys dbl` inside the body to append
+typed constants to the output stream. See `tests/scanner/bytecode-insertion.xlr8`.
+
 | Mechanism         | When      | Effect                                      |
 |-------------------|-----------|---------------------------------------------|
 | `[name …]` macro  | Scan time | Textual substitution into bytecode          |
+| `{name …}` bytecode | Scan time | Execute body; splice stream-0 output into bytecode |
 | `!name` / `*name` | Scan time | Symbolic constants and forward references   |
 | `=name` … `;`     | Scan time | Named function stored as a token; invoked at runtime with `call *name` |
-
-Macros do not emit bytecode by themselves and do not define runtime functions.
-They are a scanner convenience for repeating or parameterizing bytecode
-patterns.
 
 ## Compile-time expressions
 
@@ -333,6 +368,16 @@ Supported operators are arithmetic `+` `-` `*` `/` `%`, bitwise logical `&` `|`
 before `&` before `^` before `|`.
 
 String literals combine with `+`.
+
+A string followed by `%` and a value applies **printf-style formatting** at
+scan time (one `%` conversion per `%` operator, left to right). Use `%%` for a
+literal percent sign. Supported conversions include `%d`, `%u`, `%x`, `%s`,
+`%f`, `%g`, and related variants. See
+`tests/scanner/printf-style-formatting-in-expression.xlr8`.
+
+```xlr8
+txt 0 ("value=%08X" % 33)       // text token for "value=00000021"
+```
 
 Names expand macros when applicable; otherwise the token index of the name is
 used as a numeric value.
@@ -402,7 +447,8 @@ Unconditional branches use `bra :label`. Token jumps use `jmp *name`.
 | `//` …        | Line comment (C++ style)                                     |
 | `/*` … `*/`   | Block comment                                                |
 | `*name`       | Insert a token reference (required for `call`, `jmp`)        |
-| `!name`       | Forward-declare a user opcode for mutual recursion           |
+| `?name`       | Reserve an external reference for forward `*name` resolution |
+| `!name`       | Define a symbolic constant (`*name` inserts its value)       |
 | `=name`       | Begin defining a new function; the body runs until `;`       |
 | `;`           | End an opcode definition (also ends the top-level program)   |
 | `.label`      | Define a branch target at the current code position          |
@@ -410,6 +456,7 @@ Unconditional branches use `bra :label`. Token jumps use `jmp *name`.
 | `#num`        | Insert a byte value directly, e.g. `#192` for register 192   |
 | `#text`       | Insert a byte sequence directly, e.g. `#"Hello"              |
 | `[name …]`    | Define a scan-time macro; invoke as `name` with arguments    |
+| `{name …}`    | Define a scan-time bytecode function; invoke like a macro     |
 | `(expr)`      | Evaluate a compile-time expression; insert its value         |
 | `#(expr)`     | Evaluate an expression and insert a single byte (0–255)      |
 
@@ -477,8 +524,8 @@ Use the matching arithmetic and `sys` opcodes: `fadd` / `sys ffloor` for floats,
 `dadd` / `sys dfloor` for doubles.
 
 Type conversions and math library routines are **`sys` natives** (`sys i2f`,
-`sys f2i`, `sys fsqrt`, …). Built-in `fadd`…`fmod` and `dadd`…`dmod` opcodes
-cover in-register arithmetic only.
+`sys u2d`, `sys f2d`, `sys f2i`, `sys fsqrt`, …). Built-in `fadd`…`fmod` and
+`dadd`…`dmod` opcodes cover in-register arithmetic only.
 
 Real literals accept decimal and based syntax (`16#1.A#f`, `1.5e2f`, …).
 See [Example 2](#example-2-counting-loop) for based-number rules, including
@@ -514,7 +561,7 @@ register 0.
 
 ### Built-in opcodes (overview)
 
-There are **118 built-in opcodes** (byte values `0`…`117`). The count is shown
+There are **120 built-in opcodes** (byte values `0`…`119`). The count is shown
 at startup with `xlr8 -tmain`. Definitions and semantics are in
 `runtime/opcodes.tbl`. Most instructions use `op dst src`; immediate forms
 append a LEB128 constant; several groups use additional operands as described
@@ -525,14 +572,15 @@ below.
 | Meta | `null`, `undef`, `end` | `null` traps zero-filled regions; `undef` resolves forward `*name` references; `end` stops execution |
 | Constants | `int`, `nat`, `flt`, `dbl`, `txt` | Load a signed integer, natural, float, double, or text token into a register |
 | Data movement | `copy`, `swap`, `ccopy`, `select` | Register copy; `ccopy`/`select` are predicate-guarded (see below) |
-| Control flow | `jmp`, `call`, `ijmp`, `icall`, `ret`, `ppc`, `pc`, `pca`, `enter`, `leave`, `get`, `set`, `push`, `pop`, `dispatch` | Calls, returns, PC access, frames, argument access, multi-way dispatch |
+| Control flow | `jmp`, `call`, `ijmp`, `icall`, `ret`, `ppc`, `pc`, `pca`, `enter`, `leave`, `get`, `set`, `push`, `pop`, `switch`, `dispatch` | Calls, returns, PC access, frames, argument access, multi-way dispatch |
 | Globals | `sto`, `rcl` | Store to / recall from the global array (resize with `sys globals`) |
 | System | `sys` | Invoke a native operation (see [Native operations](#native-operations-sys)) |
 | Branches | `dbra`, `bra`, `btrue`, `bfalse`, `beq`, `bne`, `blt`, `bgt`, `ble`, `bge` | PC-relative branches; `btrue`/`bfalse` test a predicate; others test a **signed** register |
-| Predicates | `true`, `false`, `cmpeq`, `cmpne`, `cmplt`, `cmple`, `cmpule`, `cmpult`, `cmpeqi`, `cmpnei`, `cmplti`, `cmplei`, `cmpequ`, `cmpneu`, `cmpultu`, `cmpuleu`, `pushf`, `popf` | 64 condition flags (see below); for `>`, `>=`, swap register operands; `*i`/`*u` suffixes are signed/unsigned **immediate** compares |
+| Predicates | `true`, `false`, `cmpeq`, `cmpne`, `cmplt`, `cmple`, `cmpule`, `cmpult`, `cmpeqi`, `cmpnei`, `cmplti`, `cmplei`, `cmpequ`, `cmpneu`, `cmpltu`, `cmpleu`, `pushf`, `popf` | 64 condition flags (see below); for `>`, `>=`, swap register operands; `*i`/`*u` suffixes are signed/unsigned **immediate** compares |
 | Integer math | `add`, `sub`, `mul`, `div`, `mod`, `neg`, `incr`, `decr`, `umul`, `udiv`, `umod` | Two-address register arithmetic |
 | Immediate math | `addi`, `subi`, `muli`, `divi`, `modi`, `addu`, `subu`, `mulu`, `divu`, `modu` | Same, with an inline LEB128 constant |
 | Bitwise | `and`, `or`, `xor`, `shl`, `shr`, `ushr`, `not`, `andu`, `oru`, `xoru`, `shlu`, `shru`, `ushru` | Bit operations; `shru`/`ushru` use an inline shift count |
+| Addressing | `frame` | `frame dst src` stores the address of register `src` in `dst` |
 | Memory | `ld8`…`ld1`, `st8`…`st1`, `ld8o`…`ld1o`, `st8o`…`st1o` | Load/store through an address in a register; `*o` forms add a signed LEB128 byte offset (`ld1o dst ptr +0`) |
 | Float / double | `fadd`, `fsub`, `fmul`, `fdiv`, `fmod`, `dadd`, `dsub`, `dmul`, `ddiv`, `dmod` | In-register IEEE-754 arithmetic |
 
@@ -564,6 +612,9 @@ offsets. `jmp *name` and `call *name` jump to the bytecode bound to token
 name an opcode). The branch to the **last** label whose threshold is `<=` the
 value is taken; if none match, execution continues after the table.
 
+`switch reg N v1 :lab1 v2 :lab2 …` uses the same table layout but branches to
+the **last** label whose threshold **equals** the value in `reg`.
+
 **Memory addressing.** `ld1 dst ptr` loads one byte from `*ptr` into `dst`
 (zero-extended). `ld1o dst ptr +off` adds a signed byte offset before
 dereferencing. Stores mirror this (`st1`, `st1o`, …). For signed narrow values,
@@ -585,7 +636,7 @@ architectures where every instruction is predicated.
 | `cmpeq`, `cmpne`, `cmplt`, `cmple` | `pred dst src` | Signed compare `dst` vs `src`; update `pred` |
 | `cmpule`, `cmpult` | `pred dst src` | Unsigned compare `dst` vs `src`; update `pred` |
 | `cmpeqi`, `cmpnei`, `cmplti`, `cmplei` | `pred dst imm` | Signed compare `dst` vs inline LEB128 immediate (`+n` / `-n`) |
-| `cmpequ`, `cmpneu`, `cmpultu`, `cmpuleu` | `pred dst imm` | Unsigned compare `dst` vs inline natural immediate |
+| `cmpequ`, `cmpneu`, `cmpltu`, `cmpleu` | `pred dst imm` | Unsigned compare `dst` vs inline natural immediate |
 | `ccopy` | `pred dst src` | `dst ← src` if `pred` is set |
 | `select` | `pred dst src xtra` | `dst ← src` if `pred` set, else `dst ← xtra` |
 | `btrue` / `bfalse` | `pred :label` | Branch if `pred` is set / clear |
@@ -593,7 +644,7 @@ architectures where every instruction is predicated.
 
 For relations not listed (`>`, `>=`), swap register operands (`cmplt b a` for
 `a > b`, etc.). Immediate forms compare a register to an inline constant:
-`cmpeqi pred dst +10`, `cmpultu pred dst 5`.
+`cmpeqi pred dst +10`, `cmpltu pred dst 5`.
 
 Example: **registers 0 and 1 are equal** — pick a result in register 2 (`+1` if
 equal, `+0` otherwise). Several idioms work; predicates add `cmpeq`/`btrue`/`select`
@@ -619,7 +670,7 @@ bra :done
 .equal
 int 2 +1
 .done
-sys write_integer 2 1
+sys write_integer 1 2
 sys write_newline 1
 ```
 
@@ -636,7 +687,7 @@ bra :done
 .equal
 int 3 +1
 .done
-sys write_integer 3 1
+sys write_integer 1 3
 sys write_newline 1
 ```
 
@@ -649,7 +700,7 @@ nat 3 +1
 nat 4 +0
 cmpeq 0 0 1
 select 0 2 3 4
-sys write_integer 2 1
+sys write_integer 1 2
 sys write_newline 1
 ```
 
@@ -662,7 +713,7 @@ int 2 +0
 nat 3 +1
 cmpeq 0 0 1
 ccopy 0 2 3
-sys write_integer 2 1
+sys write_integer 1 2
 sys write_newline 1
 ```
 
@@ -674,30 +725,46 @@ same `pred dst src` operand pattern.
 
 Host services are invoked with `sys name operands…`. Names and implementations
 live in `runtime/native.tbl`. Operand order matches each native's definition
-(often `dst src`, sometimes `src stream`, sometimes `:branch stream`, etc.).
+(often `dst src`, sometimes `stream value` for `write_*`, sometimes
+`:branch stream`, etc.).
 Stream indices are small integers: `0` is the program input, `1` stdout, `2`
 stderr when running from a file. Use `#0` or `+0` when a stream index would
-otherwise tokenize as an opcode name.
+otherwise tokenize as an opcode name. All `write_*` natives take the **stream
+first**, then the value to write.
 
 | Group | Names |
 |-------|-------|
-| Heap / globals | `globals`, `malloc`, `kmalloc`, `realloc`, `free` |
+| Heap / globals | `globals`, `malloc`, `kmalloc`, `realloc`, `free`, `alloca`, `valloca` |
 | Process environment | `cmdline`, `env` |
+| Parsing / precedence | `infix`, `prefix`, `postfix`, `block`, `builtin`, `parsing` |
 | Input | `read_char`, `read_integer`, `read_natural`, `read_float`, `read_double`, `read_scanner`, `branch_on_eof`, `branch_on_bad` |
 | Output | `write_char`, `write_integer`, `write_natural`, `write_float`, `write_double`, `write_text`, `write_newline` |
 | Errors | `print_error`, `clear_error`, `trap_error` |
-| Conversions | `i2f`, `i2d`, `f2i`, `d2i` |
+| Conversions | `i2f`, `i2d`, `u2f`, `u2d`, `f2i`, `d2i`, `f2u`, `d2u`, `f2d`, `d2f` |
 | Float stack | `fpush`, `fpop`, `dpush`, `dpop` |
 | Math library | `ffloor`, `fceil`, `fsqrt`, `fcbrt`, `fsin`, `fcos`, `ftan`, `fasin`, `facos`, `fatan`, `fexp`, `flog`, `fexp2`, `flog2`, and the `d…` counterparts |
 | Float compares | `fcmpeq`, `fcmpne`, `fcmplt`, `fcmpgt`, `fcmple`, `fcmpge`, and the `d…` counterparts |
+| Stack | `stack` — address of the value stack pointer |
 | Memory (volatile) | `ld1v`…`ld8v`, `st1v`…`st8v` — volatile load/store through a register address |
 | Memory (sign-extending) | `ld1s`…`ld8s`, `ld1vs`…`ld8vs`, `ld1os`…`ld8os` — sign-extending loads (plain, volatile, and with signed offset) |
 | Extension | `sext`, `zext` — sign- or zero-extend a register to `kshift` bits (`sys sext dst +8`, `sys zext dst +32`) |
-| Bytecode / LEB128 | `tok`, `leb2i`, `leb2u`, `i2leb`, `u2leb`, `i2lebsz`, `u2lebsz` |
+| Bytecode / LEB128 | `tok`, `leb2i`, `leb2u`, `i2leb`, `u2leb`, `i2lebsz`, `u2lebsz`, `nat`, `int`, `flt`, `dbl` |
 
 `malloc` and `realloc` read the size from a **register** (`sys malloc 0 1` after
 `nat 1 16`). `kmalloc` reads the size inline, like `globals` (`sys kmalloc 0 +16`).
 Bare `+16` after `malloc` is a register index, not a byte count.
+
+`sys alloca dst size` allocates `size` bytes on the stack frame (static within
+the current activation). `sys valloca dst src` allocates a dynamic size taken
+from register `src`. See `tests/bytecode/sys-alloca.xlr8`.
+
+The `infix`, `prefix`, `postfix`, and `block` natives register operator
+precedence in the scanner for high-level parsing mode (`sys parsing` /
+`sys builtin`). See `tests/bootstrap/infix-prefix-postfix-block.xlr8`.
+
+The `nat`, `int`, `flt`, and `dbl` natives append a typed constant to the
+scanner output stream; they are intended for use inside `{…}` bytecode
+definitions.
 
 Built-in `ld1`…`ld8` / `st1`…`st8` zero-extend loaded values into the register.
 Use `sys ld1s` (or `ld1os` with an offset) when you need a signed narrow load.
@@ -709,7 +776,7 @@ Typical output idiom:
 ```xlr8
 txt 1 "answer="
 sys write_text 1 1
-sys write_integer 0 1
+sys write_integer 1 0
 sys write_newline 1
 ```
 
@@ -727,7 +794,7 @@ nat 1 1
 add 0 1
 txt 1 "1+1="
 sys write_text 1 1
-sys write_integer 0 1
+sys write_integer 1 0
 sys write_newline 1
 ```
 
@@ -749,7 +816,7 @@ dbra 1 :loop                    // --remaining; branch if non-zero
 
 txt 2 "I="
 sys write_text 2 1
-sys write_integer 0 1
+sys write_integer 1 0
 sys write_newline 1
 ```
 
@@ -793,7 +860,7 @@ nat 0 6
 call *fact
 txt 1 "Factorial 6 is "
 sys write_text 1 1
-sys write_integer 0 1
+sys write_integer 1 0
 sys write_newline 1
 ```
 
@@ -836,7 +903,7 @@ nat 0 5
 call *foo
 txt 1 "foo(5)="
 sys write_text 1 1
-sys write_integer 0 1
+sys write_integer 1 0
 sys write_newline 1
 ```
 
@@ -851,7 +918,7 @@ flt 1 3.0f
 fadd 0 1
 txt 1 "2.5f+3.0f="
 sys write_text 1 1
-sys write_float 0 1
+sys write_float 1 0
 sys write_newline 1
 ```
 
@@ -867,7 +934,7 @@ logic with built-in opcodes:
 ```xlr8
 nat 0 32
 .loop
-  sys write_integer 0 1
+  sys write_integer 1 0
   #199 #": Hello, I just executed a user-defined opcode" #16#0A #0
   dbra 0 :loop
 ```
@@ -894,14 +961,17 @@ token and appends to a bytecode buffer:
    `float`, suffix `d` or no suffix selects `double`.
 4. **Text** — `'…'` or `"…"` strings (double the quote to escape); stored
    in the token pool, referenced by a LEB128 token index.
-5. **Directives** — `*`, `!`, `=`, `.`, `:`, and `[` … `]` macros as described
-   above.
+5. **Directives** — `*`, `?`, `!`, `=`, `.`, `:`, `[` … `]` macros, and
+   `{` … `}` bytecode definitions as described above.
 6. **Macros** — when a name matches a defined macro, the scanner binds arguments
    to parameters and re-scans the macro body into the bytecode buffer.
+7. **Bytecode functions** — when a name matches a `{…}` definition, the
+   scanner evaluates the body in a nested runtime and splices its output.
 
 When scanning finishes, the program blob is stored as a token and
-`runtime.entry` is set to point at it. Undefined forward branch labels are
-reported as errors. A `?name` declaration or a `call *name` before `=name`
+`runtime.entry` is set to point at it. The command-line driver may then scan
+and run additional `;`-terminated sections from the same input. Undefined
+forward branch labels are reported as errors. A `?name` declaration or a `call *name` before `=name`
 inserts an `undef` placeholder (opcode byte `1`) in the bytecode stream; the
 runtime resolves it on first execution. An `!name` declaration reserves an entry
 in `runtime.defined` so `*name` can be used before `=name`. When the definition

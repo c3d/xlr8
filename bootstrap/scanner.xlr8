@@ -74,7 +74,7 @@
 !G_NUM_GLOBALS  32
 
 // Character constants (extras for as_real)
-// Use + prefix when value is a built-in opcode byte (0–117); see README "Ambiguous numerals".
+// Use + prefix when value is a built-in opcode byte (0–119); see README "Ambiguous numerals".
 !CHAR_E         +101
 !CHAR_UPPER_E   +69
 !CHAR_F         +102
@@ -101,7 +101,7 @@
 !INIT_SYM_CAP   64
 !INIT_VEC_CAP   64
 
-// Character constants (use + when value collides with opcode bytes 0–117)
+// Character constants (use + when value collides with opcode bytes 0–119)
 !CHAR_NUL       +0
 !CHAR_SLASH     +47      // '/'
 !CHAR_STAR      +42      // '*'
