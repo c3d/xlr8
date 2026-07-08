@@ -3,7 +3,7 @@
 nat 0 3
 nat 1 1
 nat 2 0
-cmpultu 0 0 5
+cmpltu 0 0 5
 select 0 3 1 2
 
 [STDOUT 1]
