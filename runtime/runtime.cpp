@@ -30,6 +30,7 @@
 #include "runtime.h"
 #include "recorder.h"
 #include "scanner.h"
+#include "utf8.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -238,6 +239,17 @@ typedef uint64_t        u64;
 #define OSTREAM         TOK; std::ostream *out = rt.ostream(t)
 #define ISTREAM_RD(t,v) t value; if (in && ((*in) >> value)) v = value
 #define OSTREAM_WR(val) (out && ((*out) << (val)))
+
+
+static inline bool write_unicode(scanner::ostream *out, unicode ch)
+// ----------------------------------------------------------------------------
+//   Emit the UTF8 encoding output for the given characters
+// ----------------------------------------------------------------------------
+{
+    byte buffer[4];
+    size_t sz = utf8_encode(ch, buffer);
+    return ((*out) << text(buffer, buffer + sz)).good();
+}
 
 
 bool runtime::run()

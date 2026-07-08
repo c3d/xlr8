@@ -1,0 +1,34 @@
+// Check that we can emit Unicode characters using utf8
+
+[STDOUT 1]
+[LineOf [n c]
+  nat 0 #c
+  nat 1 #n
+  .line
+    sys write_char STDOUT 0
+    dbra 1 :line
+  sys write_newline STDOUT]
+
+LineOf 60 '▼'
+
+nat 0 ' '
+nat 1 #35
+
+.loop
+  nat 2 #40
+  .inner_loop
+    sys write_char STDOUT 0
+    incr 0
+    dbra 2 :inner_loop
+  sys write_newline STDOUT
+  dbra 1 :loop
+
+LineOf 60 '▲'
+LineOf 60 '▼'
+
+nat 3 #20
+.triangle
+  LineOf [3 copy 1 3] '😀'
+  dbra 3 :triangle
+
+end

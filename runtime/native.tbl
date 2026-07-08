@@ -63,7 +63,7 @@ NATIVE(read_natural,    DST; ISTREAM; ISTREAM_RD(uvalue_t, DNAT))
 NATIVE(read_float,      DST; ISTREAM; ISTREAM_RD(float,    DFLT))
 NATIVE(read_double,     DST; ISTREAM; ISTREAM_RD(double,   DDBL))
 
-NATIVE(write_char,      OSTREAM; SRC; OSTREAM_WR(char(SINT)))
+NATIVE(write_char,      OSTREAM; SRC; out && write_unicode(out, SNAT))
 NATIVE(write_integer,   OSTREAM; SRC; OSTREAM_WR(SINT))
 NATIVE(write_natural,   OSTREAM; SRC; OSTREAM_WR(SNAT))
 NATIVE(write_float,     OSTREAM; SRC; OSTREAM_WR(SFLT))
