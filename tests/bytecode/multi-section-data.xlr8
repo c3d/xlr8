@@ -4,7 +4,7 @@
 
 // First section is a data section
 =data_section_1
-  #"Raw bytes inserted here" #10 #0
+  #"Raw bytes inserted here" 10 0
 ;
 
 =data_section_2
@@ -13,10 +13,10 @@
   :offset2
   :offset3
 .offset1
-  #"Some additional raw bytes inserted here" #10 #0
+  #"Some additional raw bytes inserted here" 10 0
 .offset2
-  nat 0
-  nat 1_000_000
+  nat #0
+  nat #1_000_000
 .offset3
   int -128
   int +128

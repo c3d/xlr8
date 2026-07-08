@@ -1,0 +1,13 @@
+// Just make sure we don't crash on unary opcodes
+
+int 0
+
++
+-
++ - -
+
+3
+
+[STDOUT 1]
+sys write_integer STDOUT 0
+sys write_newline STDOUT

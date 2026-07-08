@@ -3,14 +3,14 @@
 // Reserve four registers
 
 // Prepare registers
-nat 0 2                         // R0 = 2, counter
-nat 1 1                         // R1 = 1, increment
-nat 2 1_000_000                 // R2 = 1 million, limit
+nat 0 #2                        // R0 = 2, counter
+nat 1 #1                        // R1 = 1, increment
+nat 2 #1_000_000                // R2 = 1 million, limit
 
 .loop                           // Loop
-add 0 1                         // Add R1 to R0
-copy 3 0                        // Copy counter in temporary R3
-modu 3 123456                   // Check if we need to display
+add 0 #1                        // Add R1 to R0
+copy 3 #0                       // Copy counter in temporary R3
+modu 3 #123456                  // Check if we need to display
 bne 3 :loop                     // If not zero, loop
 
 // Exit loop, display final counter
@@ -18,7 +18,7 @@ txt 3 "I="                      // Put token for "I=" in R3
 
 [STDOUT 1]
 
-sys write_text STDOUT 3           // Emit text on std::cout
+sys write_text    STDOUT 3        // Emit text on std::cout
 sys write_integer STDOUT 0        // Emit counter
 sys write_newline STDOUT          // Emit end of line 1
 

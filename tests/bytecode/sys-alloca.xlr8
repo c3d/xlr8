@@ -15,13 +15,13 @@
     sys write_integer STDOUT Reg
     sys write_newline STDOUT]
 
-nat 0 42                // Populate
-nat 1 13
-nat 2 02
-nat 3 1979
-nat 4 5
-nat 5 12
-nat 7 1968
+nat 0 #42                // Populate
+nat 1 #13
+nat 2 #02
+nat 3 #1979
+nat 4 #5
+nat 5 #12
+nat 7 #1968
 
 Info "Before enter:"
 RegInfo " R0=" 0
@@ -35,11 +35,11 @@ RegInfo " R7=" 7
 
 enter 12                // Allocate 12 registers
 
-sys alloca 1 8          // Allocate 8 bytes
-nat 0 99
+sys alloca 1 #8          // Allocate 8 bytes
+nat 0 #99
 st8 1 0                 // Store 99 in that first slot
 
-sys alloca 2 7          // Allocate 7 bytes
+sys alloca 2 #7          // Allocate 7 bytes
 nat 0 42
 st8 2 0                 // Store 42 in that second slot
 

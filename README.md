@@ -74,9 +74,9 @@ Below a commented example of bytecode that writes a null-terminated string:
     incr 1                              // Increment R1 (next character)
     bra :chars                          // Loop back to [chars]
 .mytext                                 // Label [mytext] used in pca above
-    #"Hello world!" #10                 // Insert raw bytes in stream
+    #"Hello world!" 10                  // Insert raw bytes in stream
     #"This is a C-style null-terminated string"
-    #16#0A #0                           // Based-number notation and trailing 0
+    16#0A 0                             // Based-number notation and trailing 0
 .done
 ```
 
@@ -111,11 +111,12 @@ Registers live in a [register window](#register-window) backed up by the stack,
 where register 0 in the current function is distinct from register 0 in a caller
 or in a callee.
 
-Registers are normally referenced using a byte index. However, be mindful that
-the scanner by default encodes numbers using [LEB-128 encoding][leb128]. This
-means that any register index larger than 128 must be explicitly encoded as a
-byte using the `#` prefix. For example, adding register 200 to register 0 must
-be written as `add 0 #200`, since `add 0 200` would add one extra LEB128 byte.
+Registers are referenced by a byte index (`0`…`255`). In opcode operand
+positions, a bare numeral is emitted as a **single byte**: `add 0 1` adds
+register 1 to register 0. Values that must be [LEB-128][leb128]-encoded use an
+explicit marker instead: `#n` for a natural (like `nat 0 #1000000`), or `+n` /
+`-n` for a signed integer (like `int 0 -42`). This matches the usage model of
+`int` and `nat`, which append a LEB128 constant after the register byte.
 
 For density and efficiency, opcodes use two registers, where the target register
 is both a source and destination. By convention, the destination is the first
@@ -190,8 +191,9 @@ See [Example 3](#example-3-function-definition-recursive-factorial).
 opcode space reserved for **compact encoding**: one byte in the instruction stream
 instead of a multi-byte `call` sequence or a long sequence of built-ins. The
 runtime dispatches these to handlers registered at startup (the sample driver uses
-`-d N` to bind opcode `N` to a native function). Emit them in source with `#N`,
-for example `#199` for opcode byte 199.
+`-d N` to bind opcode `N` to a native function). Emit them as a bare byte in
+source, for example `199` for opcode byte 199 (values `128`…`255` fit in one
+byte; `#199` would LEB128-encode the value instead).
 
 Unused values below 128 can also be bound the same way, but any built-in opcode
 in `opcodes.tbl` takes precedence over a user handler at the same byte value.
@@ -203,13 +205,15 @@ XLR8 programs can be written using a standard source code format.
 
 ## Tokens
 
-The text format is a sequence of [LEB128-encoded][leb128] tokens:
+The text format interleaves single-byte operands with [LEB-128][leb128] values
+where needed:
 
 * Names, e.g. `sys`, encoded as a natural number for the corresponding token.
 * Text between single or double quotes, e.g. `"Hello"` or `'World'`, encoded as
   a natural number for the corresponding token.
-* Numbers, e.g. `42` or `-25`. Numbers beginning with `+` or `-` are encoded as
-  signed values, otherwise as natural (unsigned) values.
+* Numbers: bare numerals (`0`, `42`, `128`) encode as a **single byte**;
+  `#n` encodes a natural in [LEB-128][leb128] form; `+n` and `-n` encode signed
+  integers in LEB-128 form.
 * Floating-pointer numbers such as `1.23` or `3.25F`. If the `F` or `f` suffix
   is used, the value is stored as 32-bits IEEE-754, 64-bit otherwise.
 
@@ -255,9 +259,8 @@ A constant can be inserted before it is known. This is notably useful for calls,
 but can also be used to name registers, etc.
 
 ```xlr8
-!INDEX          0
 !LOOPS          42
-nat *INDEX *LOOPS
+nat 0 *LOOPS
 ```
 
 ## Macros
@@ -300,7 +303,7 @@ tout "World"
 ```
 
 This defines `tout` with parameter `t`. The body also defines local macros
-`TMP` and `STDOUT` (registers `0` and `1`) that exist only while `tout`
+`TMP` (register `0`) and `STDOUT` (stream `1`) that exist only while `tout`
 expands. The two invocations at the bottom emit the same bytecode as if the body
 had been written out twice with `t` replaced by `"Hello"` and `"World"`.
 
@@ -356,13 +359,14 @@ typed constants to the output stream. See `tests/scanner/bytecode-insertion.xlr8
 ## Compile-time expressions
 
 Parenthesized expressions are evaluated at scan time and their result is
-inserted into the bytecode (via `append`, or as a single byte after `#`).
+inserted into the bytecode. A leading `#` on an expression (`#(expr)`) forces
+LEB128 natural encoding; otherwise small numeric results emit as a single byte.
 
 ```xlr8
 nat 0 (1+2*3)                   // register 0 ← 7
 txt 1 ("ABC"+"DEF")             // text token for ABCDEF
 nat 2 (add+1)                   // token value of add, plus 1
-addi 0 #(1+2)                   // emit byte 3 as immediate operand
+addi 0 #(1+2)                   // emit LEB128 constant 3 as immediate operand
 ```
 
 Supported operators are arithmetic `+` `-` `*` `/` `%`, bitwise logical `&` `|`
@@ -442,7 +446,7 @@ Unconditional branches use `bra :label`. Token jumps use `jmp *name`.
 |---------------|--------------------------------------------------------------|
 | `SomeName`    | Insert the token value, including for opcodes like `add`     |
 | `"Some Text"` | Insert the token value for the text                          |
-| `123`         | Insert the natural value in unsigned form                    |
+| `123`         | Insert a single raw byte when `0`…`255`; otherwise use `#123` |
 | `+123`,`-5`   | Insert an integer value in signed form                       |
 | `1.23F`       | Insert a 32-bit IEEE-754 floating point value                |
 | `1.23`, `1.D` | Insert a 64-bit IEEE-754 floating point value                |
@@ -455,12 +459,12 @@ Unconditional branches use `bra :label`. Token jumps use `jmp *name`.
 | `;`           | End an opcode definition (also ends the top-level program)   |
 | `.label`      | Define a branch target at the current code position          |
 | `:label`      | Insert a signed branch offset to `.label` [1]                |
-| `#num`        | Insert a byte value directly, e.g. `#192` for register 192   |
-| `#text`       | Insert a byte sequence directly, e.g. `#"Hello"              |
+| `#num`        | LEB128-encoded natural (`#0`, `#128`, `#1_000_000`)          |
+| `#text`       | Insert a byte sequence directly, e.g. `#"Hello"`             |
 | `[name …]`    | Define a scan-time macro; invoke as `name` with arguments    |
 | `{name …}`    | Define a scan-time bytecode function; invoke like a macro     |
 | `(expr)`      | Evaluate a compile-time expression; insert its value         |
-| `#(expr)`     | Evaluate an expression and insert a single byte (0–255)      |
+| `#(expr)`     | Evaluate an expression and insert as a LEB128 natural          |
 
 [1] signed branches are relative to the offset itself.
 
@@ -486,7 +490,7 @@ The scanner appends the value as [LEB128][leb128] after the register byte.
 
 ```xlr8
 int 0 -42
-nat 1 1_000_000
+nat 1 #1_000_000
 ```
 
 Numerals accept XL-style bases and underscores (`16#FF`, `1_000_000`).
@@ -495,11 +499,12 @@ Plain numerals are treated as naturals and pair with `nat`.
 
 **Ambiguous numerals.** Token values for small integers coincide with built-in
 opcode names (`0` is `null`, `1` is `undef`, `2` is `int`, `10` is `select`,
-`25` is `sys`, …). When a numeral is written as a freestanding token in the
-bytecode stream, the scanner emits the opcode byte, not the numeric value. Use a
-leading `+` or `-` to force a signed LEB128 constant (`int 0 +100`), or `#` for
-a raw byte (`#2`). This matters for `dispatch` case values, stream indices, and
-any operand that is not immediately after `int` or `nat`.
+`25` is `sys`, …). A bare numeral in the bytecode stream emits that opcode byte.
+That is intentional for register operands (`add 0 1`) and raw-byte regions
+(`#"…"`). When a **LEB128** value is needed instead—constants after `int` /
+`nat`, `dispatch` thresholds, large naturals—use `#n` or a signed form (`+n` /
+`-n`). For example `nat 1 #1_000_000` loads one million into register 1, while
+`int 0 -42` uses signed LEB128 for the constant.
 
 
 ### Floating-point constants
@@ -582,7 +587,7 @@ below.
 | Integer math | `add`, `sub`, `mul`, `div`, `mod`, `neg`, `incr`, `decr`, `umul`, `udiv`, `umod` | Two-address register arithmetic |
 | Immediate math | `addi`, `subi`, `muli`, `divi`, `modi`, `addu`, `subu`, `mulu`, `divu`, `modu` | Same, with an inline LEB128 constant |
 | Bitwise | `and`, `or`, `xor`, `shl`, `shr`, `ushr`, `not`, `andu`, `oru`, `xoru`, `shlu`, `shru`, `ushru` | Bit operations; `shru`/`ushru` use an inline shift count |
-| Addressing | `frame` | `frame dst src` stores the address of register `src` in `dst` |
+| Addressing | `frame` | `frame dst src` stores the address of register `src` in `dst` (`frame 1 0`) |
 | Memory | `ld8`…`ld1`, `st8`…`st1`, `ld8o`…`ld1o`, `st8o`…`st1o` | Load/store through an address in a register; `*o` forms add a signed LEB128 byte offset (`ld1o dst ptr +0`) |
 | Float / double | `fadd`, `fsub`, `fmul`, `fdiv`, `fmod`, `dadd`, `dsub`, `dmul`, `ddiv`, `dmod` | In-register IEEE-754 arithmetic |
 
@@ -646,7 +651,7 @@ architectures where every instruction is predicated.
 
 For relations not listed (`>`, `>=`), swap register operands (`cmplt b a` for
 `a > b`, etc.). Immediate forms compare a register to an inline constant:
-`cmpeqi pred dst +10`, `cmpltu pred dst 5`.
+`cmpeqi pred dst +10`, `cmpltu pred dst #5`.
 
 Example: **registers 0 and 1 are equal** — pick a result in register 2 (`+1` if
 equal, `+0` otherwise). Several idioms work; predicates add `cmpeq`/`btrue`/`select`
@@ -819,7 +824,7 @@ and branches while the result is non-zero (after the decrement).
 [STDOUT 1]
 
 nat 0 2                         // counter
-nat 1 999_998                   // iterations until counter reaches limit
+nat 1 #999_998                  // iterations until counter reaches limit
 
 .loop
 addu 0 1                        // counter++
@@ -952,14 +957,12 @@ logic with built-in opcodes:
 nat 0 32
 .loop
   sys write_integer STDOUT 0
-  #199 #": Hello, I just executed a user-defined opcode" #16#0A #0
+  199 #": Hello, I just executed a user-defined opcode" 16#0A 0
   dbra 0 :loop
 ```
 
-Run as `xlr8 -d 199 program.xlr8`. The `#199` byte is opcode 199; the following
-`#"…"` bytes are operands consumed by that handler. Values **128–255** are the
-primary extensible range; the same mechanism works for unused bytes below 128
-if no built-in opcode occupies them.
+Run as `xlr8 -d 199 program.xlr8`. The `199` byte is opcode 199; the following
+`#"…"` bytes are operands consumed by that handler.
 
 
 ## Scanning
@@ -968,10 +971,9 @@ The scanner (`runtime/scanner.cpp`) reads a `.xlr8` source stream token by
 token and appends to a bytecode buffer:
 
 1. **Names** — built-in or user opcode; emits the name's token index (one byte).
-2. **Numerals** — integer literals in source (bases like `16#A_F`, `_`
-   separators). With a leading `+` or `-`, the value is signed and used with
-   **`int`**; otherwise it is a natural and used with **`nat`**. Register
-   indices in other instructions are byte-encoded; constant operands use LEB128.
+2. **Numerals** — bare numerals emit a single byte (`0`…`255`); `#n` emits a
+   LEB128 natural; `+n`/`-n` emit signed LEB128. After **`int`** or **`nat`**,
+   use `#` or a signed form for constants that do not fit in one byte.
 3. **Reals** — floating-point literals. The preceding opcode must be `flt` or
    `dbl`; the scanner embeds a 4- or 8-byte IEEE 754 value (see
    [Floating-point constants](#floating-point-constants)). Suffix `f` selects

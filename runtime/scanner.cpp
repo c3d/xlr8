@@ -83,6 +83,7 @@ void scanner::append_expressions()
                e.type, e.xint, e.xnat);
         switch (e.type)
         {
+        case expr::BYTE:        append_byte(e.xnat); break;
         case expr::NAT:         append(e.xnat); break;
         case expr::INT:         append(e.xint); break;
         case expr::FLT:         append(e.xflt); break;
@@ -367,7 +368,7 @@ scanner::token scanner::do_number(uint *basep)
 {
     uint      base    = 10;
     uint      mbase   = 10;
-    uintptr_t value   = 0;
+    uvalue_t  value   = 0;
     double    dvalue  = 0.0;
     double    dmult   = 1.0;
     float     fvalue  = 0.0;
@@ -380,6 +381,7 @@ scanner::token scanner::do_number(uint *basep)
     bool      hasbase = false;
     bool      hasexp  = false;
     bool      hashash = false;
+    bool      hasnum  = false;
     token     kind    = scanner::NATURAL;
 
     scanned = "";
@@ -398,7 +400,7 @@ scanner::token scanner::do_number(uint *basep)
                 hasneg = !hasneg;
             else if (c == '~' && !hasneg)
                 hasnot = !hasnot;
-            else if (c != '-')
+            else if (c != '+')
                 isfirst = false;
             if (isfirst)
                 continue;
@@ -491,6 +493,7 @@ scanner::token scanner::do_number(uint *basep)
             scanned.pop_back();
             break;
         }
+        hasnum = true;
         value = value * base + digit;
         if (hasexp || hashash)
             continue;
@@ -506,6 +509,17 @@ scanner::token scanner::do_number(uint *basep)
             dvalue = dvalue * base + digit;
             fvalue = fvalue * base + digit;
         }
+    }
+
+    // If just had '+' or '-', return symbol
+    if (!hasnum)
+    {
+        if (scanned.size() != 1)
+        {
+            error("Invalid character in number");
+            return ERROR;
+        }
+        return do_symbol(scanned[0]) ? SYMBOL : ERROR;
     }
 
     // Check if we had an exponent)
@@ -566,8 +580,8 @@ scanner::token scanner::do_number(uint *basep)
 
     switch (kind)
     {
-    case NATURAL:       exprs.emplace_back(value); break;
-    case INTEGER:       exprs.emplace_back(intptr_t(value)); break;
+    case NATURAL:       exprs.emplace_back(expr::BYTE, value); break;
+    case INTEGER:       exprs.emplace_back(value_t(value)); break;
     case FLOAT:         exprs.emplace_back(fvalue); break;
     case REAL:
     case DOUBLE:        exprs.emplace_back(dvalue); break;
@@ -613,6 +627,7 @@ scanner::token scanner::do_expression()
     expr &e = exprs.back();
     switch (e.type)
     {
+    case expr::BYTE:
     case expr::NAT:     scanned = std::to_string(e.xnat); return NATURAL;
     case expr::INT:     scanned = std::to_string(e.xint); return INTEGER;
     case expr::FLT:     scanned = std::to_string(e.xflt); return FLOAT;
@@ -647,7 +662,7 @@ bool scanner::do_symbol(char c)
             return expr_binary('*');
         return do_use();
     case '#':
-        return do_bytes();
+        return do_immediate();
     case '[':
         return do_macro_definition();
     case ']':
@@ -780,7 +795,11 @@ bool scanner::do_macro_definition(bool bytecode)
                     parens.pop_back();
                     if (parens.empty())
                     {
-                        parms = false;
+                        if (parms)
+                        {
+                            scanned = "";
+                            parms   = false;
+                        }
                         if (first)
                             continue;
                     }
@@ -1010,7 +1029,7 @@ bool scanner::expr_binary(char op)
 }
 
 
-static inline text operator *(uintptr_t n, text t)
+static inline text operator *(uvalue_t n, text t)
 // ----------------------------------------------------------------------------
 //   Repeat a text pattern
 // ----------------------------------------------------------------------------
@@ -1073,7 +1092,8 @@ static inline text format(text fmt, const scanner::expr &e)
             case 'X':
             case 'o':
             case 'b':
-                if (e.type == scanner::expr::NAT)
+                if (e.type == scanner::expr::NAT ||
+                    e.type == scanner::expr::BYTE)
                     result += format(style, e.xnat);
                 done = true;
                 break;
@@ -1099,7 +1119,8 @@ static inline text format(text fmt, const scanner::expr &e)
                 break;
 
             case 'c':
-                if (e.type == scanner::expr::NAT ||
+                if (e.type == scanner::expr::BYTE ||
+                    e.type == scanner::expr::NAT ||
                     e.type == scanner::expr::INT)
                     result += format(style, e.xint);
                 else if (e.type == scanner::expr::TXT && e.xtxt->length() > 0)
@@ -1112,11 +1133,12 @@ static inline text format(text fmt, const scanner::expr &e)
                 text astxt;
                 switch (e.type)
                 {
-                case scanner::expr::TXT: astxt = *e.xtxt; break;
+                case scanner::expr::BYTE:
                 case scanner::expr::NAT: astxt = std::to_string(e.xnat); break;
                 case scanner::expr::INT: astxt = std::to_string(e.xint); break;
                 case scanner::expr::FLT: astxt = std::to_string(e.xflt); break;
                 case scanner::expr::DBL: astxt = std::to_string(e.xdbl); break;
+                case scanner::expr::TXT: astxt = *e.xtxt; break;
                 }
                 result += format(style, astxt.c_str());
                 done = true;
@@ -1165,6 +1187,7 @@ bool scanner::expr_apply(char op)
         {
             switch (l.type)
             {
+            case expr::BYTE:
             case expr::NAT:     l = std::to_string(l.xnat); break;
             case expr::INT:     l = std::to_string(l.xint); break;
             case expr::FLT:     l = std::to_string(l.xflt); break;
@@ -1173,6 +1196,7 @@ bool scanner::expr_apply(char op)
             }
             switch (r.type)
             {
+            case expr::BYTE:
             case expr::NAT:     r = std::to_string(r.xnat); break;
             case expr::INT:     r = std::to_string(r.xint); break;
             case expr::FLT:     r = std::to_string(r.xflt); break;
@@ -1192,25 +1216,25 @@ bool scanner::expr_apply(char op)
         exprs.emplace_back(*l.xtxt + *r.xtxt);
         return true;
     }
-    else if (op == '+' && l.type == expr::TXT && r.type == expr::NAT)
+    else if (op == '+' && l.type == expr::TXT && r.type <= expr::NAT)
     {
         size_t pos = std::min(r.xnat, l.xtxt->length());
         exprs.emplace_back(l.xtxt->substr(pos));
         return true;
     }
-    else if (op == '-' && l.type == expr::TXT && r.type == expr::NAT)
+    else if (op == '-' && l.type == expr::TXT && r.type <= expr::NAT)
     {
         size_t len = l.xtxt->length();
         len = len > r.xnat ? len - r.xnat : 0;
         exprs.emplace_back(l.xtxt->substr(0, len));
         return true;
     }
-    else if (op == '*' && l.type == expr::NAT && r.type == expr::TXT)
+    else if (op == '*' && l.type <= expr::NAT && r.type == expr::TXT)
     {
         exprs.emplace_back(l.xnat * *r.xtxt);
         return true;
     }
-    else if (op == '*' && r.type == expr::NAT && l.type == expr::TXT)
+    else if (op == '*' && r.type <= expr::NAT && l.type == expr::TXT)
     {
         exprs.emplace_back(r.xnat * *l.xtxt);
         return true;
@@ -1239,19 +1263,24 @@ bool scanner::expr_apply(char op)
         }                                             \
     } while (0)
 
+    PROMOTE(NAT,BYTE, r = r.xnat);
+    PROMOTE(BYTE,NAT, l = l.xnat);
+    PROMOTE(INT,BYTE, r = value_t(r.xnat));
+    PROMOTE(BYTE,INT, l = value_t(l.xnat));
+
     PROMOTE(DBL, FLT, r = double(r.xflt));
     PROMOTE(DBL, INT, r = double(r.xint));
     PROMOTE(DBL, NAT, r = double(r.xnat));
     PROMOTE(FLT, INT, r = float (r.xint));
     PROMOTE(FLT, NAT, r = float(r.xnat));
-    PROMOTE(INT, NAT, r = intptr_t(r.xnat));
+    PROMOTE(INT, NAT, r = value_t(r.xnat));
 
     PROMOTE(FLT, DBL, l = double(l.xflt));
     PROMOTE(INT, DBL, l = double(l.xint));
     PROMOTE(NAT, DBL, l = double(l.xnat));
     PROMOTE(INT, FLT, l = float(l.xint));
     PROMOTE(NAT, FLT, l = float(l.xnat));
-    PROMOTE(NAT, INT, l = intptr_t(l.xnat));
+    PROMOTE(NAT, INT, l = value_t(l.xnat));
 
     if (l.type != r.type)
     {
@@ -1262,20 +1291,21 @@ bool scanner::expr_apply(char op)
         return false;
     }
 
-#define OP(spelling, oper)                                      \
-    do                                                          \
-    {                                                           \
-        if (op == spelling)                                     \
-        {                                                       \
-            switch (l.type)                                     \
-            {                                                   \
-            case expr::NAT: l = l.xnat oper r.xnat; break;      \
-            case expr::INT: l = l.xint oper r.xint; break;      \
-            case expr::DBL: l = l.xdbl oper r.xdbl; break;      \
-            case expr::FLT: l = l.xflt oper r.xflt; break;      \
-            default: error("Invalid types for " #spelling);     \
-            }                                                   \
-        }                                                       \
+#define OP(spelling, oper)                                              \
+    do                                                                  \
+    {                                                                   \
+        if (op == spelling)                                             \
+        {                                                               \
+            switch (l.type)                                             \
+            {                                                           \
+            case expr::BYTE: l = expr(l.xnat oper r.xnat, true); break; \
+            case expr::NAT:  l = l.xnat oper r.xnat; break;             \
+            case expr::INT:  l = l.xint oper r.xint; break;             \
+            case expr::DBL:  l = l.xdbl oper r.xdbl; break;             \
+            case expr::FLT:  l = l.xflt oper r.xflt; break;             \
+            default: error("Invalid types for " #spelling);             \
+            }                                                           \
+        }                                                               \
     } while (0)
 
     OP('+', + );
@@ -1286,30 +1316,49 @@ bool scanner::expr_apply(char op)
     {
         switch (l.type)
         {
-        case expr::NAT: l = l.xnat % r.xnat; break;
-        case expr::INT: l = l.xint % r.xint; break;
-        case expr::DBL: l = std::fmod(l.xdbl, r.xdbl); break;
-        case expr::FLT: l = std::fmod(l.xflt, r.xflt); break;
+        case expr::BYTE: l = expr(l.xnat % r.xnat, true); break;
+        case expr::NAT:  l = l.xnat % r.xnat; break;
+        case expr::INT:  l = l.xint % r.xint; break;
+        case expr::DBL:  l = std::fmod(l.xdbl, r.xdbl); break;
+        case expr::FLT:  l = std::fmod(l.xflt, r.xflt); break;
         default: error("Invalid types for '%'");
         }
     }
 
-    OP('<', < );
-    OP('=', == );
-    OP('>', > );
+#define ROP(spelling, oper)                                             \
+    do                                                                  \
+    {                                                                   \
+        if (op == spelling)                                             \
+        {                                                               \
+            switch (l.type)                                             \
+            {                                                           \
+            case expr::BYTE: l = byte(l.xnat oper r.xnat); break;       \
+            case expr::NAT:  l = byte(l.xnat oper r.xnat); break;       \
+            case expr::INT:  l = byte(l.xint oper r.xint); break;       \
+            case expr::DBL:  l = byte(l.xdbl oper r.xdbl); break;       \
+            case expr::FLT:  l = byte(l.xflt oper r.xflt); break;       \
+            default: error("Invalid types for " #spelling);             \
+            }                                                           \
+        }                                                               \
+    } while (0)
 
-#define IOP(spelling, oper)                                     \
-    do                                                          \
-    {                                                           \
-        if (op == spelling)                                     \
-        {                                                       \
-            switch (l.type)                                     \
-            {                                                   \
-            case expr::NAT: l = l.xnat oper r.xnat; break;      \
-            case expr::INT: l = l.xint oper r.xint; break;      \
-            default: error("Invalid types for " #spelling);     \
-            }                                                   \
-        }                                                       \
+    ROP('<', < );
+    ROP('=', == );
+    ROP('>', > );
+
+#define IOP(spelling, oper)                                             \
+    do                                                                  \
+    {                                                                   \
+        if (op == spelling)                                             \
+        {                                                               \
+            switch (l.type)                                             \
+            {                                                           \
+            case expr::BYTE: l = byte(l.xnat oper r.xnat); break;       \
+            case expr::NAT:  l = l.xnat oper r.xnat; break;             \
+            case expr::INT:  l = l.xint oper r.xint; break;             \
+            default: error("Invalid types for " #spelling);             \
+            }                                                           \
+        }                                                               \
     } while (0)
 
     IOP('&', & );
@@ -1329,7 +1378,7 @@ bool scanner::expr_unary(char op)
     token t = next();
     if (t == DONE)
         return true;
-    if (t == ERROR)
+    if (t == ERROR || !exprs.size())
         return false;
 
     expr  x = exprs.back();
@@ -1339,17 +1388,18 @@ bool scanner::expr_unary(char op)
     {
     case '+':
         // Turn natural numbers into signed integer
-        if (x.type == expr::NAT)
-            x = intptr_t(x.xnat);
+        if (x.type == expr::NAT || x.type == expr::BYTE)
+            x = value_t(x.xnat);
         else if (x.type == expr::TXT)
             return error("Operator + applying to text"), false;
         break;
     case '-':
         switch (x.type)
         {
+        case expr::BYTE:
         case expr::NAT:
         case expr::INT:
-            x = -intptr_t(x.xnat);
+            x = -value_t(x.xnat);
             break;
         case expr::FLT:
             x = -x.xflt;
@@ -1364,15 +1414,16 @@ bool scanner::expr_unary(char op)
     case '~':
         switch (x.type)
         {
+        case expr::BYTE:
         case expr::NAT:
         case expr::INT:
-            x = ~intptr_t(x.xnat);
+            x = ~value_t(x.xnat);
             break;
         case expr::FLT:
-            x = intptr_t(x.xflt);
+            x = value_t(x.xflt);
             break;
         case expr::DBL:
-            x = intptr_t(x.xdbl);
+            x = value_t(x.xdbl);
             break;
         case expr::TXT:
             x = x.xtxt->length();
@@ -1453,7 +1504,8 @@ bool scanner::do_set()
     }
     text name = scanned;
     expr e;
-    if (!label_value(e) || e.type != expr::NAT)
+    if (!label_value(e) || e.type > expr::INT ||
+        (e.type == expr::INT && e.xint < 0))
     {
         record(scanner_error, "Set directive value %s", scanned.c_str());
         rt.error("Invalid '!' assigned value");
@@ -1466,39 +1518,43 @@ bool scanner::do_set()
 }
 
 
-bool scanner::do_bytes()
+bool scanner::do_immediate()
 // ----------------------------------------------------------------------------
-//   Emit a byte directly
+//   Convert input bytes to natural values
 // ----------------------------------------------------------------------------
 //   In general, the bytecode generates LEB128 values. So 128 is two bytes
-//   The `#` operator makes it possible to emit a byte directly
-//   So #128 is a one-byte 128, and #16#FF is a one-byte all-bits-set value
-//   Names are accepted as long as the associated token is 1-byte
-//   Text is turned into a sequence of bytes
+//   By default, `128` will emit a 128 byte, #128 will convert to natural 128
+//   in LEB128 encoding.
+//   For text, "ABC" is by default a token, #"ABC" emits the sequence of bytes
 {
-    token      t = next();
-    if (t == DONE || t == ERROR)
+    ops.push_back('#');
+    token t = next();
+    ops.pop_back();
+    if (t == DONE || t == ERROR || exprs.size() == 0)
     {
         error("Invalid code following #");
         return false;
     }
 
-    expr e = exprs.back();
-    exprs.pop_back();
+    expr &e = exprs.back();
+
+    // If the value is text, just insert as is
     if (e.type == expr::TXT)
     {
         program += *e.xtxt;
+        exprs.pop_back();
         return true;
     }
 
-    uintptr_t b = e.xnat;
-    if (b < 256)
+    // If the value is a BYTE or an INT, convert to a NAT
+    if (e.type == expr::BYTE || e.type == expr::INT || e.type == expr::NAT)
     {
-        program += char(b);
+        e.type = expr::NAT;
         return true;
     }
-    record(scanner_error, "Invalid byte value %lu", b);
-    rt.error("Invalid byte value");
+
+    record(scanner_error, "Invalid immedaite value %lu", e.type);
+    rt.error("Invalid immediate value");
     return false;
 }
 
@@ -1542,12 +1598,12 @@ bool scanner::do_branch_offset()
         rt.error("Branch target must be a symbol or text");
         return false;
     }
-    auto     it     = labels.find(scanned);
-    bool     seen   = it != labels.end();
-    intptr_t delta  = 0;
-    size_t   branch = pc();
+    auto    it     = labels.find(scanned);
+    bool    seen   = it != labels.end();
+    value_t delta  = 0;
+    size_t  branch = pc();
     if (seen)
-        delta = intptr_t((*it).second - branch);
+        delta = value_t((*it).second - branch);
     else
         ulabels[scanned].push_back(branch);
     record(scanner,
@@ -1676,11 +1732,11 @@ void scanner::patch_branch(size_t branch, size_t target)
     record(scanner, "Patching branch %u to %u", branch, target);
 
     // Location of branch delta in the program
-    byte    *bp    = (byte *) program.data() + branch;
-    size_t   esize = leb128size<intptr_t>(bp);
+    byte   *bp    = (byte *) program.data() + branch;
+    size_t  esize = leb128size<value_t>(bp);
 
     // Compute new delta and new size
-    intptr_t delta = intptr_t(target - branch);
+    value_t delta = value_t(target - branch);
 retry:
     size_t dsize = leb128size(delta);
     size_t added = dsize - esize;
@@ -1804,7 +1860,7 @@ void scanner::patch_label_references(size_t pos, size_t added)
         size_t   ibd    = ib > pos ? added : 0;
         byte    *bp     = (byte *) program.data() + ib + ibd;
         byte_p   b      = byte_p(bp);
-        intptr_t edelta = leb128<intptr_t>(b);
+        value_t  edelta = leb128<value_t>(b);
 
         // Check if the branch address itself needs to be patched
         record(scanner, "  branch %zu+%zu delta=%ld +%zu",
@@ -1829,7 +1885,18 @@ void scanner::patch_label_references(size_t pos, size_t added)
 }
 
 
-void scanner::append(intptr_t i)
+void scanner::append_byte(uvalue_t b)
+// ----------------------------------------------------------------------------
+//   Append a signed integer to the program
+// ----------------------------------------------------------------------------
+{
+    if (b > 255)
+        record(scanner_error, "Byte value %u is too large", b);
+    program += byte(b);
+}
+
+
+void scanner::append(value_t i)
 // ----------------------------------------------------------------------------
 //   Append a signed integer to the program
 // ----------------------------------------------------------------------------
@@ -1841,7 +1908,7 @@ void scanner::append(intptr_t i)
 }
 
 
-void scanner::append(uintptr_t u)
+void scanner::append(uvalue_t u)
 // ----------------------------------------------------------------------------
 //  Append an unsigned integer to the program
 // ----------------------------------------------------------------------------
@@ -1871,7 +1938,7 @@ void scanner::append(double d)
 }
 
 
-void scanner::append(ostream *out, intptr_t i)
+void scanner::append(ostream *out, value_t i)
 // ----------------------------------------------------------------------------
 //   Append a signed integer to the stream
 // ----------------------------------------------------------------------------
@@ -1886,7 +1953,7 @@ void scanner::append(ostream *out, intptr_t i)
 }
 
 
-void scanner::append(ostream *out, uintptr_t u)
+void scanner::append(ostream *out, uvalue_t u)
 // ----------------------------------------------------------------------------
 //  Append an unsigned integer to the program
 // ----------------------------------------------------------------------------

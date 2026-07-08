@@ -6,11 +6,11 @@
 // Reserve four registers
 
 // Prepare registers
-nat 0 2                         // R0 = 2, counter
-nat 2 1_000_000_000             // R2 = 1 billion, limit
+nat 0 #2                        // R0 = 2, counter
+nat 2 #1_000_000_000            // R2 = 1 billion, limit
 
 .loop                           // Loop
-addi 0 1                        // Add constant 1 to R0
+addi 0 #1                       // Add constant 1 to R0
 copy 3 0                        // Copy counter in temporary R3
 sub 3 2                         // Counter - 1M
 blt 3 :loop                     // If not zero, loop

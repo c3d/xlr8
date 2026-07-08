@@ -106,7 +106,7 @@ struct scanner
     bool        do_set();
     bool        do_use();
     bool        do_branch_offset();
-    bool        do_bytes();
+    bool        do_immediate();
     bool        do_define();
     bool        do_label();
 
@@ -115,13 +115,14 @@ struct scanner
     void        patch_cstref(size_t cstref, tok_t target);
     void        patch_label_references(size_t pos, size_t added);
 
-    void        append(intptr_t i);
-    void        append(uintptr_t u);
+    void        append_byte(uvalue_t b);
+    void        append(value_t i);
+    void        append(uvalue_t u);
     void        append(float f);
     void        append(double d);
 
-    static void append(ostream *out, intptr_t value);
-    static void append(ostream *out, uintptr_t u);
+    static void append(ostream *out, value_t value);
+    static void append(ostream *out, uvalue_t u);
     static void append(ostream *out, float f);
     static void append(ostream *out, double d);
 
@@ -175,14 +176,18 @@ public:
     //    Implementation of expressions, e.g. (1+2*3)
     // ------------------------------------------------------------------------
     {
-        enum expr_type { NAT, INT, FLT, DBL, TXT };
+        enum expr_type { BYTE, NAT, INT, FLT, DBL, TXT };
 
-        expr(bool x = 0) : type(NAT),  xnat(x) {}
+        expr(bool x = 0) : type(BYTE), xnat(x) {}
+        expr(byte x)     : type(BYTE), xnat(x) {}
+        expr(char x)     : type(BYTE), xnat(x) {}
         expr(uintptr_t x): type(NAT),  xnat(x) {}
         expr(intptr_t  x): type(INT),  xint(x) {}
         expr(float     x): type(FLT),  xflt(x) {}
         expr(double    x): type(DBL),  xdbl(x) {}
         expr(text      x): type(TXT),  xtxt(new text(x)) {}
+        expr(expr_type type, uintptr_t x): type(type),  xnat(x) {}
+        expr(uintptr_t x, bool): type(x < 256 ? BYTE : NAT),  xnat(x) {}
         expr(const expr &e): type(e.type), xnat(e.xnat)
         {
             if (type == TXT)

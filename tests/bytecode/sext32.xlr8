@@ -1,6 +1,6 @@
 // sys sext as 32-bit value
 
-nat 0 2147483648
+nat 0 #2147483648
 sys sext 0 32
 
 [STDOUT 1]

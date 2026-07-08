@@ -1,6 +1,9 @@
 With VALUE=42
   Value=42
   n=42
+With VALUE=#1776
+  Value=1776
+  n=1776
 With VALUE=1776
   Value=1776
   n=1776

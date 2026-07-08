@@ -513,7 +513,7 @@ bool runtime::symbol_precedence(cstring directive,
     }
 
     stack_p args = frame;
-    if (args[0] != scanner::expr::INT && args[0] != scanner::expr::NAT)
+    if (args[0] >= scanner::expr::INT)
     {
         record(runtime_error,
                "'%+s' directive first argument is %u", directive, args[0]);

@@ -5,10 +5,10 @@
 [STDOUT 1]
 
   sys write_integer STDOUT 0
-  sys write_newline   STDOUT
+  sys write_newline STDOUT
   int 0 (staff-stuff+42)
   sys write_integer STDOUT 0
-  sys write_newline   STDOUT
+  sys write_newline STDOUT
   txt 1 "Outer "
   txt 2 "Inner "
 
@@ -22,7 +22,7 @@
   sys write_text    STDOUT 1
   sys write_text    STDOUT 2
   sys write_integer STDOUT 0
-  sys write_newline   STDOUT
+  sys write_newline STDOUT
   ret
   ;
 txt 2 "staff[1] "

@@ -1,14 +1,14 @@
 // This checks if we can emit messages using a user-defined opcode
 // CMD=%x -d 199 %f
 
-   nat 0 32
+   nat 0 #32
 
 // The user-defined opcode 199 should now emit a debug message
+[STDOUT 1]
+[WRTEXT 199]
 
 .loop
 
-[STDOUT 1]
-
   sys write_integer STDOUT 0
-  #199 #": Hello, I just executed a user-defined opcode" #16#0A #0
+  WRTEXT #": Hello, I just executed a user-defined opcode" 16#0A 0
   dbra 0 :loop

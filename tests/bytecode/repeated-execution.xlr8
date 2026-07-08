@@ -10,15 +10,15 @@
   sys write_integer STDOUT n
   sys write_newline STDOUT]
 
-nat 0 231
+nat 0 #231
 Reg "First execution 231=" 0
 
-nat 1 1968
+nat 1 #1968
 end;
 
 Reg "Second execution 1968=" 1
 enter 24
-nat 1 1999
+nat 1 #1999
 Reg "Second exection 1999=" 1
 ;
 

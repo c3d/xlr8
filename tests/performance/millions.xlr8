@@ -6,9 +6,9 @@
 // Reserve four registers
 
 // Prepare registers
-nat 0 2                         // R0 = 2, counter
-nat 1 1                         // R1 = 1, increment
-nat 2 1_000_000_000             // R2 = 1/5 billion, limit
+nat 0 #2                        // R0 = 2, counter
+nat 1 #1                        // R1 = 1, increment
+nat 2 #1_000_000_000            // R2 = 1/5 billion, limit
 
 .loop                           // Loop
 add 0 1                         // Add R1 to R0

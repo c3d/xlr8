@@ -3,13 +3,12 @@
 // CHECK=./check-time %f
 // TIMEOUT=500
 
+[STDOUT 1]
+
 nat 0 0
 
 .loop
   txt 1 "arg["
-
-[STDOUT 1]
-
   sys write_text STDOUT 1
   sys write_integer STDOUT 0
   txt 1 "]='"
@@ -23,7 +22,7 @@ nat 0 0
  bne 2 :loop
 
 nat 0 0
-nat 1 50_000_000
+nat 1 #50_000_000
 .perfloop
   sys cmdline 2 0
  dbra 1 :perfloop

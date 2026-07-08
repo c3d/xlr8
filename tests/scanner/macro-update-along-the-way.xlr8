@@ -8,17 +8,20 @@
 
  txt 0 "  Value="
  sys write_text STDOUT 0
- nat 0 VALUE
+ nat 0 #VALUE
  sys write_integer STDOUT 0
  sys write_newline STDOUT
 
  txt 0 "  n="
  sys write_text STDOUT 0
- nat 0 n
+ nat 0 #n
  sys write_integer STDOUT 0
  sys write_newline STDOUT]
 
 ShowValue "With VALUE=42" VALUE
+
+[VALUE #1776]
+ShowValue "With VALUE=#1776" VALUE
 
 [VALUE 1776]
 ShowValue "With VALUE=1776" VALUE

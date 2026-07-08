@@ -74,7 +74,8 @@
 !G_NUM_GLOBALS  32
 
 // Character constants (extras for as_real)
-// Use + prefix when value is a built-in opcode byte (0–119); see README "Ambiguous numerals".
+// Bare numerals (0–255) emit a single byte; use #n for LEB128 naturals, +n/-n
+// for signed integers. See README "Registers" and "Ambiguous numerals".
 !CHAR_E         +101
 !CHAR_UPPER_E   +69
 !CHAR_F         +102
@@ -101,7 +102,7 @@
 !INIT_SYM_CAP   64
 !INIT_VEC_CAP   64
 
-// Character constants (use + when value collides with opcode bytes 0–119)
+// Character constants (bare byte when 0–255; #n for LEB128 natural)
 !CHAR_NUL       +0
 !CHAR_SLASH     +47      // '/'
 !CHAR_STAR      +42      // '*'

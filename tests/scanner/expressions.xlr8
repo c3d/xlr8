@@ -1,58 +1,54 @@
 // Compile-time expressions in operands
 
-nat 0 (1+2)
-
 [STDOUT 1]
+[Reg[n]
+ sys write_integer STDOUT n
+ sys write_newline STDOUT]
+[Txt[n]
+ sys write_text    STDOUT n
+ sys write_newline STDOUT]
+[Dbl[n]
+ sys write_double  STDOUT n
+ sys write_newline STDOUT]
 
-sys write_integer STDOUT 0
-sys write_newline STDOUT
+nat 0 #(1+2)
+Reg 0
 
-nat 1 (1+2*3)
-sys write_integer STDOUT 1
-sys write_newline STDOUT
+nat 1 #(1+2*3)
+Reg 1
 
-nat 2 (7&3)
-sys write_integer STDOUT 2
-sys write_newline STDOUT
+nat 2 #(7&3)
+Reg 2
 
-nat 3 (5^2)
-sys write_integer STDOUT 3
-sys write_newline STDOUT
+nat 3 #(5^2)
+Reg 3
 
 txt 4 ("ABC"+"DEF")
-sys write_text STDOUT 4
-sys write_newline STDOUT
+Txt 4
 
 nat 5 (null+42)
-sys write_integer STDOUT 5
-sys write_newline STDOUT
+Reg 5
 
 dbl 5 (null+42.42)
-sys write_double STDOUT 5
-sys write_newline STDOUT
+Dbl 5
 
 [inc[r] nat 0 (r+1)]
-nat 0 0
+nat 0 #0
 inc 0
-sys write_integer STDOUT 0
-sys write_newline STDOUT
+Reg 0
 
-nat 6 0
+nat 6 #0
 addi 6 #(1+2)
-sys write_integer STDOUT 6
-sys write_newline STDOUT
+Reg 6
 
-nat 3 (3*(4-2))
-sys write_integer STDOUT 3
-sys write_newline STDOUT
+nat 3 #(3*(4-2))
+Reg 3
 
-nat 3 (33 % 17)
-sys write_integer STDOUT 3
-sys write_newline STDOUT
+nat 3 #(33 % 17)
+Reg 3
 
-nat 3 (~'ABCDEF')
-sys write_integer STDOUT 3
-sys write_newline STDOUT
+nat 3 #(~'ABCDEF')
+Reg 3
 
 pca 4 :text
 pca 5 :textend
@@ -65,20 +61,16 @@ sub 5 4
 sys write_newline STDOUT
 
 txt 2 ((5 * "Hello" & 2 * "World") * 3)
-sys write_text STDOUT 2
-sys write_newline STDOUT
+Txt 2
 
 txt 3 ("X=" & 1 & " and Y=" & 2*3)
-sys write_text STDOUT 3
-sys write_newline STDOUT
+Txt 3
 
 txt 3 (("My Hello World is Truncated????" + 3) - 4 & "!")
-sys write_text STDOUT 3
-sys write_newline STDOUT
+Txt 3
 
 txt 3 ("My Other Hello World is Also Truncated????" + 3 - 4 & "!")
-sys write_text STDOUT 3
-sys write_newline STDOUT
+Txt 3
 
 end
 

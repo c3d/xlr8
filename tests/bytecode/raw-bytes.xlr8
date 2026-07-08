@@ -13,7 +13,7 @@ incr 1
 bra :chars
 
 .mytext
-#"Hello world!" #16#0A
-#"This is a C-style null-terminated string" #10 #0
+#"Hello world!" 16#0A
+#"This is a C-style null-terminated string" 10 0
 
 .done

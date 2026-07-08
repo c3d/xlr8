@@ -1,6 +1,6 @@
 // sys zext to 32 bits
 
-nat 0 65535
+nat 0 #65535
 sys zext 0 32
 
 [STDOUT 1]

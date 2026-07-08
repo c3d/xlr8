@@ -1,8 +1,10 @@
 // Check that we can read our own code
 // CMD=%x -d 199 %f
 
+[WRITE 199]
+
 // Load a constant and display it
-#199 #"Constant FOO (numerical value): " #0
+WRITE #"Constant FOO (numerical value): " 0
 nat 0 *FOO
 
 [STDOUT 1]
@@ -11,19 +13,19 @@ sys write_integer STDOUT 0
 sys write_newline STDOUT
 
 // Load a token constant and display it
-#199 #"Load token for generated code: " #0
+WRITE #"Load token for generated code: " 0
 nat 0 *BAR
 sys write_integer STDOUT 0
 sys write_newline STDOUT
 
 // Load address for BAR
-#199 #"Read token address" #10 #0
+WRITE #"Read token address" 10 0
 sys tok 1 0
 
 // Write each byte of BAR code
 // It should start with 9
 .loop
-    #199 #"  " #0
+    WRITE #"  " 0
     ld1 0 1
     sys write_integer STDOUT 0
     sys write_newline STDOUT

@@ -1,11 +1,11 @@
 // Check that we can use sys functions to write stuff to standard error
 
 
-int 0 42
+int 0 #42
 sys write_integer 2 0
 sys write_newline 2
 
-nat 0 4547
+nat 0 #4547
 sys write_natural 2 0
 sys write_newline 2
 
