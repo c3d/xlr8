@@ -69,6 +69,7 @@ NATIVE(write_natural,   OSTREAM; SRC; OSTREAM_WR(SNAT))
 NATIVE(write_float,     OSTREAM; SRC; OSTREAM_WR(SFLT))
 NATIVE(write_double,    OSTREAM; SRC; OSTREAM_WR(SDBL))
 NATIVE(write_text,      OSTREAM; SRC; OSTREAM_WR(rt.as_text(SNAT)))
+NATIVE(write_token,     OSTREAM; KNAT; OSTREAM_WR(rt.as_text(knat)))
 NATIVE(write_newline,   OSTREAM; OSTREAM_WR('\n'))
 
 NATIVE(read_scanner,    DST; ISTREAM; scanner::scan(in, d, d+1, rt))

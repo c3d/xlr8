@@ -1,12 +1,12 @@
 // Very simple output: compute 5 + 3
 
-nat 0 5
-addi 0 3
-txt 1 "5+3="
-
 [STDOUT 1]
 
-sys write_text STDOUT 1
+nat  0 #5
+addi 0 #3
+
+sys write_token   STDOUT "5+3="
 sys write_integer STDOUT 0
 sys write_newline STDOUT
+
 end

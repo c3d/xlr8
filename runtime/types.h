@@ -48,5 +48,6 @@ typedef uint64_t             ularge_t;
 typedef value_t              broff_t;
 typedef ularge_t            *stack_p;
 typedef std::string          text;
+typedef value_t              codepoint;
 
 #endif // TYPES_H

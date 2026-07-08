@@ -772,7 +772,7 @@ All `write_*` natives take the **stream first**, then the value to write.
 | Process environment | `cmdline`, `env` |
 | Parsing / precedence | `infix`, `prefix`, `postfix`, `block`, `builtin`, `parsing` |
 | Input | `read_char`, `read_integer`, `read_natural`, `read_float`, `read_double`, `read_scanner`, `branch_on_eof`, `branch_on_bad` |
-| Output | `write_char`, `write_integer`, `write_natural`, `write_float`, `write_double`, `write_text`, `write_newline` |
+| Output | `write_char`, `write_integer`, `write_natural`, `write_float`, `write_double`, `write_text`, `write_token`, `write_newline` |
 | Errors | `print_error`, `clear_error`, `trap_error` |
 | Conversions | `i2f`, `i2d`, `u2f`, `u2d`, `f2i`, `d2i`, `f2u`, `d2u`, `f2d`, `d2f` |
 | Float stack | `fpush`, `fpop`, `dpush`, `dpop` |
@@ -820,8 +820,7 @@ Typical output idiom:
 ```xlr8
 [STDOUT 1]
 
-txt 1 "answer="
-sys write_text STDOUT 1
+sys write_token STDOUT "answer="
 sys write_integer STDOUT 0
 sys write_newline STDOUT
 end
@@ -866,8 +865,7 @@ nat 1 #999_998                  // iterations until counter reaches limit
 addu 0 1                        // counter++
 dbra 1 :loop                    // --remaining; branch if non-zero
 
-txt 2 "I="
-sys write_text STDOUT 2
+sys write_token STDOUT "I="
 sys write_integer STDOUT 0
 sys write_newline STDOUT
 end
