@@ -1,14 +1,38 @@
 // Unconditional jump via token address
+//
 
+?secondary
 =target
-  int 0 +42
-  jmp *out
-jmp *target
-int 0 +1
-.out
+  int 1 +42
+  jmp *secondary
+;
+
+=secondary
+  int 2 -99
+  ijmp 7
+;
+
+false 0
+int 0 +1968
+pca 7 :out      // For indirect jump
+jmp *target     // Jump in distant module
+
+.redo
+int 0 +123      // All this will happen on second loop
+int 1 +456
+int 2 +789
+true 0
+jmp *secondary
 
 [STDOUT 1]
 
+.out
 sys write_integer STDOUT 0
 sys write_newline STDOUT
+sys write_integer STDOUT 1
+sys write_newline STDOUT
+sys write_integer STDOUT 2
+sys write_newline STDOUT
+bfalse 0 :redo
+
 end
