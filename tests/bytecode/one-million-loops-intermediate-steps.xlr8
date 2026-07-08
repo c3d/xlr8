@@ -25,3 +25,4 @@ sys write_newline STDOUT          // Emit end of line 1
 copy 3 2
 sub 3 0
 bgt 3 :loop
+end

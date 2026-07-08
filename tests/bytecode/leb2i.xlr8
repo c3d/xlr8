@@ -11,3 +11,4 @@ sys leb2i 3 2
 
 sys write_integer STDOUT 3
 sys write_newline STDOUT
+end

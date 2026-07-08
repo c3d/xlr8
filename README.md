@@ -73,6 +73,8 @@ Below a commented example of bytecode that writes a null-terminated string:
     sys write_char STDOUT 0             // Write R0 to stdout
     incr 1                              // Increment R1 (next character)
     bra :chars                          // Loop back to [chars]
+.done
+end
 .mytext                                 // Label [mytext] used in pca above
     #"Hello world!" 10                  // Insert raw bytes in stream
     #"This is a C-style null-terminated string"
@@ -99,10 +101,19 @@ For example, when you write `add 1 2`, this generates the byte corresponding to
 The resulting byte sequence is interpreted as adding register 2 to register 1.
 
 However, these are only bytes, and the scanner makes no attempt at enforcing any
-kind of syntax or instruction format check. The `end` opcode has byte value `2`,
-so it is equivalent to write `end` or `2`, and `add end end` will add register 1
-to itself. Byte value `0` is the `null` opcode (always an error); byte value `1`
-is `undef`, which expects a token operand for forward `*name` resolution.
+kind of syntax or instruction format check. The `end` opcode has byte value `2`
+and **terminates execution**. It is equivalent to write `end` or `2`, and
+`add end end` will add register 1 to itself. Byte value `0` is the `null` opcode
+(always an error); byte value `1` is `undef`, which expects a token operand for
+forward `*name` resolution.
+
+Every executable bytecode section must end with an explicit `end` opcode that
+terminates execution. Without it, the program counter can run past the last
+instruction into padding or inline data and fault with a null-opcode error. A
+`;` ends scanning of the current section (see [Building and running](#building-and-running));
+each section that is executed needs its own trailing `end`. Scan-time `{…}`
+bytecode definitions append `end` to their body automatically; `=name` … `;`
+function bodies and top-level programs do not.
 
 ## Registers
 
@@ -220,7 +231,7 @@ where needed:
 Names and text are represented by token value that uniquely identify them.
 The token value for opcodes is the byte encoding for that opcode. For example
 `null` has token value `0`, `undef` has token value `1`, and `end` has token
-value `2`.
+value `2` and terminates execution.
 
 ## Directives
 
@@ -300,6 +311,7 @@ Example (from `tests/scanner/macros.xlr8`):
 
 tout "Hello"
 tout "World"
+end
 ```
 
 This defines `tout` with parameter `t`. The body also defines local macros
@@ -423,6 +435,14 @@ sequence of bytes directly from the bytecode:
 nat 0 *ARRAY
 sys tok 1 0
 
+.loop
+    ld1 0 1
+    sys write_integer STDOUT 0
+    sys write_newline STDOUT
+    incr 1
+    bne 0 :loop
+end
+
 =ARRAY 1 2 3 42 #"XYZ" 0;
 ```
 
@@ -457,6 +477,7 @@ Unconditional branches use `bra :label`. Token jumps use `jmp *name`.
 | `!name`       | Define a symbolic constant (`*name` inserts its value)       |
 | `=name`       | Begin defining a new function; the body runs until `;`       |
 | `;`           | End an opcode definition (also ends the top-level program)   |
+| `end`         | Terminate execution (required at the end of each executable section) |
 | `.label`      | Define a branch target at the current code position          |
 | `:label`      | Insert a signed branch offset to `.label` [1]                |
 | `#num`        | LEB128-encoded natural (`#0`, `#128`, `#1_000_000`)          |
@@ -491,6 +512,7 @@ The scanner appends the value as [LEB128][leb128] after the register byte.
 ```xlr8
 int 0 -42
 nat 1 #1_000_000
+end
 ```
 
 Numerals accept XL-style bases and underscores (`16#FF`, `1_000_000`).
@@ -517,6 +539,7 @@ The literal may appear on the same line or on the following line:
 ```xlr8
 flt 0 2.5f
 dbl 1 3.0
+end
 ```
 
 The scanner chooses the embedded size from the literal suffix:
@@ -576,7 +599,7 @@ below.
 
 | Group | Opcodes | Purpose |
 |-------|---------|---------|
-| Meta | `null`, `undef`, `end` | `null` traps zero-filled regions; `undef` resolves forward `*name` references; `end` stops execution |
+| Meta | `null`, `undef`, `end` | `null` traps zero-filled regions; `undef` resolves forward `*name` references; `end` terminates execution |
 | Constants | `int`, `nat`, `flt`, `dbl`, `txt` | Load a signed integer, natural, float, double, or text token into a register |
 | Data movement | `copy`, `swap`, `ccopy`, `select` | Register copy; `ccopy`/`select` are predicate-guarded (see below) |
 | Control flow | `jmp`, `call`, `ijmp`, `icall`, `ret`, `ppc`, `pc`, `pca`, `enter`, `leave`, `get`, `set`, `push`, `pop`, `switch`, `dispatch` | Calls, returns, PC access, frames, argument access, multi-way dispatch |
@@ -680,6 +703,7 @@ int 2 +1
 [STDOUT 1]
 sys write_integer STDOUT 2
 sys write_newline STDOUT
+end
 ```
 
 Using **`sub` + `beq`** (same result, no predicates):
@@ -698,6 +722,7 @@ int 3 +1
 [STDOUT 1]
 sys write_integer STDOUT 3
 sys write_newline STDOUT
+end
 ```
 
 Using **`cmpeq` + `select`** (no branch; register 2 holds the outcome):
@@ -712,6 +737,7 @@ select 0 2 3 4
 [STDOUT 1]
 sys write_integer STDOUT 2
 sys write_newline STDOUT
+end
 ```
 
 Using **`cmpeq` + `ccopy`** (`ccopy` overwrites register 2 only when equal):
@@ -726,6 +752,7 @@ ccopy 0 2 3
 [STDOUT 1]
 sys write_integer STDOUT 2
 sys write_newline STDOUT
+end
 ```
 
 Floating-point compares (`fcmpeq`, `dcmplt`, …) are **`sys` natives** with the
@@ -790,6 +817,7 @@ txt 1 "answer="
 sys write_text STDOUT 1
 sys write_integer STDOUT 0
 sys write_newline STDOUT
+end
 ```
 
 When a program is loaded from a file, stream `0` is that file (exhausted after
@@ -810,6 +838,7 @@ txt 1 "1+1="
 sys write_text STDOUT 1
 sys write_integer STDOUT 0
 sys write_newline STDOUT
+end
 ```
 
 Output: `1+1=2`
@@ -834,6 +863,7 @@ txt 2 "I="
 sys write_text STDOUT 2
 sys write_integer STDOUT 0
 sys write_newline STDOUT
+end
 ```
 
 The limit `1_000_000` is reached after `999_998` increments from the starting
@@ -879,6 +909,7 @@ txt 1 "Factorial 6 is "
 sys write_text STDOUT 1
 sys write_integer STDOUT 0
 sys write_newline STDOUT
+end
 ```
 
 Output: `Factorial 6 is 720`
@@ -923,6 +954,7 @@ txt 1 "foo(5)="
 sys write_text STDOUT 1
 sys write_integer STDOUT 0
 sys write_newline STDOUT
+end
 ```
 
 Output: `foo(5)=7`
@@ -940,6 +972,7 @@ txt 1 "2.5f+3.0f="
 sys write_text STDOUT 1
 sys write_float STDOUT 0
 sys write_newline STDOUT
+end
 ```
 
 Output: `2.5f+3.0f=5.5`
@@ -959,6 +992,7 @@ nat 0 32
   sys write_integer STDOUT 0
   199 #": Hello, I just executed a user-defined opcode" 16#0A 0
   dbra 0 :loop
+end
 ```
 
 Run as `xlr8 -d 199 program.xlr8`. The `199` byte is opcode 199; the following
@@ -988,8 +1022,11 @@ token and appends to a bytecode buffer:
    scanner evaluates the body in a nested runtime and splices its output.
 
 When scanning finishes, the program blob is stored as a token and
-`runtime.entry` is set to point at it. The command-line driver may then scan
-and run additional `;`-terminated sections from the same input. Undefined
+`runtime.entry` is set to point at it. Each section that will be executed must
+contain an explicit `end` opcode that terminates execution (see
+[Instruction format](#instruction-format)).
+The command-line driver may then scan and run additional `;`-terminated sections
+from the same input. Undefined
 forward branch labels are reported as errors. A `?name` declaration or a `call *name` before `=name`
 inserts an `undef` placeholder (opcode byte `1`) in the bytecode stream; the
 runtime resolves it on first execution. An `!name` declaration reserves an entry

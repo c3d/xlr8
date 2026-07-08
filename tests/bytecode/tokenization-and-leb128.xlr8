@@ -58,3 +58,4 @@ nat 0 0                                 // R0: Token index
 txt 0 "Done!"
 sys write_text  STDOUT 0
 sys write_newline STDOUT
+end

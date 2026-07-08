@@ -118,7 +118,6 @@ bool scanner::validate()
         return false;
     }
 
-    program += text(1, char(runtime::op_end));
     pgmid = rt.tok(program);
     rt.entry = byte_p(rt.tok(pgmid));
     rt.pc = rt.entry;
@@ -838,6 +837,7 @@ bool scanner::do_macro_definition(bool bytecode)
 
     if (bytecode)
     {
+        program += byte(runtime::op_end);
         if (!validate())
             return false;
         here.definition = rt.as_text(pgmid);

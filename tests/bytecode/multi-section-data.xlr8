@@ -5,6 +5,7 @@
 // First section is a data section
 =data_section_1
   #"Raw bytes inserted here" 10 0
+  end
 ;
 
 =data_section_2
@@ -20,6 +21,7 @@
 .offset3
   int -128
   int +128
+  end
 ;
 
 
@@ -95,3 +97,4 @@ call *code_dump
 txt 1 "DATA SECTION 2"
 nat 0 *data_section_2
 call *code_dump
+end

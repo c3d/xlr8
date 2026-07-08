@@ -7,3 +7,4 @@ sys i2d 0 0
 
 sys write_double STDOUT 0
 sys write_newline STDOUT
+end

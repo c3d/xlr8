@@ -7,3 +7,4 @@ sys write_integer STDOUT 0
 sys write_newline STDOUT
 
 !MAGIC 42
+end

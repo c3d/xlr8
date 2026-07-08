@@ -12,3 +12,4 @@
   sys write_integer STDOUT 0
   #122 #": Hello, I just executed a low-range user-defined opcode" #16#0A #0
   dbra 0 :loop
+end

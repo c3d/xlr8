@@ -10,3 +10,4 @@ int 0 +42
 
 sys write_integer STDOUT 0
 sys write_newline STDOUT
+end

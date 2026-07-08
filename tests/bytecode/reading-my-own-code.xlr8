@@ -35,4 +35,4 @@ end
 
 !FOO 2
 
-=BAR 1 2 3 42 #"XYZ" 0;
+=BAR 1 2 3 42 #"XYZ" 0 end;

@@ -30,3 +30,4 @@ nat 1 #50_000_000
 txt 1 "Done!"
 sys write_text STDOUT 1
 sys write_newline STDOUT
+end

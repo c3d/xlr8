@@ -10,3 +10,4 @@ sys write_newline STDOUT
 
 !FOO 2
 !FOO 3
+end

@@ -22,3 +22,4 @@ sys write_newline STDOUT
 txt 0 "Hello, did the test succeed?"
 sys write_text    STDOUT 0
 sys write_newline STDOUT
+end

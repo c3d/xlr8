@@ -37,3 +37,4 @@ txt 1 "foo(5)="
 sys write_text STDOUT 1
 sys write_integer STDOUT 0
 sys write_newline STDOUT
+end

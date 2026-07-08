@@ -26,3 +26,4 @@ call *showenv
 
 txt 0 "SOME_UNDEFINED_ENVIRONMENT_VARIABLE"
 call *showenv
+end

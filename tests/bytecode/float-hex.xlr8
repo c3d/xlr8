@@ -13,3 +13,4 @@ txt 1 "16#1.A#f="
 sys write_text STDOUT 1
 sys write_float STDOUT 0
 sys write_newline STDOUT
+end

@@ -12,3 +12,4 @@ txt 1 "1.5e2f+0.5f="
 sys write_text STDOUT 1
 sys write_float STDOUT 0
 sys write_newline STDOUT
+end

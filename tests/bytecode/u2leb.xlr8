@@ -11,3 +11,4 @@ sys leb2u 3 2
 
 sys write_natural STDOUT 3
 sys write_newline STDOUT
+end

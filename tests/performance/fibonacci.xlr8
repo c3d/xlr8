@@ -37,3 +37,4 @@ sys write_text STDOUT 1
 call *fib                      // R0 = fib(40)
 sys write_integer STDOUT 0
 sys write_newline STDOUT
+end

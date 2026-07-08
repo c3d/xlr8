@@ -10,3 +10,4 @@ ld2o 3 0 +4
 
 sys write_natural STDOUT 3
 sys write_newline STDOUT
+end

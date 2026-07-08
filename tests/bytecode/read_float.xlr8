@@ -6,3 +6,4 @@ sys read_float 0 +0
 
 sys write_float STDOUT 0
 sys write_newline STDOUT
+end

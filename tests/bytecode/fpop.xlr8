@@ -8,3 +8,4 @@ sys fpop 1
 
 sys write_float STDOUT 1
 sys write_newline STDOUT
+end

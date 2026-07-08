@@ -6,3 +6,4 @@ sys read_natural 0 +0
 
 sys write_natural STDOUT 0
 sys write_newline STDOUT
+end

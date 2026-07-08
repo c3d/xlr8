@@ -9,3 +9,4 @@ txt 1 "5^3="
 sys write_text STDOUT 1
 sys write_natural STDOUT 0
 sys write_newline STDOUT
+end

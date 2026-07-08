@@ -8,3 +8,4 @@ sys dpop 1
 
 sys write_double STDOUT 1
 sys write_newline STDOUT
+end

@@ -6,3 +6,4 @@ sys read_double 0 +0
 
 sys write_double STDOUT 0
 sys write_newline STDOUT
+end

@@ -20,8 +20,10 @@ Reg "Second execution 1968=" 1
 enter 24
 nat 1 #1999
 Reg "Second exection 1999=" 1
+end
 ;
 
 add 0 1
 Reg "Third execution 231+1968=" 0
 Reg "Third execution 1968=" 1
+end

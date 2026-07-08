@@ -11,3 +11,4 @@ ld2 1 0
 
 sys write_natural STDOUT 1
 sys write_newline STDOUT
+end
