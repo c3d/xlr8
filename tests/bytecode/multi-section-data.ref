@@ -1,0 +1,95 @@
+DATA SECTION 1
+Code section token: REDACTED
+Section address: REDACTED
+Section length: 26
+Data bytes address: REDACTED
+Content bytes: 
+ 'R' 82
+ 'a' 97
+ 'w' 119
+ ' ' 32
+ 'b' 98
+ 'y' 121
+ 't' 116
+ 'e' 101
+ 's' 115
+ ' ' 32
+ 'i' 105
+ 'n' 110
+ 's' 115
+ 'e' 101
+ 'r' 114
+ 't' 116
+ 'e' 101
+ 'd' 100
+ ' ' 32
+ 'h' 104
+ 'e' 101
+ 'r' 114
+ 'e' 101
+     10
+     0
+     2
+DATA SECTION 2
+Code section token: REDACTED
+Section address: REDACTED
+Section length: 57
+Data bytes address: REDACTED
+Content bytes: 
+     3
+ '+' 43
+ '0' 48
+ 'S' 83
+ 'o' 111
+ 'm' 109
+ 'e' 101
+ ' ' 32
+ 'a' 97
+ 'd' 100
+ 'd' 100
+ 'i' 105
+ 't' 116
+ 'i' 105
+ 'o' 111
+ 'n' 110
+ 'a' 97
+ 'l' 108
+ ' ' 32
+ 'r' 114
+ 'a' 97
+ 'w' 119
+ ' ' 32
+ 'b' 98
+ 'y' 121
+ 't' 116
+ 'e' 101
+ 's' 115
+ ' ' 32
+ 'i' 105
+ 'n' 110
+ 's' 115
+ 'e' 101
+ 'r' 114
+ 't' 116
+ 'e' 101
+ 'd' 100
+ ' ' 32
+ 'h' 104
+ 'e' 101
+ 'r' 114
+ 'e' 101
+     10
+     0
+     4
+     0
+     4
+     192
+     132
+ '=' 61
+     3
+     128
+     127
+     3
+     128
+     1
+     2

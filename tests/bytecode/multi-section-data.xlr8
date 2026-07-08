@@ -1,0 +1,97 @@
+// Check that we can emit raw bytes in a separate data section and
+// access that indirectly.
+// FILTER=sed -E  's/(address|token): [0-9]+/\1: REDACTED/g'
+
+// First section is a data section
+=data_section_1
+  #"Raw bytes inserted here" #10 #0
+;
+
+=data_section_2
+
+  :offset1
+  :offset2
+  :offset3
+.offset1
+  #"Some additional raw bytes inserted here" #10 #0
+.offset2
+  nat 0
+  nat 1_000_000
+.offset3
+  int -128
+  int +128
+;
+
+
+// Second section is a code section accessing the data section above
+[STDOUT 1]
+=code_dump
+  sys write_text STDOUT 1
+  sys write_newline STDOUT
+
+  // The section token identifies symbol `data_section`
+  txt 1 "Code section token: "
+  sys write_text STDOUT 1
+  sys write_natural STDOUT 0
+  sys write_newline STDOUT
+
+  // Turn that into an address
+  sys tok 0 0
+  txt 1 "Section address: "
+  sys write_text STDOUT 1
+  sys write_natural STDOUT 0
+  sys write_newline STDOUT
+
+  // Read section length (updates register 0)
+  sys leb2u 2 0
+  txt 1 "Section length: "
+  sys write_text STDOUT 1
+  sys write_natural STDOUT 2
+  sys write_newline STDOUT
+
+  txt 1 "Data bytes address: "
+  sys write_text STDOUT 1
+  sys write_natural STDOUT 0
+  sys write_newline STDOUT
+
+  nat 1 "Content bytes: "
+  sys write_text STDOUT 1
+  sys write_newline STDOUT
+
+.loop
+    ld1 3 0
+
+    cmpltu 0 3 32
+    btrue 0 :noprint
+    cmpltu 0 3 127
+    bfalse 0 :noprint
+
+    txt 1 " '"
+    sys write_text STDOUT 1
+    sys write_char STDOUT 3
+
+    txt 1 "' "
+    sys write_text STDOUT 1
+
+  .printval
+    sys write_natural STDOUT 3
+    sys write_newline STDOUT
+    incr 0
+    dbra 2 :loop
+  ret
+
+  .noprint
+    txt 1 "     "
+    sys write_text STDOUT 1
+    bra :printval
+
+;
+
+// Testing
+txt 1 "DATA SECTION 1"
+nat 0 *data_section_1
+call *code_dump
+
+txt 1 "DATA SECTION 2"
+nat 0 *data_section_2
+call *code_dump
