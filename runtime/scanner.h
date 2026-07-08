@@ -58,6 +58,14 @@ struct scanner
 
     scanner(istream &input, runtime &rt)
         : input(input), rt(rt), pgmid(), program(), scanned() { }
+    scanner(const scanner &s)
+        : input(s.input), rt(s.rt), pgmid(), program(), scanned(),
+          macros(s.macros), bytecodes(s.bytecodes),
+          infixen(s.infixen), prefixen(s.prefixen),
+          postfixen(s.postfixen), blocks(s.blocks),
+          closing(s.closing),
+          parsing(s.parsing),
+          need_operator(false), raw(false) {}
 
     enum token
     {
@@ -77,6 +85,7 @@ struct scanner
 
     token       next();
     token       next_raw();
+
     token       do_comment();
     token       do_name();
     token       do_text();
@@ -159,7 +168,6 @@ public:
     using macro_defs = std::map<text, macro>;
     macro_defs  macros;
     macro_defs  bytecodes;
-    texts       expanded;
 
 
     struct expr

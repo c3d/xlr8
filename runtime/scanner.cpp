@@ -1595,7 +1595,7 @@ bool scanner::do_define()
         rt.defined[ntok] = undef(ntok);
     }
 
-    scanner child(input, rt);
+    scanner child(*this);
     bool    result = child.scan();
     if (!result)
         return false;
