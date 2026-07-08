@@ -64,11 +64,13 @@ runtime interprets.
 Below a commented example of bytecode that writes a null-terminated string:
 
 ```xlr8
+[STDOUT 1]
+
     pca 1 :mytext                       // R1 = PC-relative address of [mytext]
 .chars                                  // Symbolic label [chars]
     ld1 0 1                             // R0 = byte at address R1
     beq 0 :done                         // Branch to [done] if R0==0
-    sys write_char 1 0                  // Write R0 to stream 1=stdout
+    sys write_char STDOUT 0             // Write R0 to stdout
     incr 1                              // Increment R1 (next character)
     bra :chars                          // Loop back to [chars]
 .mytext                                 // Label [mytext] used in pca above
@@ -670,8 +672,9 @@ bra :done
 .equal
 int 2 +1
 .done
-sys write_integer 1 2
-sys write_newline 1
+[STDOUT 1]
+sys write_integer STDOUT 2
+sys write_newline STDOUT
 ```
 
 Using **`sub` + `beq`** (same result, no predicates):
@@ -687,8 +690,9 @@ bra :done
 .equal
 int 3 +1
 .done
-sys write_integer 1 3
-sys write_newline 1
+[STDOUT 1]
+sys write_integer STDOUT 3
+sys write_newline STDOUT
 ```
 
 Using **`cmpeq` + `select`** (no branch; register 2 holds the outcome):
@@ -700,8 +704,9 @@ nat 3 +1
 nat 4 +0
 cmpeq 0 0 1
 select 0 2 3 4
-sys write_integer 1 2
-sys write_newline 1
+[STDOUT 1]
+sys write_integer STDOUT 2
+sys write_newline STDOUT
 ```
 
 Using **`cmpeq` + `ccopy`** (`ccopy` overwrites register 2 only when equal):
@@ -713,8 +718,9 @@ int 2 +0
 nat 3 +1
 cmpeq 0 0 1
 ccopy 0 2 3
-sys write_integer 1 2
-sys write_newline 1
+[STDOUT 1]
+sys write_integer STDOUT 2
+sys write_newline STDOUT
 ```
 
 Floating-point compares (`fcmpeq`, `dcmplt`, …) are **`sys` natives** with the
@@ -727,10 +733,9 @@ Host services are invoked with `sys name operands…`. Names and implementations
 live in `runtime/native.tbl`. Operand order matches each native's definition
 (often `dst src`, sometimes `stream value` for `write_*`, sometimes
 `:branch stream`, etc.).
-Stream indices are small integers: `0` is the program input, `1` stdout, `2`
-stderr when running from a file. Use `#0` or `+0` when a stream index would
-otherwise tokenize as an opcode name. All `write_*` natives take the **stream
-first**, then the value to write.
+
+Stream indices are small integers: `0` is the program input, `1` standard output, `2` standard error. Examples use a `[STDOUT 1]` macro for readability.
+All `write_*` natives take the **stream first**, then the value to write.
 
 | Group | Names |
 |-------|-------|
@@ -774,10 +779,12 @@ Floating-point values in memory are accessed with pointer arithmetic and
 Typical output idiom:
 
 ```xlr8
+[STDOUT 1]
+
 txt 1 "answer="
-sys write_text 1 1
-sys write_integer 1 0
-sys write_newline 1
+sys write_text STDOUT 1
+sys write_integer STDOUT 0
+sys write_newline STDOUT
 ```
 
 When a program is loaded from a file, stream `0` is that file (exhausted after
@@ -789,13 +796,15 @@ data on standard input).
 ### Example 1: addition and output
 
 ```xlr8
+[STDOUT 1]
+
 nat 0 1
 nat 1 1
 add 0 1
 txt 1 "1+1="
-sys write_text 1 1
-sys write_integer 1 0
-sys write_newline 1
+sys write_text STDOUT 1
+sys write_integer STDOUT 0
+sys write_newline STDOUT
 ```
 
 Output: `1+1=2`
@@ -807,6 +816,8 @@ Use `dbra` for a compact counted loop: it decrements an **unsigned** register
 and branches while the result is non-zero (after the decrement).
 
 ```xlr8
+[STDOUT 1]
+
 nat 0 2                         // counter
 nat 1 999_998                   // iterations until counter reaches limit
 
@@ -815,9 +826,9 @@ addu 0 1                        // counter++
 dbra 1 :loop                    // --remaining; branch if non-zero
 
 txt 2 "I="
-sys write_text 2 1
-sys write_integer 1 0
-sys write_newline 1
+sys write_text STDOUT 2
+sys write_integer STDOUT 0
+sys write_newline STDOUT
 ```
 
 The limit `1_000_000` is reached after `999_998` increments from the starting
@@ -858,10 +869,11 @@ ret
 
 nat 0 6
 call *fact
+[STDOUT 1]
 txt 1 "Factorial 6 is "
-sys write_text 1 1
-sys write_integer 1 0
-sys write_newline 1
+sys write_text STDOUT 1
+sys write_integer STDOUT 0
+sys write_newline STDOUT
 ```
 
 Output: `Factorial 6 is 720`
@@ -901,10 +913,11 @@ ret
 
 nat 0 5
 call *foo
+[STDOUT 1]
 txt 1 "foo(5)="
-sys write_text 1 1
-sys write_integer 1 0
-sys write_newline 1
+sys write_text STDOUT 1
+sys write_integer STDOUT 0
+sys write_newline STDOUT
 ```
 
 Output: `foo(5)=7`
@@ -913,13 +926,15 @@ Output: `foo(5)=7`
 ### Example 5: floating-point constants
 
 ```xlr8
+[STDOUT 1]
+
 flt 0 2.5f
 flt 1 3.0f
 fadd 0 1
 txt 1 "2.5f+3.0f="
-sys write_text 1 1
-sys write_float 1 0
-sys write_newline 1
+sys write_text STDOUT 1
+sys write_float STDOUT 0
+sys write_newline STDOUT
 ```
 
 Output: `2.5f+3.0f=5.5`
@@ -932,9 +947,11 @@ The program can then emit that single byte—denser than spelling out the same
 logic with built-in opcodes:
 
 ```xlr8
+[STDOUT 1]
+
 nat 0 32
 .loop
-  sys write_integer 1 0
+  sys write_integer STDOUT 0
   #199 #": Hello, I just executed a user-defined opcode" #16#0A #0
   dbra 0 :loop
 ```
