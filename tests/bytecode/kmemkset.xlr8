@@ -1,0 +1,16 @@
+// sys kmemkset — fill a buffer (byte value and size both inline)
+
+sys kmalloc 0 #8
+sys kmemkset 0 #65 #4
+ld1 1 0
+ld1 2 0
+incr 0
+ld1 2 0
+
+[STDOUT 1]
+
+sys write_natural STDOUT 1
+sys write_newline STDOUT
+sys write_natural STDOUT 2
+sys write_newline STDOUT
+end

@@ -201,6 +201,7 @@ typedef uint64_t        u64;
 #define SINT            STYPE(value_t)
 #define DNAT            DTYPE(uvalue_t)
 #define SNAT            STYPE(uvalue_t)
+#define XNAT            XTYPE(uvalue_t)
 #define DFLT            DTYPE(float)
 #define SFLT            STYPE(float)
 #define DDBL            DTYPE(double)

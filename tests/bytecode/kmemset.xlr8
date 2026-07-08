@@ -1,0 +1,17 @@
+// sys kmemset — fill a buffer (byte in register, size inline)
+
+sys kmalloc 0 #8
+nat 1 65
+sys kmemset 0 1 #4
+ld1 2 0
+ld1 3 0
+incr 0
+ld1 3 0
+
+[STDOUT 1]
+
+sys write_natural STDOUT 2
+sys write_newline STDOUT
+sys write_natural STDOUT 3
+sys write_newline STDOUT
+end

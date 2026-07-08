@@ -1,0 +1,24 @@
+// sys kmemmove — overlapping forward copy with inline natural size
+
+sys kmalloc 0 #8
+nat 1 10
+st1 0 1
+nat 1 20
+st1o 0 1 +1
+nat 1 30
+st1o 0 1 +2
+copy 1 0
+copy 2 0
+nat 3 1
+add 2 3
+sys kmemmove 2 1 #2
+ld1o 3 0 +1
+ld1o 4 0 +2
+
+[STDOUT 1]
+
+sys write_natural STDOUT 3
+sys write_newline STDOUT
+sys write_natural STDOUT 4
+sys write_newline STDOUT
+end

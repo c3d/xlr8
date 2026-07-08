@@ -1,0 +1,18 @@
+// sys memset — fill a buffer (byte and size in registers)
+
+sys kmalloc 0 #8
+nat 1 65
+nat 2 4
+sys memset 0 1 2
+ld1 3 0
+ld1 4 0
+incr 0
+ld1 4 0
+
+[STDOUT 1]
+
+sys write_natural STDOUT 3
+sys write_newline STDOUT
+sys write_natural STDOUT 4
+sys write_newline STDOUT
+end

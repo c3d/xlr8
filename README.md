@@ -103,7 +103,7 @@ The resulting byte sequence is interpreted as adding register 2 to register 1.
 However, these are only bytes, and the scanner makes no attempt at enforcing any
 kind of syntax or instruction format check. The `end` opcode has byte value `2`
 and **terminates execution**. It is equivalent to write `end` or `2`, and
-`add end end` will add register 1 to itself. Byte value `0` is the `null` opcode
+`add end end` will add register 2 to itself. Byte value `0` is the `null` opcode
 (always an error); byte value `1` is `undef`, which expects a token operand for
 forward `*name` resolution.
 
@@ -272,6 +272,7 @@ but can also be used to name registers, etc.
 ```xlr8
 !LOOPS          42
 nat 0 *LOOPS
+end
 ```
 
 ## Macros
@@ -356,6 +357,7 @@ appended to the enclosing bytecode buffer.
  end}
 
 nat 0 fact 6               // expands to nat 0 720 at scan time
+end
 ```
 
 Use `sys nat`, `sys int`, `sys flt`, or `sys dbl` inside the body to append
@@ -379,6 +381,7 @@ nat 0 (1+2*3)                   // register 0 ← 7
 txt 1 ("ABC"+"DEF")             // text token for ABCDEF
 nat 2 (add+1)                   // token value of add, plus 1
 addi 0 #(1+2)                   // emit LEB128 constant 3 as immediate operand
+end
 ```
 
 Supported operators are arithmetic `+` `-` `*` `/` `%`, bitwise logical `&` `|`
@@ -395,6 +398,7 @@ literal percent sign. Supported conversions include `%d`, `%u`, `%x`, `%s`,
 
 ```xlr8
 txt 0 ("value=%08X" % 33)       // text token for "value=00000021"
+end
 ```
 
 Names expand macros when applicable; otherwise the token index of the name is
@@ -434,13 +438,6 @@ sequence of bytes directly from the bytecode:
 // Load a token constant and display it
 nat 0 *ARRAY
 sys tok 1 0
-
-.loop
-    ld1 0 1
-    sys write_integer STDOUT 0
-    sys write_newline STDOUT
-    incr 1
-    bne 0 :loop
 end
 
 =ARRAY 1 2 3 42 #"XYZ" 0;
@@ -782,14 +779,24 @@ All `write_*` natives take the **stream first**, then the value to write.
 | Math library | `ffloor`, `fceil`, `fsqrt`, `fcbrt`, `fsin`, `fcos`, `ftan`, `fasin`, `facos`, `fatan`, `fexp`, `flog`, `fexp2`, `flog2`, and the `d…` counterparts |
 | Float compares | `fcmpeq`, `fcmpne`, `fcmplt`, `fcmpgt`, `fcmple`, `fcmpge`, and the `d…` counterparts |
 | Stack | `stack` — address of the value stack pointer |
+| Memory (bulk) | `memcpy`/`kmemcpy`, `memmove`/`kmemmove`, `memset`/`kmemset`/`memkset`/`kmemkset` — bulk copy/fill; `k…` forms take size as inline natural `#n`; `memkset`/`kmemkset` take fill byte inline |
 | Memory (volatile) | `ld1v`…`ld8v`, `st1v`…`st8v` — volatile load/store through a register address |
 | Memory (sign-extending) | `ld1s`…`ld8s`, `ld1vs`…`ld8vs`, `ld1os`…`ld8os` — sign-extending loads (plain, volatile, and with signed offset) |
 | Extension | `sext`, `zext` — sign- or zero-extend a register to `kshift` bits (`sys sext dst +8`, `sys zext dst +32`) |
 | Bytecode / LEB128 | `tok`, `leb2i`, `leb2u`, `i2leb`, `u2leb`, `i2lebsz`, `u2lebsz`, `nat`, `int`, `flt`, `dbl` |
 
 `malloc` and `realloc` read the size from a **register** (`sys malloc 0 1` after
-`nat 1 16`). `kmalloc` reads the size inline, like `globals` (`sys kmalloc 0 +16`).
+`nat 1 16`). `kmalloc` reads the size inline, like `globals` (`sys kmalloc 0 #16`).
 Bare `+16` after `malloc` is a register index, not a byte count.
+
+Bulk memory natives follow the same register vs inline pattern. Register size:
+`sys memcpy dst src size`, `sys memmove dst src size`, `sys memset dst value size`.
+Inline natural size (`#n`): `sys kmemcpy dst src #n`, `sys kmemmove dst src #n`,
+`sys kmemset dst value #n`. For `memset`, the fill byte is in register `value`;
+`sys memkset dst size #byte` keeps size in a register and passes the byte inline;
+`sys kmemkset dst #byte #size` passes both inline. See `tests/bytecode/memcpy.xlr8`,
+`kmemcpy.xlr8`, `memset.xlr8`, `kmemset.xlr8`, `memmove.xlr8`, `kmemmove.xlr8`,
+`memkset.xlr8`, and `kmemkset.xlr8`.
 
 `sys alloca dst size` allocates `size` bytes on the stack frame (static within
 the current activation). `sys valloca dst src` allocates a dynamic size taken
@@ -805,8 +812,8 @@ definitions.
 
 Built-in `ld1`…`ld8` / `st1`…`st8` zero-extend loaded values into the register.
 Use `sys ld1s` (or `ld1os` with an offset) when you need a signed narrow load.
-Floating-point values in memory are accessed with pointer arithmetic and
-`memcpy`-style patterns, or by keeping them in registers after `flt` / `dbl`.
+Floating-point values in memory are accessed with pointer arithmetic,
+`sys kmemcpy` / `sys kmemmove`, or by keeping them in registers after `flt` / `dbl`.
 
 Typical output idiom:
 
