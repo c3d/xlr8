@@ -920,6 +920,7 @@ bool scanner::do_macro_use(macro m)
     // Switch to the definition and parse that
     text               mval = m.definition;
     std::istringstream definition(mval);
+    save               lbls(labels, labels);
     std::streambuf    *sbuf = input.rdbuf(definition.rdbuf());
     bool               ok   = scan(true);
     input.rdbuf(sbuf);
