@@ -47,8 +47,14 @@ Reg 3
 nat 3 #(33 % 17)
 Reg 3
 
-nat 3 #(~'ABCDEF')
+nat 3 #(~"ABCDEF")
 Reg 3
+
+nat 7 'E'
+Reg 7
+
+nat 6 '▶'
+Reg 6
 
 pca 4 :text
 pca 5 :textend

@@ -33,6 +33,7 @@
 #include "recorder.h"
 #include "runtime.h"
 #include "save.h"
+#include "utf8.h"
 
 #include <cctype>
 #include <cmath>
@@ -336,12 +337,18 @@ scanner::token scanner::do_text()
     }
     if (input.good())
         input.putback(c);
+
+    bool istxt = delim == '"';
     if (!raw)
     {
-        exprs.emplace_back(value);
+        if (istxt)
+            exprs.emplace_back(value);
+        else
+            exprs.emplace_back(utf8_codepoint(value.data(), 0,
+                                              value.length()), true);
         need_operator = true;
     }
-    return delim == '"' ? TEXT : CHARACTER;
+    return istxt ? TEXT : CHARACTER;
 }
 
 
