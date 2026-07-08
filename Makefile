@@ -62,3 +62,4 @@ better:
 	$(PRINT_COMMAND) tests/update-timerefs
 better-%:
 	$(PRINT_COMMAND) tests/update-timerefs $*
+retoken: ref-reading-my-own-code ref-tokenization-and-leb128
