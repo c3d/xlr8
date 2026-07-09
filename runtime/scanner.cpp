@@ -1399,7 +1399,7 @@ bool scanner::expr_unary(char op)
         if (x.type == expr::NAT || x.type == expr::BYTE)
             x = value_t(x.xnat);
         else if (x.type == expr::TXT)
-            return error("Operator + applying to text"), false;
+            x = *x.xtxt + char(0);
         break;
     case '-':
         switch (x.type)
