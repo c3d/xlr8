@@ -44,6 +44,30 @@ NATIVE(kmemset,         DST; SRC;  KNAT; memset((void *) (DNAT), SNAT, knat) )
 NATIVE(memkset,         DST; SRC;  KNAT; memset((void *) (DNAT), knat, SNAT) )
 NATIVE(kmemkset,        DST; KINT; KNAT; memset((void *) (DNAT), kint, knat) )
 
+// C string.h — delegate to host libc for LLVM `sys` lowering (freestanding C).
+// Pointers in DST/SRC/XTRA; sizes and char literals via KNAT/KINT.
+// `k…` forms take the size or byte as an inline natural (`#n`).
+NATIVE(strlen,          DST; SRC; DNAT = strlen((const char *) SNAT))
+NATIVE(strnlen,         DST; SRC; KNAT; DNAT = strnlen((const char *) SNAT, knat))
+NATIVE(strcpy,          DST; SRC; DNAT = (uvalue_t) strcpy((char *) DNAT, (const char *) SNAT))
+NATIVE(strncpy,         DST; SRC; XTRA; DNAT = (uvalue_t) strncpy((char *) DNAT, (const char *) SNAT, XNAT))
+NATIVE(kstrncpy,        DST; SRC; KNAT; DNAT = (uvalue_t) strncpy((char *) DNAT, (const char *) SNAT, knat))
+NATIVE(strcat,          DST; SRC; DNAT = (uvalue_t) strcat((char *) DNAT, (const char *) SNAT))
+NATIVE(strncat,         DST; SRC; XTRA; DNAT = (uvalue_t) strncat((char *) DNAT, (const char *) SNAT, XNAT))
+NATIVE(kstrncat,        DST; SRC; KNAT; DNAT = (uvalue_t) strncat((char *) DNAT, (const char *) SNAT, knat))
+NATIVE(strcmp,          DST; SRC; XTRA; DINT = strcmp((const char *) SNAT, (const char *) XNAT))
+NATIVE(strncmp,         DST; SRC; XTRA; KNAT; DINT = strncmp((const char *) SNAT, (const char *) XNAT, knat))
+NATIVE(strchr,          DST; SRC; KINT; DNAT = (uvalue_t) strchr((const char *) SNAT, (int) kint))
+NATIVE(kstrchr,         DST; SRC; KNAT; DNAT = (uvalue_t) strchr((const char *) SNAT, (int) knat))
+NATIVE(strrchr,         DST; SRC; KINT; DNAT = (uvalue_t) strrchr((const char *) SNAT, (int) kint))
+NATIVE(kstrrchr,        DST; SRC; KNAT; DNAT = (uvalue_t) strrchr((const char *) SNAT, (int) knat))
+NATIVE(strstr,          DST; SRC; XTRA; DNAT = (uvalue_t) strstr((const char *) SNAT, (const char *) XNAT))
+NATIVE(memcmp,          DST; SRC; XTRA; KNAT; DINT = memcmp((const void *) SNAT, (const void *) XNAT, knat))
+NATIVE(memchr,          DST; SRC; KINT; KNAT; DNAT = (uvalue_t) memchr((const void *) SNAT, (int) kint, knat))
+NATIVE(kmemchr,         DST; SRC; KNAT; XTRA; DNAT = (uvalue_t) memchr((const void *) SNAT, (int) knat, XNAT))
+NATIVE(strdup,          DST; SRC; DNAT = (uvalue_t) strdup((const char *) SNAT))
+NATIVE(strndup,         DST; SRC; KNAT; DNAT = (uvalue_t) strndup((const char *) SNAT, knat))
+
 NATIVE(cmdline,         DST; SRC; DNAT = rt.argv(SNAT))
 NATIVE(env,             DST; SRC; DNAT = rt.env(SNAT))
 
