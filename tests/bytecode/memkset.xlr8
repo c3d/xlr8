@@ -2,16 +2,21 @@
 
 sys kmalloc 0 #8
 nat 1 4
-sys memkset 0 1 #65
+sys memkset 0 +65 1
 ld1 2 0
+incr  0
 ld1 3 0
-incr 0
-ld1 3 0
+incr  0
+ld1 4 0
+incr  0
+ld1 5 0
 
 [STDOUT 1]
-
-sys write_natural STDOUT 2
-sys write_newline STDOUT
-sys write_natural STDOUT 3
-sys write_newline STDOUT
+[Reg[n]
+  sys write_natural STDOUT n
+  sys write_newline STDOUT]
+Reg 2
+Reg 3
+Reg 4
+Reg 5
 end

@@ -779,24 +779,54 @@ All `write_*` natives take the **stream first**, then the value to write.
 | Math library | `ffloor`, `fceil`, `fsqrt`, `fcbrt`, `fsin`, `fcos`, `ftan`, `fasin`, `facos`, `fatan`, `fexp`, `flog`, `fexp2`, `flog2`, and the `d…` counterparts |
 | Float compares | `fcmpeq`, `fcmpne`, `fcmplt`, `fcmpgt`, `fcmple`, `fcmpge`, and the `d…` counterparts |
 | Stack | `stack` — address of the value stack pointer |
-| Memory (bulk) | `memcpy`/`kmemcpy`, `memmove`/`kmemmove`, `memset`/`kmemset`/`memkset`/`kmemkset` — bulk copy/fill; `k…` forms take size as inline natural `#n`; `memkset`/`kmemkset` take fill byte inline |
+| Memory (bulk) | `memcpy`/`kmemcpy`, `memmove`/`kmemmove`, `memset`/`kmemset`/`memkset`/`kmemkset`, `memcmp`/`kmemcmp`, `memchr`/`kmemchr`/`memkchr`/`kmemkchr` — bulk copy/fill/compare/search; `k…` forms take size as inline natural `#n`; `memkset`/`kmemkset`/`memkchr`/`kmemkchr` take fill/search byte inline |
+| C strings (`string.h`) | `strlen`, `strnlen`/`kstrnlen`, `strcpy`, `strncpy`/`kstrncpy`, `strcat`, `strncat`/`kstrncat`, `strcmp`, `strncmp`/`kstrncmp`, `strchr`/`kstrchr`, `strrchr`/`kstrrchr`, `strstr`, ``strcasestr`, `strdup`, `strndup`/`kstrndup` — delegate to host libc for LLVM C lowering |
 | Memory (volatile) | `ld1v`…`ld8v`, `st1v`…`st8v` — volatile load/store through a register address |
 | Memory (sign-extending) | `ld1s`…`ld8s`, `ld1vs`…`ld8vs`, `ld1os`…`ld8os` — sign-extending loads (plain, volatile, and with signed offset) |
 | Extension | `sext`, `zext` — sign- or zero-extend a register to `kshift` bits (`sys sext dst +8`, `sys zext dst +32`) |
 | Bytecode / LEB128 | `tok`, `leb2i`, `leb2u`, `i2leb`, `u2leb`, `i2lebsz`, `u2lebsz`, `nat`, `int`, `flt`, `dbl` |
 
 `malloc` and `realloc` read the size from a **register** (`sys malloc 0 1` after
-`nat 1 16`). `kmalloc` reads the size inline, like `globals` (`sys kmalloc 0 #16`).
-Bare `+16` after `malloc` is a register index, not a byte count.
+`nat 1 16`). `kmalloc` reads the size inline (`sys kmalloc 0 #16`). Resize the
+global array with an inline count: `sys globals #n`.
 
-Bulk memory natives follow the same register vs inline pattern. Register size:
-`sys memcpy dst src size`, `sys memmove dst src size`, `sys memset dst value size`.
+Bulk memory natives follow the same register vs inline pattern. Register size
+(`l` operand): `sys memcpy dst src l`, `sys memmove dst src l`,
+`sys memset dst value l`, `sys memcmp dst s1 s2 l`, `sys memchr dst src char l`.
 Inline natural size (`#n`): `sys kmemcpy dst src #n`, `sys kmemmove dst src #n`,
-`sys kmemset dst value #n`. For `memset`, the fill byte is in register `value`;
-`sys memkset dst size #byte` keeps size in a register and passes the byte inline;
-`sys kmemkset dst #byte #size` passes both inline. See `tests/bytecode/memcpy.xlr8`,
-`kmemcpy.xlr8`, `memset.xlr8`, `kmemset.xlr8`, `memmove.xlr8`, `kmemmove.xlr8`,
-`memkset.xlr8`, and `kmemkset.xlr8`.
+`sys kmemset dst value #n`, `sys kmemcmp dst s1 s2 #n`,
+`sys kmemchr dst src char #n`. For `memset`, the fill byte is in register
+`value`; `sys memkset dst l #byte` keeps the length in a register and passes the
+byte inline; `sys kmemkset dst #byte #n` passes both inline. Character search
+with inline byte: `sys memkchr dst src #byte l`, `sys kmemkchr dst src #byte #n`.
+See `tests/bytecode/memcpy.xlr8`, `kmemcpy.xlr8`, `memset.xlr8`, `kmemset.xlr8`,
+`memmove.xlr8`, `kmemmove.xlr8`, `memkset.xlr8`, and `kmemkset.xlr8`.
+
+C string natives wrap `<string.h>` and are intended for freestanding C code
+lowered through the LLVM backend (`sys` calls instead of libcalls). Pointers are
+passed in registers; use `sys cstring` to turn a text token into a
+null-terminated C string before calling them. Length and compare results are
+written to the destination register (`strlen`/`strnlen` as natural,
+`strcmp`/`strncmp`/`memcmp` as signed integer). Copy and search routines that
+return a pointer write the address to the destination register (same pointer as
+the first operand for `strcpy`, `strcat`, and their `…ncat` variants).
+
+Every bounded operation has a register-length form and a `k…` form with inline
+`#n`, matching bulk memory. Register length (`l`): `sys strnlen dst src l`,
+`sys strncpy dst src l`, `sys strncat dst src l`, `sys strncmp dst s1 s2 l`,
+`sys strndup dst src l`. Inline natural:
+`sys kstrnlen dst src #n`, `sys kstrncpy dst src #n`, `sys kstrncat dst src #n`,
+`sys kstrncmp dst s1 s2 #n`, `sys kstrndup dst src #n`.
+Character searches take the byte in a register
+(`i`) for plain forms: `sys strchr dst src i`, `sys strrchr dst src i`,
+`sys memchr dst src i l`; or inline for `k…` forms: `sys kstrchr dst src #c`,
+`sys kstrrchr dst src #c`, `sys kmemchr dst src i #n`. Compare two C strings
+with `sys strcmp dst s1 s2` (result in `dst`). Substring search without a
+length limit: `sys strstr dst hay needle`; case-insensitive:
+`sys strcasestr dst hay needle`. Heap duplicates use `sys strdup dst src`;
+bounded copies use `sys strndup dst src l` or `sys kstrndup dst src #n` — call
+`sys free` on the returned pointer when done. See
+`tests/bytecode/string-natives.xlr8`.
 
 `sys alloca dst size` allocates `size` bytes on the stack frame (static within
 the current activation). `sys valloca dst src` allocates a dynamic size taken

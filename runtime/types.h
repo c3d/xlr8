@@ -33,21 +33,24 @@
 #include <cstdint>
 #include <string>
 
-typedef unsigned int         uint;
-typedef const char          *cstring;
-typedef const char          *utf8;
-typedef unsigned char        byte;
-typedef const byte          *byte_p;
-typedef const uint          *uint_p;
-typedef byte_p               object_p;
-typedef size_t               tok_t;
-typedef intptr_t             value_t;
-typedef uintptr_t            uvalue_t;
-typedef int64_t              large_t;
-typedef uint64_t             ularge_t;
-typedef value_t              broff_t;
-typedef ularge_t            *stack_p;
-typedef std::string          text;
-typedef uvalue_t             unicode;
+typedef unsigned int uint;
+typedef char         *char_p;
+typedef const char   *cstring;
+typedef const char   *utf8;
+typedef unsigned char byte;
+typedef const byte   *byte_p;
+typedef const uint   *uint_p;
+typedef byte_p        object_p;
+typedef size_t        tok_t;
+typedef intptr_t      value_t;
+typedef uintptr_t     uvalue_t;
+typedef int64_t       large_t;
+typedef uint64_t      ularge_t;
+typedef value_t       broff_t;
+typedef ularge_t     *stack_p;
+typedef std::string   text;
+typedef uvalue_t      unicode;
+typedef void         *void_p;
+typedef const void   *kvoid_p;
 
 #endif // TYPES_H

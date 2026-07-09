@@ -1,0 +1,188 @@
+// C string.h sys natives — k… inline forms and register operands
+
+[STDOUT 1]
+
+=dumpcstr
+  .dump_loop
+    ld1 6 7
+    beq 6 :dump_done
+    sys write_char STDOUT 6
+    incr 7
+    bra :dump_loop
+  .dump_done
+  sys write_newline STDOUT
+  ret
+;
+
+[nullterm[buf len]
+ copy 6 buf
+ addi 6 len
+ nat 5 0
+ st1 6 5]
+
+// strlen / strnlen / kstrnlen
+sys write_token STDOUT "strlen(hello)="
+sys cstring 1 +"hello"
+sys strlen 0 1
+sys write_natural STDOUT 0
+sys write_newline STDOUT
+
+sys write_token STDOUT "strnlen(hello,3)="
+nat 2 3
+sys strnlen 0 1 2
+sys write_natural STDOUT 0
+sys write_newline STDOUT
+
+sys write_token STDOUT "kstrnlen(hello,#3)="
+sys kstrnlen 0 1 #3
+sys write_natural STDOUT 0
+sys write_newline STDOUT
+
+// strcpy / strncpy / kstrncpy
+sys write_token STDOUT "strcpy(world)="
+sys kmalloc 2 #16
+sys cstring 1 +"world"
+sys strcpy 2 1
+copy 7 2
+call *dumpcstr
+
+sys write_token STDOUT "strncpy(abcdef,4)="
+sys kmalloc 3 #16
+sys cstring 1 +"abcdef"
+nat 4 4
+sys strncpy 3 1 4
+nullterm 3 4
+copy 7 3
+call *dumpcstr
+
+sys write_token STDOUT "kstrncpy(abcdef,#4)="
+sys kstrncpy 3 1 #4
+nullterm 3 4
+copy 7 3
+call *dumpcstr
+
+// strcat / strncat / kstrncat
+sys write_token STDOUT "strcat(!)="
+sys cstring 1 +"!"
+sys strcat 2 1
+copy 7 2
+call *dumpcstr
+
+sys write_token STDOUT "strncat(cd,#1)="
+sys kmalloc 5 #16
+sys cstring 1 +"ab"
+sys strcpy 5 1
+sys cstring 1 +"cd"
+nat 4 1
+sys strncat 5 1 4
+copy 7 5
+call *dumpcstr
+
+sys write_token STDOUT "kstrncat(cd,#1)="
+sys kstrncat 5 1 #1
+copy 7 5
+call *dumpcstr
+
+// strcmp / strncmp / kstrncmp
+sys write_token STDOUT "strcmp(abc,abc)="
+sys cstring 1 +"abc"
+sys cstring 2 +"abc"
+sys strcmp 0 1 2
+sys write_integer STDOUT 0
+sys write_newline STDOUT
+
+sys write_token STDOUT "strcmp(abc,abd)="
+sys cstring 2 +"abd"
+sys strcmp 0 1 2
+// Result must be negative, but we don't know the exact value
+bge 0 :bad
+int 0 -42
+.bad
+sys write_integer STDOUT 0
+sys write_newline STDOUT
+
+sys write_token STDOUT "strncmp(abc,ab,2)="
+sys cstring 2 +"ab"
+nat 4 2
+sys strncmp 0 1 2 4
+sys write_integer STDOUT 0
+sys write_newline STDOUT
+
+sys write_token STDOUT "kstrncmp(abc,ab,#2)="
+sys kstrncmp 0 1 2 #2
+sys write_integer STDOUT 0
+sys write_newline STDOUT
+
+// strstr / strnstr / kstrnstr / strcasestr
+sys write_token STDOUT "strstr(hello world,world)="
+sys cstring 1 +"hello world"
+sys cstring 2 +"world"
+sys strstr 0 1 2
+copy 7 0
+call *dumpcstr
+
+bra :nonexistent
+sys write_token STDOUT "strnstr(hello world,world,11)="
+nat 4 11
+sys strnstr 0 1 2 4
+copy 7 0
+call *dumpcstr
+
+sys write_token STDOUT "kstrnstr(hello world,world,#11)="
+sys kstrnstr 0 1 2 #11
+copy 7 0
+call *dumpcstr
+
+.nonexistent
+sys write_token STDOUT "strcasestr(Hello WORLD,world)="
+sys cstring 1 +"Hello WORLD"
+sys cstring 2 +"world"
+sys strcasestr 0 1 2
+copy 7 0
+call *dumpcstr
+
+// memcmp / kmemcmp
+sys write_token STDOUT "memcmp(abc,abd,3)="
+sys cstring 1 +"abc"
+sys cstring 2 +"abb"
+nat 4 3
+sys memcmp 0 1 2 4
+// Result must be positive, but we don't know the exact value
+ble 0 :bad2
+int 0 +4242
+.bad2
+sys write_integer STDOUT 0
+sys write_newline STDOUT
+
+sys cstring 2 +"abd"
+sys write_token STDOUT "kmemcmp(abc,abd,#3)="
+sys kmemcmp 0 1 2 #3
+// Result must be negative, but we don't know the exact value
+bge 0 :bad3
+int 0 -424242
+.bad3
+sys write_integer STDOUT 0
+sys write_newline STDOUT
+
+// strdup / strndup / kstrndup
+sys write_token STDOUT "strdup(dupme)="
+sys cstring 1 +"dupme"
+sys strdup 2 1
+copy 7 2
+call *dumpcstr
+sys free 2
+
+sys write_token STDOUT "strndup(dupme,3)="
+nat 4 3
+sys strndup 2 1 4
+copy 7 2
+call *dumpcstr
+sys free 2
+
+sys write_token STDOUT "kstrndup(dupme,#3)="
+sys kstrndup 2 1 #3
+copy 7 2
+call *dumpcstr
+sys free 2
+
+end
