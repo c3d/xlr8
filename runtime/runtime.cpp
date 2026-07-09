@@ -289,9 +289,9 @@ static inline bool write_unicode(scanner::ostream *out, unicode ch)
 //   Emit the UTF8 encoding output for the given characters
 // ----------------------------------------------------------------------------
 {
-    byte buffer[4];
+    byte buffer[4] = { 0 };
     size_t sz = utf8_encode(ch, buffer);
-    return ((*out) << text(buffer, buffer + sz)).good();
+    return ((*out) << text(cstring(buffer), sz)).good();
 }
 
 
