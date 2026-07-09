@@ -36,7 +36,7 @@
 XLR8=./xlr8 $(OPTLEVEL)
 TESTS=$(TESTS_$(PERF))
 RUN_TESTS=yes
-TIMEOUT=30
+TIMEOUT?=30
 PERF=
 TESTS_perf=$(wildcard */*.xlr8)
 TESTS_=$(filter-out performance/%,$(TESTS_perf))
@@ -121,7 +121,7 @@ XLR8_FILT=$(if $($1.FILTER),| ($($1.FILTER) || true))
 
 # Run a simple test
 # $1 = pattern
-XLR8_TIMEOUT=$(if $($*.TIMEOUT),$($*.TIMEOUT),$(TIMEOUT))
+XLR8_TIMEOUT=$(if $($*.TIMEOUT),$(shell bc <<< "$(TIMEOUT)+$($*.TIMEOUT)"),$(TIMEOUT))
 define test
 	$(call timeout,$(XLR8_TIMEOUT),$*,$(XLR8_CMD)) $(XLR8_FILT) > $1.output
 endef
