@@ -170,5 +170,6 @@ NATIVE(i2leb,   DST; SRC; DWPTR = leb128(DWPTR, SINT))
 NATIVE(u2leb,   DST; SRC; DWPTR = leb128(DWPTR, SNAT))
 NATIVE(i2lebsz, DST; SRC; DNAT = leb128size(SINT))
 NATIVE(u2lebsz, DST; SRC; DNAT = leb128size(SNAT))
+NATIVE(cstring, DST; TOK; DTYPE(utf8) = rt.tok(tok_t(t)))
 
 #undef NATIVE

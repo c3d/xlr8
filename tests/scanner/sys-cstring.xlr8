@@ -1,0 +1,12 @@
+// Illustrate how to generate a C-compatible null-terminated string
+
+[STDOUT 1]
+sys cstring 1 +"This is my null-terminated text"
+.loop
+    ld1 0 1
+    sys write_natural STDOUT 0
+    sys write_newline STDOUT
+    incr 1
+    bne 0 :loop
+
+end
