@@ -28,6 +28,36 @@
 //   but WITHOUT ANY WARRANTY; without even the implied warranty of
 //   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // ****************************************************************************
+//
+//  ===========================================================================
+//  REGISTER ALLOCATION CONVENTIONS (AArch64)
+//  ===========================================================================
+//
+//  Bytecode locals are frame[n] slots (uintptr_t).  Locals 0..15 live in
+//  shadow registers x0..x15 while valid; locals >= 16 use frame memory only
+//  (ldr/str via [x19, #local*8] through scratch registers).  See regmap.h.
+//
+//  Shadow validity: authoritative until spilled before sys, enter/leave, or
+//  scratch reuse.  Locals 0 and 1 are also syscall argument registers.
+//
+//  Register map:
+//    Shadow locals     x0 .. x15     frame[0] .. frame[15] when valid
+//    Frame pointer     x19 (HW_FRAME)   rt.frame, primed at JIT entry
+//    Saved link        x20 (HW_LINK)    LR across runtime calls
+//    Runtime (rsvd)    x21 (HW_RT)      &runtime, not yet loaded
+//    Flags/predicates  x22 (HW_FLAGS)   rt.flags (64-bit), primed at entry
+//    Scratch value     x23 (HW_SCR_VAL) swap, arithmetic, immediates
+//    Scratch address   x24 (HW_SCR_ADDR)
+//    Scratch offset    x25 (HW_SCR_OFF)
+//    Intra-call IP     x16 (HW_IP)      call_abs target (AAPCS IP0)
+//    Stack pointer     sp (x31)         native stack
+//
+//  Bytecode PC is the translator cursor, not a fixed HW register.  Runtime is
+//  reached via xlr8_get_runtime() today; HW_RT reserved for caching later.
+//
+//  There is no 32-bit ARM (AArch32) backend; this file is AArch64 only.
+//
+//  ===========================================================================
 
 #include "backend.h"
 #include "regmap.h"

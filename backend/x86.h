@@ -28,6 +28,27 @@
 //   but WITHOUT ANY WARRANTY; without even the implied warranty of
 //   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // ****************************************************************************
+//
+//  ===========================================================================
+//  REGISTER ALLOCATION CONVENTIONS (x86 / x86-64 / i386)
+//  ===========================================================================
+//
+//  Bytecode locals live in frame memory; there are no shadow registers on
+//  x86.  Every access is load/store at [r12 + local*ptr_size].  See regmap.h.
+//
+//  Register map (x86-64):
+//    Frame pointer     r12 (HW_FRAME)   rt.frame, primed at JIT entry
+//    Flags/predicates  r15 (HW_FLAGS)   rt.flags (64-bit), primed at entry
+//    Scratch           r11 (HW_SCR)     general temp (swap, etc.)
+//    Value temps       rax, rcx, rdx    used by opcode helpers
+//    Stack pointer     rsp              native stack
+//
+//  i386 variant: same model, 32-bit slots (ptr_size == 4), nb_regs == 8.
+//
+//  Bytecode PC is the translator cursor, not a fixed HW register.  Runtime is
+//  reached via xlr8_get_runtime() in spill/sys paths.
+//
+//  ===========================================================================
 
 #include "backend.h"
 #include "regmap.h"

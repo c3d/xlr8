@@ -28,6 +28,30 @@
 //   but WITHOUT ANY WARRANTY; without even the implied warranty of
 //   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // ****************************************************************************
+//
+//  ===========================================================================
+//  REGISTER ALLOCATION CONVENTIONS (RISC-V 64)
+//  ===========================================================================
+//
+//  Bytecode locals are frame[n] slots (uintptr_t).  Locals 0..15 live in
+//  shadow registers x10..x25 (xreg = 10+n) while valid; locals >= 16 use
+//  frame memory only (load/store through frame pointer, to be implemented).
+//  See regmap.h.
+//
+//  Register map:
+//    Shadow locals     x10 .. x25    frame[0] .. frame[15] (HW_LOC0 = x10)
+//    Frame pointer     x8  (HW_FRAME)   rt.frame (reserved, not yet primed)
+//    Flags/predicates  x9  (HW_FLAGS)   rt.flags (reserved)
+//    Scratch value     x28 (HW_SCR_VAL) swap and arithmetic temps
+//    Scratch address   x29 (HW_SCR_ADDR)
+//    Scratch offset    x30 (HW_SCR_OFF)
+//    Stack pointer     sp (x2)
+//
+//  a0-a7 (x10-x17) overlap shadow locals 0-7 by design: generated JIT code is
+//  not a normal RV callee.  Bytecode PC and runtime pointer follow the shared
+//  model in regmap.h.
+//
+//  ===========================================================================
 
 #include "backend.h"
 #include "regmap.h"
