@@ -25,8 +25,8 @@
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #******************************************************************************
 
-SOURCES=arch.cpp backend.cpp section.cpp \
-        i386.cpp x86_64.cpp arm64.cpp riscv64.cpp
+SOURCES=arch.cpp backend.cpp section.cpp gen.cpp x86.cpp \
+        arm64.cpp riscv64.cpp
 PRODUCTS=backend.lib
 
 INCLUDES=../runtime

@@ -28,15 +28,13 @@
 // ****************************************************************************
 
 #include "backend.h"
+#include "arm64.h"
+#include "i386.h"
+#include "riscv64.h"
+#include "x86_64.h"
 
 #include <cctype>
 #include <cstring>
-
-
-backend *backend_i386_new();
-backend *backend_x86_64_new();
-backend *backend_arm64_new();
-backend *backend_riscv64_new();
 
 
 backend::backend(arch_t arch)
@@ -178,10 +176,10 @@ backend *backend_new(arch_t arch)
 {
     switch (arch)
     {
-    case ARCH_I386:     return backend_i386_new();
-    case ARCH_X86_64:   return backend_x86_64_new();
-    case ARCH_ARM64:    return backend_arm64_new();
-    case ARCH_RISCV64:  return backend_riscv64_new();
+    case ARCH_I386:     return i386::make();
+    case ARCH_X86_64:   return x86_64::make();
+    case ARCH_ARM64:    return arm64::make();
+    case ARCH_RISCV64:  return riscv64::make();
     }
-    return backend_x86_64_new();
+    return x86_64::make();
 }

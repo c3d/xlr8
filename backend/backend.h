@@ -7,7 +7,7 @@
 //   File Description:
 //
 //     Base class for machine-specific code generation backends.  Each target
-//     derives from backend and overrides the virtual emission hooks.
+//     derives from backend and overrides virtual emit_* hooks for every opcode.
 //
 //
 //
@@ -31,9 +31,12 @@
 // ****************************************************************************
 
 #include "arch.h"
+#include "op.h"
 #include "section.h"
 
+#include <map>
 #include <string>
+#include <vector>
 
 
 struct backend
@@ -64,6 +67,10 @@ struct backend
     int             frame_offset() const    { return loc; }
     void            set_frame_offset(int o) { loc = o; }
 
+    bool            translate(byte_p &pc);
+    void            bind(tok_t t)           { labels[t] = cursor(); }
+    void            resolve_labels();
+
     // Target constants (TARGET_DEFS_ONLY section in TinyCC)
     virtual cstring machine_defs() const = 0;
     virtual uint    nb_regs() const = 0;
@@ -80,21 +87,35 @@ struct backend
     virtual void    gsym(uint t);
     virtual void    gsym_addr(uint t, uint a) = 0;
 
-    // Minimal arithmetic / return stubs
-    virtual void    load_reg_imm(uint r, value_t imm) = 0;
-    virtual void    add_reg_reg(uint dst, uint src) = 0;
-    virtual void    ret() = 0;
+    // ========================================================================
+    //
+    //   Virtual emitters for every built-in opcode
+    //
+    // ========================================================================
+#define OP(op, decl) virtual decl = 0;
+#include "opover.tbl"
+#undef OP
+
+    virtual void    emit_user(op_t op, byte_p &pc);
 
 protected:
     backend(arch_t arch);
 
-    arch_t          current_arch;
-    output_t        current_output;
-    bool            nocode_wanted;
-    bool            verbose;
-    section         text_section;
-    size_t          ind;
-    int             loc;
+    void            record_branch(broff_t offset, uint pos);
+    void            record_tok_jump(tok_t t, uint pos);
+    void            patch_branch(uint pos, broff_t offset);
+
+    arch_t                  current_arch;
+    output_t                current_output;
+    bool                    nocode_wanted;
+    bool                    verbose;
+    bool                    translating;
+    section                 text_section;
+    size_t                  ind;
+    int                     loc;
+    std::map<tok_t, size_t> labels;
+    std::map<tok_t, uint>   tok_jumps;
+    std::vector<uint>       branch_patches;
 };
 
 

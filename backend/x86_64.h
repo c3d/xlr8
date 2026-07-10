@@ -1,10 +1,12 @@
+#ifndef X86_64_H
+#define X86_64_H
 // ****************************************************************************
-//  i386.cpp                                                        XLR8 project
+//  x86_64.h                                                      XLR8 project
 // ****************************************************************************
 //
 //   File Description:
 //
-//     i386 code generator, inspired by TinyCC's i386-gen.c
+//     64-bit x86 code generation backend.
 //
 //
 //
@@ -27,49 +29,31 @@
 //   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // ****************************************************************************
 
-#include "backend.h"
+#include "x86.h"
 
 
-// ============================================================================
-//
-//   TARGET_DEFS_ONLY — register and ABI constants
-//
-// ============================================================================
-
-#define NB_REGS         8
-#define PTR_SIZE        4
-#define REG_IRET        0       // EAX
-
-enum : uint
-{
-    TREG_EAX = 0,
-    TREG_ECX = 1,
-    TREG_EDX = 2,
-    TREG_EBX = 3,
-    TREG_ESP = 4,
-    TREG_EBP = 5,
-    TREG_ESI = 6,
-    TREG_EDI = 7,
-};
-
-
-struct backend_i386 : backend
+struct x86_64 : x86
 // ----------------------------------------------------------------------------
-//   i386 code generator
+//   64-bit x86 code generator
 // ----------------------------------------------------------------------------
 {
-    backend_i386(): backend(ARCH_I386) { }
+    static backend *make()              { return new x86_64; }
+
+    x86_64(): x86(ARCH_X86_64) { }
 
     cstring machine_defs() const override
     {
-        return "__i386__\0__i386\0";
+        return "__x86_64__\0__amd64__\0";
     }
 
-    uint nb_regs() const override    { return NB_REGS; }
-    uint ptr_size() const override   { return PTR_SIZE; }
-    uint reg_iret() const override   { return REG_IRET; }
+    uint nb_regs() const override    { return 25; }
+    uint ptr_size() const override   { return 8; }
+    uint reg_iret() const override   { return 0; }
 
     uint gjmp(uint t) override
+    // ----------------------------------------------------------------------------
+    //   Emit jump with deferred fixup chain
+    // ----------------------------------------------------------------------------
     {
         g(0xe9);
         uint pos = uint(cursor());
@@ -78,6 +62,9 @@ struct backend_i386 : backend
     }
 
     void gsym_addr(uint t, uint a) override
+    // ----------------------------------------------------------------------------
+    //   Patch pending jumps to address a
+    // ----------------------------------------------------------------------------
     {
         section &sec = code();
         while (t)
@@ -97,27 +84,6 @@ struct backend_i386 : backend
             t = next;
         }
     }
-
-    void load_reg_imm(uint r, value_t imm) override
-    {
-        g(byte(0xb8 + r));
-        emit32(uint32_t(imm));
-    }
-
-    void add_reg_reg(uint dst, uint src) override
-    {
-        g(0x01);
-        g(byte(0xc0 | (dst << 3) | src));
-    }
-
-    void ret() override
-    {
-        g(0xc3);
-    }
 };
 
-
-backend *backend_i386_new()
-{
-    return new backend_i386;
-}
+#endif // X86_64_H
