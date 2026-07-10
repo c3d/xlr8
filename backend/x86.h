@@ -92,10 +92,61 @@ struct x86 : backend
 #undef OP
 
 protected:
-    static uint     reg_value(uint r)   { return r & 7; }
-    static bool     rex_b(uint r)       { return (r >> 3) & 1; }
-    static bool     rex_x(uint x)       { return (x >> 3) & 1; }
-    static bool     rex_r(uint r)       { return (r >> 3) & 1; }
+    static inline uint reg_value(uint r)
+    // ----------------------------------------------------------------------------
+    //   Low three bits of a hardware register number
+    // ----------------------------------------------------------------------------
+    {
+        return r & 7;
+    }
+
+    static inline bool rex_b(uint r)
+    // ----------------------------------------------------------------------------
+    //   REX.B bit for extended register r
+    // ----------------------------------------------------------------------------
+    {
+        return (r >> 3) & 1;
+    }
+
+    static inline bool rex_x(uint x)
+    // ----------------------------------------------------------------------------
+    //   REX.X bit for extended index register x
+    // ----------------------------------------------------------------------------
+    {
+        return (x >> 3) & 1;
+    }
+
+    static inline bool rex_r(uint r)
+    // ----------------------------------------------------------------------------
+    //   REX.R bit for extended register r
+    // ----------------------------------------------------------------------------
+    {
+        return (r >> 3) & 1;
+    }
+
+    static inline byte modrm_rr(uint r, uint x)
+    // ----------------------------------------------------------------------------
+    //   ModR/M byte for op r, x (register-direct, both in registers)
+    // ----------------------------------------------------------------------------
+    {
+        return byte(0xc0 | (reg_value(r) << 3) | reg_value(x));
+    }
+
+    static inline byte modrm_rm(uint r, uint b)
+    // ----------------------------------------------------------------------------
+    //   ModR/M byte for op r, [b] (register r, memory at base b)
+    // ----------------------------------------------------------------------------
+    {
+        return byte(0x00 | (reg_value(r) << 3) | reg_value(b));
+    }
+
+    static inline byte modrm_mr(uint b, uint r)
+    // ----------------------------------------------------------------------------
+    //   ModR/M byte for op [b], r (memory at base b, register r)
+    // ----------------------------------------------------------------------------
+    {
+        return byte(0x00 | (reg_value(r) << 3) | reg_value(b));
+    }
 
     void            orex(int ll, int r, int x, byte c);
     void            emit_rex_modrm(int ll, int r, int x, int b, byte op);

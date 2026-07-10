@@ -34,15 +34,6 @@
 #include <cstring>
 
 
-static uint xreg(byte n)
-// ----------------------------------------------------------------------------
-//   Map bytecode local n to shadow hardware register xn (n < LOC_SHADOW_COUNT)
-// ----------------------------------------------------------------------------
-{
-    return n;
-}
-
-
 void arm64::load_local(byte n, uint r)
 // ----------------------------------------------------------------------------
 //   Load bytecode local n into hardware register r
@@ -51,13 +42,11 @@ void arm64::load_local(byte n, uint r)
     if (n < LOC_SHADOW_COUNT)
     {
         if (r != n)
-            // orr x<r>, xzr, x<n>  (mov alias)
-            emit32le(0xaa0003e0u | (n << 16) | r);
+            emit32le(mov_rr(r, n));
     }
     else
     {
-        // ldr x<r>, [x19, #n*8]
-        emit32le(0xf9400000u | (uint(n) << 10) | (HW_FRAME << 5) | r);
+        emit32le(ldr_off(r, HW_FRAME, uint(n)));
     }
 }
 
@@ -70,14 +59,12 @@ void arm64::store_local(uint r, byte n)
     if (n < LOC_SHADOW_COUNT)
     {
         if (r != n)
-            // orr x<n>, xzr, x<r>  (mov alias)
-            emit32le(0xaa0003e0u | (r << 16) | n);
+            emit32le(mov_rr(n, r));
         touch_local(n);
     }
     else
     {
-        // str x<r>, [x19, #n*8]
-        emit32le(0xf9000000u | (uint(n) << 10) | (HW_FRAME << 5) | r);
+        emit32le(str_off(r, HW_FRAME, uint(n)));
     }
 }
 
@@ -138,17 +125,13 @@ void arm64::load_imm64(uint r, uint64_t v)
 //   Load a 64-bit constant into AArch64 register r
 // ----------------------------------------------------------------------------
 {
-    // movz x<r>, #imm16
-    emit32le(0xd2800000u | ((uint32_t(v) & 0xffffu) << 5) | r);
+    emit32le(movz(r, uint32_t(v) & 0xffffu));
     if ((v >> 16) & 0xffffu)
-        // movk x<r>, #imm16, lsl #16
-        emit32le(0xf2a00000u | (((v >> 16) & 0xffffu) << 5) | r);
+        emit32le(movk(r, uint32_t(v >> 16), 16));
     if ((v >> 32) & 0xffffu)
-        // movk x<r>, #imm16, lsl #32
-        emit32le(0xf2c00000u | (((v >> 32) & 0xffffu) << 5) | r);
+        emit32le(movk(r, uint32_t(v >> 32), 32));
     if ((v >> 48) & 0xffffu)
-        // movk x<r>, #imm16, lsl #48
-        emit32le(0xf2e00000u | (((v >> 48) & 0xffffu) << 5) | r);
+        emit32le(movk(r, uint32_t(v >> 48), 48));
 }
 
 
@@ -158,8 +141,7 @@ void arm64::call_abs(void *fn)
 // ----------------------------------------------------------------------------
 {
     load_imm64(HW_IP, uint64_t(fn));
-    // blr x16
-    emit32le(0xd63f0200u);
+    emit32le(blr(HW_IP));
 }
 
 
@@ -194,8 +176,7 @@ void arm64::spill_frame(void)
         // x0/x1 become syscall arguments; only sync them once after a change
         if (r <= 1 && !spill_arg_regs)
             continue;
-        // str x<r>, [x19, #r*8]
-        emit32le(0xf9000000u | (r << 10) | (HW_FRAME << 5) | r);
+        emit32le(str_off(xreg(byte(r)), HW_FRAME, r));
     }
 }
 
@@ -205,8 +186,7 @@ void arm64::reload_frame_reg()
 //   Reload x19 from x0 after xlr8_enter or xlr8_leave
 // ----------------------------------------------------------------------------
 {
-    // mov x19, x0
-    emit32le(0xaa0003f3u);
+    emit32le(reload_frame());
 }
 
 
@@ -239,7 +219,7 @@ void arm64::gsym_addr(uint t, uint a)
         }
         int32_t offset = (int32_t(a) - int32_t(n)) / 4;
         // b #offset
-        sec.patch32(n - 4, 0x14000000u | (uint32_t(offset) & 0x03ffffffu));
+        sec.patch32(n - 4, b_imm(offset));
         t = next;
     }
 }
@@ -250,8 +230,7 @@ void arm64::begin_translation()
 //   Save link register for return to native runner
 // ----------------------------------------------------------------------------
 {
-    // mov x20, x30
-    emit32le(0xaa1e03f4u);
+    emit32le(mov_lr_save());
 }
 
 
@@ -270,8 +249,7 @@ void arm64::mov_local(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     if (d < LOC_SHADOW_COUNT && s < LOC_SHADOW_COUNT)
-        // orr x<d>, xzr, x<s>  (mov alias)
-        emit32le(0xaa0003e0u | (xreg(s)<<16) | xreg(d));
+        emit32le(mov_rr(xreg(d), xreg(s)));
     else
         load_local(s, HW_SCR_VAL), store_local(HW_SCR_VAL, d);
     touch_local(d);
@@ -294,8 +272,7 @@ void arm64::store_imm(byte d, value_t v)
 //   Store integer immediate into bytecode local
 // ----------------------------------------------------------------------------
 {
-    // movz x<d>, #imm16
-    emit32le(0xd2800000u | ((uint32_t(v)&0xffffu)<<5) | xreg(d));
+    emit32le(movz(xreg(d), uint32_t(v) & 0xffffu));
     touch_local(d);
 }
 
@@ -324,32 +301,23 @@ void arm64::binop_local(byte d, byte s, cstring op)
 // ----------------------------------------------------------------------------
 {
     if (!strcmp(op, "add"))
-        // add x<d>, x<d>, x<s>
-        emit32le(0x8b000000u | (xreg(s)<<16) | (xreg(d)<<5) | xreg(d));
+        emit32le(add_rrr(xreg(d), xreg(d), xreg(s)));
     else if (!strcmp(op, "sub"))
-        // sub x<d>, x<d>, x<s>
-        emit32le(0xcb000000u | (xreg(s)<<16) | (xreg(d)<<5) | xreg(d));
+        emit32le(sub_rrr(xreg(d), xreg(d), xreg(s)));
     else if (!strcmp(op, "mul"))
-        // mul x<d>, x<d>, x<s>
-        emit32le(0x9b007c00u | (xreg(s)<<16) | (xreg(d)<<5) | xreg(d));
+        emit32le(mul_rrr(xreg(d), xreg(d), xreg(s)));
     else if (!strcmp(op, "and"))
-        // and x<d>, x<d>, x<s>
-        emit32le(0x8a000000u | (xreg(s)<<16) | (xreg(d)<<5) | xreg(d));
+        emit32le(and_rrr(xreg(d), xreg(d), xreg(s)));
     else if (!strcmp(op, "or"))
-        // orr x<d>, x<d>, x<s>
-        emit32le(0xaa000000u | (xreg(s)<<16) | (xreg(d)<<5) | xreg(d));
+        emit32le(orr_rrr(xreg(d), xreg(d), xreg(s)));
     else if (!strcmp(op, "xor"))
-        // eor x<d>, x<d>, x<s>
-        emit32le(0xca000000u | (xreg(s)<<16) | (xreg(d)<<5) | xreg(d));
+        emit32le(eor_rrr(xreg(d), xreg(d), xreg(s)));
     else if (!strcmp(op, "shl"))
-        // lsl x<d>, x<d>, x<s>
-        emit32le(0x9ac02000u | (xreg(s)<<16) | (xreg(d)<<5) | xreg(d));
+        emit32le(lsl_rrr(xreg(d), xreg(d), xreg(s)));
     else if (!strcmp(op, "shr"))
-        // asr x<d>, x<d>, x<s>
-        emit32le(0x9ac02400u | (xreg(s)<<16) | (xreg(d)<<5) | xreg(d));
+        emit32le(asr_rrr(xreg(d), xreg(d), xreg(s)));
     else if (!strcmp(op, "ushr"))
-        // lsr x<d>, x<d>, x<s>
-        emit32le(0x9ac02800u | (xreg(s)<<16) | (xreg(d)<<5) | xreg(d));
+        emit32le(lsr_rrr(xreg(d), xreg(d), xreg(s)));
     else trap(op);
     touch_local(d);
 }
@@ -360,11 +328,9 @@ void arm64::binop_imm(byte d, value_t v, cstring op)
 // ----------------------------------------------------------------------------
 {
     if (!strcmp(op, "add") || !strcmp(op, "addi"))
-        // add x<d>, x<d>, #imm12
-        emit32le(0x91000000u | ((uint32_t(v)&0xfffu)<<10) | (xreg(d)<<5) | xreg(d));
+        emit32le(add_imm(xreg(d), xreg(d), uint32_t(v)));
     else if (!strcmp(op, "sub") || !strcmp(op, "subi"))
-        // sub x<d>, x<d>, #imm12
-        emit32le(0xd1000000u | ((uint32_t(v)&0xfffu)<<10) | (xreg(d)<<5) | xreg(d));
+        emit32le(sub_imm(xreg(d), xreg(d), uint32_t(v)));
     else trap(op);
     touch_local(d);
 }
@@ -377,14 +343,12 @@ void arm64::set_pred(byte p, bool on)
     if (on)
     {
         load_imm64(HW_SCR_VAL, 1ULL << p);
-        // orr x22, x22, x23
-        emit32le(0xaa000000u | (HW_SCR_VAL << 16) | (HW_FLAGS << 5) | HW_FLAGS);
+        emit32le(orr_rrr(HW_FLAGS, HW_FLAGS, HW_SCR_VAL));
     }
     else
     {
         load_imm64(HW_SCR_VAL, ~(1ULL << p));
-        // and x22, x22, x23
-        emit32le(0x8a000000u | (HW_SCR_VAL << 16) | (HW_FLAGS << 5) | HW_FLAGS);
+        emit32le(and_rrr(HW_FLAGS, HW_FLAGS, HW_SCR_VAL));
     }
 }
 
@@ -393,8 +357,7 @@ void arm64::cmp_local(byte p, byte d, byte s, cstring op)
 //   Compare two locals and set predicate p
 // ----------------------------------------------------------------------------
 {
-    // cmp x<d>, x<s>
-    emit32le(0xeb00001fu | (xreg(s)<<16) | (xreg(d)<<5));
+    emit32le(cmp_rr(xreg(d), xreg(s)));
     set_pred(p, !strcmp(op, "cmpeq"));
     (void) op;
 }
@@ -404,8 +367,7 @@ void arm64::cmp_imm(byte p, byte d, value_t v, cstring op)
 //   Compare local with signed immediate and set predicate
 // ----------------------------------------------------------------------------
 {
-    // cmp x<d>, #imm12
-    emit32le(0xf100001fu | ((uint32_t(v)&0xfffu)<<10) | (xreg(d)<<5));
+    emit32le(cmp_r_imm(xreg(d), uint32_t(v)));
     set_pred(p, !strcmp(op, "cmpeqi"));
     (void) op;
 }
@@ -439,8 +401,7 @@ void arm64::neg_local(byte d)
 //   Negate bytecode local d
 // ----------------------------------------------------------------------------
 {
-    // neg x<d>, x<d>
-    emit32le(0xcb0003e0u | (xreg(d)<<5) | xreg(d));
+    emit32le(neg_rr(xreg(d)));
     touch_local(d);
 }
 
@@ -449,8 +410,7 @@ void arm64::not_local(byte d)
 //   Bitwise complement of bytecode local d
 // ----------------------------------------------------------------------------
 {
-    // orn x<d>, xzr, x<d>
-    emit32le(0xaa2003e0u | (xreg(d)<<16) | xreg(d));
+    emit32le(not_rr(xreg(d)));
     touch_local(d);
 }
 
@@ -459,8 +419,7 @@ void arm64::incr_local(byte d)
 //   Increment bytecode local d
 // ----------------------------------------------------------------------------
 {
-    // add x<d>, x<d>, #1
-    emit32le(0x91000400u | (xreg(d)<<5) | xreg(d));
+    emit32le(add_imm(xreg(d), xreg(d), 1));
     touch_local(d);
 }
 
@@ -469,8 +428,7 @@ void arm64::decr_local(byte d)
 //   Decrement bytecode local d
 // ----------------------------------------------------------------------------
 {
-    // sub x<d>, x<d>, #1
-    emit32le(0xd1000400u | (xreg(d)<<5) | xreg(d));
+    emit32le(sub_imm(xreg(d), xreg(d), 1));
     touch_local(d);
 }
 
@@ -480,8 +438,7 @@ void arm64::sext_local(byte d, byte w)
 // ----------------------------------------------------------------------------
 {
     (void)w;
-    // sbfm x<d>, x<d>, #0, #63
-    emit32le(0x9340fc00u | (63<<10) | (xreg(d)<<5) | xreg(d));
+    emit32le(sbfm_64(xreg(d)));
     touch_local(d);
 }
 
@@ -491,8 +448,7 @@ void arm64::zext_local(byte d, byte w)
 // ----------------------------------------------------------------------------
 {
     (void)w;
-    // ubfm x<d>, x<d>, #0, #63
-    emit32le(0x92400000u | (xreg(d)<<5) | xreg(d));
+    emit32le(ubfm_64(xreg(d)));
     touch_local(d);
 }
 
@@ -502,8 +458,7 @@ void arm64::store_mem(byte d, byte s, uint sz)
 // ----------------------------------------------------------------------------
 {
     (void)sz;
-    // str x<d>, [x<s>]
-    emit32le(0xf9000000u | (xreg(s)<<5) | xreg(d));
+    emit32le(str_idx(xreg(d), xreg(s)));
 }
 
 void arm64::load_mem(byte d, byte s, uint sz)
@@ -512,8 +467,7 @@ void arm64::load_mem(byte d, byte s, uint sz)
 // ----------------------------------------------------------------------------
 {
     (void)sz;
-    // ldr x<d>, [x<s>]
-    emit32le(0xf9400000u | (xreg(s)<<5) | xreg(d));
+    emit32le(ldr_idx(xreg(d), xreg(s)));
     touch_local(d);
 }
 
@@ -554,8 +508,7 @@ void arm64::frame_addr(byte d, byte s)
 //   Compute frame-relative address into local d
 // ----------------------------------------------------------------------------
 {
-    // add x<d>, x19, x<s>, lsl #3
-    emit32le(0x8b000000u | (3u<<10) | (xreg(s)<<16) | (HW_FRAME<<5) | xreg(d));
+    emit32le(frame_addr_rr(xreg(d), xreg(s)));
 }
 
 void arm64::bra_offset(broff_t b)
@@ -619,8 +572,7 @@ void arm64::ijmp_local(byte s)
 //   Indirect jump through local s
 // ----------------------------------------------------------------------------
 {
-    // br x<s>
-    emit32le(0xd61f0000u | (xreg(s)<<5));
+    emit32le(br(xreg(s)));
 }
 
 void arm64::icall_local(byte s)
@@ -628,8 +580,7 @@ void arm64::icall_local(byte s)
 //   Indirect call through local s
 // ----------------------------------------------------------------------------
 {
-    // blr x<s>
-    emit32le(0xd63f0000u | (xreg(s)<<5));
+    emit32le(blr(xreg(s)));
 }
 
 void arm64::push_pc()
@@ -637,8 +588,7 @@ void arm64::push_pc()
 //   Push program counter onto stack
 // ----------------------------------------------------------------------------
 {
-    // stp x29, x30, [sp, #-16]!
-    emit32le(0xa9bf7bfdu);
+    emit32le(stp_fp_lr());
 }
 
 void arm64::load_pc(byte d)
@@ -678,8 +628,7 @@ void arm64::push_local(byte s)
 //   Push local s onto stack
 // ----------------------------------------------------------------------------
 {
-    // stp x<s>, xzr, [sp, #-16]!
-    emit32le(0xa9bf03e0u | xreg(s));
+    emit32le(stp_push(xreg(s)));
 }
 
 void arm64::pop_local(byte d)
@@ -687,8 +636,7 @@ void arm64::pop_local(byte d)
 //   Pop stack value into local d
 // ----------------------------------------------------------------------------
 {
-    // ldp x<d>, xzr, [sp], #16
-    emit32le(0xa8c107e0u | xreg(d));
+    emit32le(ldp_pop(xreg(d)));
     touch_local(d);
 }
 
@@ -697,8 +645,7 @@ void arm64::push_flags()
 //   Push flags register onto stack
 // ----------------------------------------------------------------------------
 {
-    // stp x22, xzr, [sp, #-16]!
-    emit32le(0xa9bf03e0u | HW_FLAGS);
+    emit32le(stp_push(HW_FLAGS));
 }
 
 void arm64::pop_flags()
@@ -706,8 +653,7 @@ void arm64::pop_flags()
 //   Pop stack value into flags register
 // ----------------------------------------------------------------------------
 {
-    // ldp x22, xzr, [sp], #16
-    emit32le(0xa8c103e0u | HW_FLAGS);
+    emit32le(ldp_pop(HW_FLAGS));
 }
 
 void arm64::store_global(byte d, byte s)
@@ -731,10 +677,8 @@ void arm64::do_ret()
 //   Emit return instruction
 // ----------------------------------------------------------------------------
 {
-    // mov x30, x20
-    emit32le(0xaa1403feu);
-    // ret
-    emit32le(0xd65f03c0u);
+    emit32le(mov_lr_restore());
+    emit32le(ret_insn());
 }
 
 void arm64::trap(cstring msg)
@@ -743,8 +687,7 @@ void arm64::trap(cstring msg)
 // ----------------------------------------------------------------------------
 {
     (void)msg;
-    // brk #0
-    emit32le(0xd4200000u);
+    emit32le(brk_insn());
 }
 
 void arm64::rtcall(cstring fn)

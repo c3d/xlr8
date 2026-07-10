@@ -198,7 +198,7 @@ if (!strcmp(op, "add"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x01); g(0xc0 | (reg_value(HW_RAX) << 3) | reg_value(HW_RCX));
+    orex(1, HW_RAX, HW_RCX, 0x01); g(modrm_rr(HW_RAX, HW_RCX));
 }
 
 else if (!strcmp(op, "sub"))
@@ -206,7 +206,7 @@ else if (!strcmp(op, "sub"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x29); g(0xc0 | (reg_value(HW_RAX) << 3) | reg_value(HW_RCX));
+    orex(1, HW_RAX, HW_RCX, 0x29); g(modrm_rr(HW_RAX, HW_RCX));
 }
 
 else if (!strcmp(op, "imul"))
@@ -214,7 +214,7 @@ else if (!strcmp(op, "imul"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x0f); g(0xaf); g(0xc0 | (reg_value(HW_RAX) << 3) | reg_value(HW_RCX));
+    orex(1, HW_RAX, HW_RCX, 0x0f); g(0xaf); g(modrm_rr(HW_RAX, HW_RCX));
 }
 
 else if (!strcmp(op, "and"))
@@ -222,7 +222,7 @@ else if (!strcmp(op, "and"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x21); g(0xc0 | (reg_value(HW_RAX) << 3) | reg_value(HW_RCX));
+    orex(1, HW_RAX, HW_RCX, 0x21); g(modrm_rr(HW_RAX, HW_RCX));
 }
 
 else if (!strcmp(op, "or"))
@@ -230,7 +230,7 @@ else if (!strcmp(op, "or"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x09); g(0xc0 | (reg_value(HW_RAX) << 3) | reg_value(HW_RCX));
+    orex(1, HW_RAX, HW_RCX, 0x09); g(modrm_rr(HW_RAX, HW_RCX));
 }
 
 else if (!strcmp(op, "xor"))
@@ -238,7 +238,7 @@ else if (!strcmp(op, "xor"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x31); g(0xc0 | (reg_value(HW_RAX) << 3) | reg_value(HW_RCX));
+    orex(1, HW_RAX, HW_RCX, 0x31); g(modrm_rr(HW_RAX, HW_RCX));
 }
 
 else if (!strcmp(op, "shl"))
@@ -376,7 +376,7 @@ else if (!strcmp(op, "imul"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, 0, 0x69); g(0xc0 | (reg_value(HW_RAX)<<3)|reg_value(HW_RAX)); emit32(uint32_t(v));
+    orex(1, HW_RAX, 0, 0x69); g(modrm_rr(HW_RAX, HW_RAX)); emit32(uint32_t(v));
 }
 
 else if (!strcmp(op, "and"))
@@ -440,13 +440,13 @@ void x86::set_pred(byte p, bool on)
     {
         load_hw_imm(HW_RAX, 1ULL << p);
         orex(1, HW_FLAGS, HW_RAX, 0x09);
-        g(0xc0 | (reg_value(HW_FLAGS) << 3) | reg_value(HW_RAX));
+        g(modrm_rr(HW_FLAGS, HW_RAX));
     }
     else
     {
         load_hw_imm(HW_RAX, ~(1ULL << p));
         orex(1, HW_FLAGS, HW_RAX, 0x21);
-        g(0xc0 | (reg_value(HW_FLAGS) << 3) | reg_value(HW_RAX));
+        g(modrm_rr(HW_FLAGS, HW_RAX));
     }
 }
 
@@ -459,7 +459,7 @@ void x86::cmp_local(byte p, byte d, byte s, cstring rel)
     load_local(d, HW_RAX);
     load_local(s, HW_RCX);
     orex(1, HW_RAX, HW_RCX, 0x39);
-    g(0xc0 | (reg_value(HW_RAX) << 3) | reg_value(HW_RCX));
+    g(modrm_rr(HW_RAX, HW_RCX));
     byte cc = 0x94;
     if (!strcmp(rel, "eq")) cc = 0x94;
     else if (!strcmp(rel, "ne")) cc = 0x95;
@@ -468,7 +468,7 @@ void x86::cmp_local(byte p, byte d, byte s, cstring rel)
     else if (!strcmp(rel, "ltu")) cc = 0x92;
     else if (!strcmp(rel, "leu")) cc = 0x96;
     g(0x0f); g(0x90 | (cc & 0x0f));
-    g(0xc0 | (reg_value(HW_RAX) << 3));
+    g(modrm_rr(HW_RAX, HW_RAX));
     set_pred(p, true);
 }
 
@@ -676,7 +676,7 @@ void x86::store_mem_off(byte d, byte s, value_t o, uint sz)
     load_local(s, HW_RCX);
     load_hw_imm(HW_RDX, uint64_t(o));
     orex(1, HW_RDX, HW_RAX, 0x01);
-    g(0xc0 | (reg_value(HW_RDX) << 3) | reg_value(HW_RAX));
+    g(modrm_rr(HW_RDX, HW_RAX));
     store_mem(d, s, sz);
 }
 
@@ -689,7 +689,7 @@ void x86::load_mem_off(byte d, byte s, value_t o, uint sz)
     load_local(s, HW_RAX);
     load_hw_imm(HW_RCX, uint64_t(o));
     orex(1, HW_RCX, HW_RAX, 0x01);
-    g(0xc0 | (reg_value(HW_RCX) << 3) | reg_value(HW_RAX));
+    g(modrm_rr(HW_RCX, HW_RAX));
     load_mem(d, s, sz);
 }
 
@@ -753,7 +753,7 @@ void x86::bra_zero(byte s, broff_t b, bool eq)
 {
     load_local(s, HW_RAX);
     orex(1, HW_RAX, 0, 0x85);
-    g(0xc0 | (reg_value(HW_RAX) << 3) | reg_value(HW_RAX));
+    g(modrm_rr(HW_RAX, HW_RAX));
     g(eq ? 0x74 : 0x75);
     uint pos = uint(cursor());
     emit32(0);
@@ -768,7 +768,7 @@ void x86::bra_signed(byte s, broff_t b, byte cc)
 {
     load_local(s, HW_RAX);
     orex(1, HW_RAX, 0, 0x85);
-    g(0xc0 | (reg_value(HW_RAX) << 3) | reg_value(HW_RAX));
+    g(modrm_rr(HW_RAX, HW_RAX));
     g(0x0f); g(cc);
     uint pos = uint(cursor());
     emit32(0);
