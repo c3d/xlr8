@@ -29,6 +29,8 @@
 
 #include "riscv64.h"
 
+#include "native-bridge.h"
+
 #include <cstring>
 
 
@@ -114,6 +116,16 @@ void riscv64::gsym_addr(uint t, uint a)
         t = next;
     }
 }
+
+
+void riscv64::finish_translation()
+// ----------------------------------------------------------------------------
+//   Emit epilogue at end of translated code
+// ----------------------------------------------------------------------------
+{
+    do_ret();
+}
+
 
 static uint xreg(byte n)
 // ----------------------------------------------------------------------------

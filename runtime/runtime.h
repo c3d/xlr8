@@ -108,6 +108,7 @@ struct runtime
 
 
     bool run();
+    bool run_native(byte_p entry = nullptr);
     bool trace();
     // ------------------------------------------------------------------------
     //   Run all instructions at current code pointer

@@ -48,6 +48,7 @@ struct riscv64 : backend
 
     uint gjmp(uint t) override;
     void gsym_addr(uint t, uint a) override;
+    void finish_translation() override;
 
 #define OP(op, sig) sig override;
 #include "opover.tbl"

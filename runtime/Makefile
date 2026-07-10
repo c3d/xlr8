@@ -27,11 +27,11 @@
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #******************************************************************************
 
-SOURCES=runtime.cpp scanner.cpp
+SOURCES=runtime.cpp scanner.cpp native-bridge.cpp native-run.cpp
 PRODUCTS=xlr8.dll
 
-INCLUDES=../recorder
-LIBRARIES=../recorder/recorder.dll
+INCLUDES=../recorder ../backend ../runtime
+LIBRARIES=../recorder/recorder.dll ../backend/backend.lib
 
 CXX_STD=gnu++17
 

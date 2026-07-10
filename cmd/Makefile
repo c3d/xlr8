@@ -31,7 +31,7 @@ SOURCES=xlr8.cpp
 PRODUCTS=xlr8.exe
 
 INCLUDES=../runtime ../recorder ../cxxopts/include
-LIBRARIES=../runtime/xlr8.dll ../record/recorder.dll
+LIBRARIES=../runtime/xlr8.dll ../recorder/recorder.dll
 
 VERSION:=$(shell git describe 2> /dev/null || echo "unkown-version")
 DEFINES=XLR8_VERSION='"$(VERSION)"'

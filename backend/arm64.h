@@ -48,6 +48,7 @@ struct arm64 : backend
 
     uint gjmp(uint t) override;
     void gsym_addr(uint t, uint a) override;
+    void finish_translation() override;
 
 #define OP(op, sig) sig override;
 #include "opover.tbl"
@@ -55,6 +56,9 @@ struct arm64 : backend
 
 protected:
     void emit32le(uint32_t insn);
+    void load_imm64(uint r, uint64_t v);
+    void call_abs(void *fn);
+    void spill_frame(void);
     void mov_local(byte d, byte s);
     void swap_locals(byte d, byte s);
     void store_imm(byte d, value_t v);

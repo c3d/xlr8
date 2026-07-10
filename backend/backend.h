@@ -68,6 +68,7 @@ struct backend
     void            set_frame_offset(int o) { loc = o; }
 
     bool            translate(byte_p &pc);
+    virtual void    finish_translation();
     void            bind(tok_t t)           { labels[t] = cursor(); }
     void            resolve_labels();
 

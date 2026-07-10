@@ -29,6 +29,9 @@
 
 #include "arm64.h"
 
+#include "native-bridge.h"
+#include "runtime.h"
+
 #include <cstring>
 
 
@@ -83,6 +86,45 @@ void arm64::emit32le(uint32_t insn)
 }
 
 
+void arm64::load_imm64(uint r, uint64_t v)
+// ----------------------------------------------------------------------------
+//   Load a 64-bit constant into AArch64 register r
+// ----------------------------------------------------------------------------
+{
+    emit32le(0xd2800000u | ((uint32_t(v) & 0xffffu) << 5) | r);
+    if ((v >> 16) & 0xffffu)
+        emit32le(0xf2a00000u | (((v >> 16) & 0xffffu) << 5) | r);
+    if ((v >> 32) & 0xffffu)
+        emit32le(0xf2c00000u | (((v >> 32) & 0xffffu) << 5) | r);
+    if ((v >> 48) & 0xffffu)
+        emit32le(0xf2e00000u | (((v >> 48) & 0xffffu) << 5) | r);
+}
+
+
+void arm64::call_abs(void *fn)
+// ----------------------------------------------------------------------------
+//   Emit an absolute call to fn using x16 as scratch
+// ----------------------------------------------------------------------------
+{
+    load_imm64(16, uint64_t(fn));
+    emit32le(0xd63f0200u);
+}
+
+
+void arm64::spill_frame(void)
+// ----------------------------------------------------------------------------
+//   Store bytecode locals in x0-x15 into the runtime frame
+// ----------------------------------------------------------------------------
+{
+    runtime *rt = xlr8_get_runtime();
+    if (!rt || !rt->frame)
+        return;
+    load_imm64(17, uint64_t(uintptr_t(rt->frame)));
+    for (uint r = 0; r < 16; r++)
+        emit32le(0xf9000000u | (r << 10) | (17u << 5) | r);
+}
+
+
 uint arm64::gjmp(uint t)
 // ----------------------------------------------------------------------------
 //   Emit jump with deferred fixup chain
@@ -114,6 +156,16 @@ void arm64::gsym_addr(uint t, uint a)
         t = next;
     }
 }
+
+
+void arm64::finish_translation()
+// ----------------------------------------------------------------------------
+//   Emit epilogue at end of translated code
+// ----------------------------------------------------------------------------
+{
+    do_ret();
+}
+
 
 static uint xreg(byte n)
 // ----------------------------------------------------------------------------
@@ -533,7 +585,7 @@ void arm64::rtcall(cstring fn)
 //   Emit call to runtime helper function
 // ----------------------------------------------------------------------------
 {
-    (void)fn; trap(fn);
+    call_abs(xlr8_runtime_fn(fn));
 }
 
 void arm64::rtcall(cstring fn, tok_t a)
@@ -541,7 +593,8 @@ void arm64::rtcall(cstring fn, tok_t a)
 //   Emit call to runtime helper function
 // ----------------------------------------------------------------------------
 {
-    (void)fn;(void)a; trap(fn);
+    load_imm64(0, uint64_t(a));
+    call_abs(xlr8_runtime_fn(fn));
 }
 
 void arm64::rtcall(cstring fn, byte a)
@@ -549,7 +602,8 @@ void arm64::rtcall(cstring fn, byte a)
 //   Emit call to runtime helper function
 // ----------------------------------------------------------------------------
 {
-    (void)fn;(void)a; trap(fn);
+    load_imm64(0, uint64_t(a));
+    call_abs(xlr8_runtime_fn(fn));
 }
 
 

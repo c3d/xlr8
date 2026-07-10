@@ -29,6 +29,8 @@
 
 #include "x86.h"
 
+#include "native-bridge.h"
+
 #include <cstring>
 
 
@@ -38,6 +40,15 @@ x86::x86(arch_t arch)
 // ----------------------------------------------------------------------------
 : backend(arch)
 {
+}
+
+
+void x86::finish_translation()
+// ----------------------------------------------------------------------------
+//   Emit epilogue at end of translated code
+// ----------------------------------------------------------------------------
+{
+    do_ret();
 }
 
 
@@ -933,6 +944,17 @@ void x86::do_ret()
 }
 
 
+void x86::call_ptr(void *fn)
+// ----------------------------------------------------------------------------
+//   Emit a call through a function pointer in RAX
+// ----------------------------------------------------------------------------
+{
+    load_hw_imm(HW_RAX, uint64_t(fn));
+    g(0xff);
+    g(0xd0);
+}
+
+
 void x86::emit_trap(cstring msg)
 // ----------------------------------------------------------------------------
 //   Emit debug trap with message
@@ -948,8 +970,7 @@ void x86::emit_runtime_call(cstring fn)
 //   Emit call to runtime helper function
 // ----------------------------------------------------------------------------
 {
-    (void) fn;
-    g(0xcc);
+    call_ptr(xlr8_runtime_fn(fn));
 }
 
 
@@ -958,8 +979,8 @@ void x86::emit_runtime_call(cstring fn, tok_t a)
 //   Emit call to runtime helper function
 // ----------------------------------------------------------------------------
 {
-    (void) fn; (void) a;
-    g(0xcc);
+    load_hw_imm(HW_RDI, uint64_t(a));
+    call_ptr(xlr8_runtime_fn(fn));
 }
 
 
@@ -968,8 +989,14 @@ void x86::emit_runtime_call(cstring fn, byte a)
 //   Emit call to runtime helper function
 // ----------------------------------------------------------------------------
 {
-    (void) fn; (void) a;
-    g(0xcc);
+    load_hw_imm(HW_RDI, uint64_t(a));
+    call_ptr(xlr8_runtime_fn(fn));
+    if (!strcmp(fn, "xlr8_enter") || !strcmp(fn, "xlr8_leave"))
+    {
+        g(0x49);
+        g(0x89);
+        g(0xc4);
+    }
 }
 
 

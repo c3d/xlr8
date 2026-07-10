@@ -49,6 +49,7 @@ void help(char *progname)
     printf("Usage: %s [options...] [files..]\n", progname);
     printf("  -h : Display this help\n"
            "  -m : Select memory size\n"
+           "  -O : Compile bytecode to native code and run on host CPU\n"
            "  -t : Select recoder traces\n");
 }
 
@@ -66,7 +67,7 @@ static bool debug_message(runtime &rt)
 }
 
 
-static bool run(runtime &rt, std::istream &input)
+static bool run(runtime &rt, std::istream &input, bool optimize)
 // ----------------------------------------------------------------------------
 //   Run a given input stream
 // ----------------------------------------------------------------------------
@@ -84,7 +85,12 @@ static bool run(runtime &rt, std::istream &input)
             rt.iosetup(1, &std::cout);
             rt.iosetup(2, &std::cerr);
             if (ok)
-                ok = rt.run();
+            {
+                if (optimize)
+                    ok = rt.run_native(rt.entry);
+                else
+                    ok = rt.run();
+            }
         }
     }
     rt.scanning(olds);
@@ -110,6 +116,7 @@ int main(int argc, char **argv)
 
     int rtargs = 0;
     byte debug_opcode = 0;
+    bool optimize = false;
     runtime::argument_list files;
     for (int a = 1; a < argc && !rtargs; a++)
     {
@@ -131,6 +138,9 @@ int main(int argc, char **argv)
             case 'm':
                 arg = arg[2] ? arg+2 : a+1 < argc ? argv[++a] : "";
                 memory = atoi(arg) * 1024;
+                break;
+            case 'O':
+                optimize = true;
                 break;
             case 't':
                 arg = arg[2] ? arg+2 : a+1 < argc ? argv[++a] : "";
@@ -161,13 +171,13 @@ int main(int argc, char **argv)
         if (file == "-")
         {
             // Read from standard input
-            ok = run(rt, std::cin);
+            ok = run(rt, std::cin, optimize);
         }
         else
         {
             // Read from a file
             std::ifstream input(file);
-            ok = run(rt, input);
+            ok = run(rt, input, optimize);
         }
     }
 

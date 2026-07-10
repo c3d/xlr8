@@ -253,11 +253,12 @@ void riscv64::emit_pop(byte d)
 }
 
 
-void riscv64::emit_sys(tok_t t)
+void riscv64::emit_sys(tok_t t, byte_p args)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the sys opcode
 // ----------------------------------------------------------------------------
 {
+    xlr8_set_sys_args(args);
     rtcall("xlr8_sys", t);
 }
 

@@ -30,7 +30,7 @@
 //   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // ****************************************************************************
 
-#include "../runtime/types.h"
+#include "types.h"
 
 #include <cstdlib>
 #include <cstring>

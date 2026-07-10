@@ -253,12 +253,15 @@ void arm64::emit_pop(byte d)
 }
 
 
-void arm64::emit_sys(tok_t t)
+void arm64::emit_sys(tok_t t, byte_p args)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the sys opcode
 // ----------------------------------------------------------------------------
 {
-    rtcall("xlr8_sys", t);
+    spill_frame();
+    load_imm64(0, uint64_t(t));
+    load_imm64(1, uint64_t(uintptr_t(args)));
+    call_abs((void *) xlr8_sys);
 }
 
 

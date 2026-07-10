@@ -253,12 +253,14 @@ void x86::emit_pop(byte d)
 }
 
 
-void x86::emit_sys(tok_t t)
+void x86::emit_sys(tok_t t, byte_p args)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the sys opcode
 // ----------------------------------------------------------------------------
 {
-    emit_runtime_call("xlr8_sys", t);
+    load_hw_imm(HW_RDI, uint64_t(t));
+    load_hw_imm(HW_RSI, uint64_t(uintptr_t(args)));
+    call_ptr((void *) xlr8_sys);
 }
 
 

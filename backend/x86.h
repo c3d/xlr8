@@ -62,6 +62,8 @@ struct x86 : backend
 
     x86(arch_t arch);
 
+    void finish_translation() override;
+
     // All opcode emitters — implemented in x86-emit.cpp
 #define OP(op, sig) sig override;
 #include "opover.tbl"
@@ -125,6 +127,7 @@ protected:
     void            store_global(byte d, byte s);
     void            load_global(byte d, byte s);
     void            do_ret();
+    void            call_ptr(void *fn);
     void            emit_trap(cstring msg);
     void            emit_runtime_call(cstring fn);
     void            emit_runtime_call(cstring fn, tok_t a);

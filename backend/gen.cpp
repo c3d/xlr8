@@ -29,7 +29,8 @@
 
 #include "backend.h"
 
-#include "../runtime/leb128.h"
+#include "leb128.h"
+#include "native-bridge.h"
 
 #include <cstring>
 
@@ -54,7 +55,16 @@ bool backend::translate(byte_p &pc)
         }
     }
     resolve_labels();
+    finish_translation();
     return true;
+}
+
+
+void backend::finish_translation()
+// ----------------------------------------------------------------------------
+//   Emit epilogue at end of translated code
+// ----------------------------------------------------------------------------
+{
 }
 
 

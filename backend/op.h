@@ -29,13 +29,13 @@
 //   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // ****************************************************************************
 
-#include "../runtime/types.h"
+#include "types.h"
 
 
 enum op_t : byte
 {
 #define OP(op, code) op_##op,
-#include "../runtime/opcodes.tbl"
+#include "opcodes.tbl"
     OP_COUNT
 };
 #undef OP
