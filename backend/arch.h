@@ -36,12 +36,15 @@ enum arch_t
 {
     ARCH_I386,
     ARCH_X86_64,
+    ARCH_ARM,
     ARCH_ARM64,
     ARCH_RISCV64,
 #if defined(__x86_64__) || defined(__amd64__)
     ARCH_NATIVE = ARCH_X86_64,
 #elif defined(__aarch64__)
     ARCH_NATIVE = ARCH_ARM64,
+#elif defined(__arm__)
+    ARCH_NATIVE = ARCH_ARM,
 #elif defined(__riscv) && __riscv_xlen == 64
     ARCH_NATIVE = ARCH_RISCV64,
 #elif defined(__i386__) || defined(__i386)

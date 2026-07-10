@@ -39,6 +39,7 @@ cstring arch_name(arch_t arch)
     {
     case ARCH_I386:     return "i386";
     case ARCH_X86_64:   return "x86_64";
+    case ARCH_ARM:      return "arm";
     case ARCH_ARM64:    return "arm64";
     case ARCH_RISCV64:  return "riscv64";
     }

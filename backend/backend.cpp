@@ -28,6 +28,7 @@
 // ****************************************************************************
 
 #include "backend.h"
+#include "arm.h"
 #include "arm64.h"
 #include "i386.h"
 #include "riscv64.h"
@@ -146,6 +147,11 @@ bool backend::set_options(cstring options)
             if (current_arch != ARCH_X86_64)
                 return false;
         }
+        else if (token == "-marm" || token == "-marm32")
+        {
+            if (current_arch != ARCH_ARM)
+                return false;
+        }
         else if (token == "-marm64" || token == "-maarch64")
         {
             if (current_arch != ARCH_ARM64)
@@ -178,6 +184,7 @@ backend *backend_new(arch_t arch)
     {
     case ARCH_I386:     return i386::make();
     case ARCH_X86_64:   return x86_64::make();
+    case ARCH_ARM:      return arm::make();
     case ARCH_ARM64:    return arm64::make();
     case ARCH_RISCV64:  return riscv64::make();
     }

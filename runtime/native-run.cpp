@@ -143,6 +143,27 @@ static void invoke_arm64(runtime &rt, void *code)
 #endif
 
 
+#if defined(__arm__) && !defined(__aarch64__)
+static void invoke_arm(runtime &rt, void *code)
+// ----------------------------------------------------------------------------
+//   Jump to generated 32-bit ARM code; r9 = rt.frame, r10 = rt.flags
+// ----------------------------------------------------------------------------
+{
+    typedef void (*entry_fn)(void);
+    entry_fn entry = (entry_fn) code;
+    stack_p frame = rt.frame;
+    uint64_t flags = rt.flags;
+    asm volatile(
+        "mov r9, %0\n\t"
+        "mov r10, %1"
+        :
+        : "r"(frame), "r"(flags)
+        : "r9", "r10", "memory");
+    entry();
+}
+#endif
+
+
 static bool native_run_impl(runtime &rt, backend &be, byte_p entry)
 // ----------------------------------------------------------------------------
 //   Translate bytecode and execute the generated native code
@@ -166,6 +187,8 @@ static bool native_run_impl(runtime &rt, backend &be, byte_p entry)
     invoke_x86_64(rt, mem);
 #elif defined(__aarch64__)
     invoke_arm64(rt, mem);
+#elif defined(__arm__)
+    invoke_arm(rt, mem);
 #else
     unmap_executable(mem, sz);
     rt.error("Native execution is not supported on this CPU");

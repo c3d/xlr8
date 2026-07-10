@@ -20,7 +20,8 @@
 //     enter/leave, explicit spill), or (b) the shadow is reused as scratch.
 //     Before a syscall we spill shadowed locals back into the frame so C
 //     helpers see consistent memory.  Locals 0 and 1 are also syscall argument
-//     registers on AArch64 and may be reloaded from the frame after sys.
+//     registers on AArch64 and 32-bit ARM; may be reloaded from the frame
+//     after sys.
 //
 //     The bytecode PC is not held in a fixed hardware register during
 //     translation: it is the translator's cursor.  Generated code records PC
@@ -32,8 +33,23 @@
 //     spill/sys paths.  HW_RT is reserved so generated code can cache
 //     &runtime in a callee-saved register later.
 //
-//     There is no 32-bit ARM (AArch32 / ARMv7) backend in this tree.
-//     arch_t lists i386, x86_64, arm64 (AArch64), and riscv64 only.
+//
+//  ---------------------------------------------------------------------------
+//  32-bit ARM (arm / AArch32)
+//  ---------------------------------------------------------------------------
+//
+//     Shadow locals     r0 .. r7      frame[0] .. frame[7] when valid
+//     Scratch address   r8            address formation
+//     Frame pointer     r9            rt.frame, primed at entry
+//     Flags/predicates  r10           rt.flags (64-bit), primed at entry
+//     Saved link        r11           LR across runtime calls
+//     Intra-call IP     r12           load target for call_abs (AAPCS IP)
+//     Stack pointer     r13 (sp)      native stack
+//     Link register     r14 (lr)      restored from r11 on return
+//
+//     Locals 8..15 and >= 16: ldr/str via [r9, #local*4] using scratch regs.
+//     Follows TinyCC ARM mode: r0-r3 and r12 are caller-saved temps in TCC;
+//     this JIT shadows r0-r7 for the first eight locals (enter(8)).
 //
 //
 //  ---------------------------------------------------------------------------

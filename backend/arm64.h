@@ -54,8 +54,7 @@
 //
 //  Bytecode PC is the translator cursor, not a fixed HW register.  Runtime is
 //  reached via xlr8_get_runtime() today; HW_RT reserved for caching later.
-//
-//  There is no 32-bit ARM (AArch32) backend; this file is AArch64 only.
+//  For 32-bit ARM (AArch32) see arm.h.
 //
 //  ===========================================================================
 
