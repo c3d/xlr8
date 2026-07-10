@@ -1,7 +1,7 @@
-// sys sext sign-extends low 8 bits
+// sext sign-extends low 8 bits in place
 
 nat 0 #128
-sys sext 0 8
+sext 0 8
 
 [STDOUT 1]
 

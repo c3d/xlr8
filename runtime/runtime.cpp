@@ -295,6 +295,27 @@ static inline bool write_unicode(scanner::ostream *out, unicode ch)
 }
 
 
+static inline ularge_t sign_extend(ularge_t value, byte kshift)
+// ----------------------------------------------------------------------------
+//   Sign-exend a value
+// ----------------------------------------------------------------------------
+{
+    ularge_t sign = (1ULL << (kshift - 1));
+    ularge_t mask = (1ULL << kshift) - 1ULL;
+    return ((value & sign) ? (~(~value & mask)) : (value & mask));
+}
+
+
+static inline ularge_t zero_extend(ularge_t value, byte kshift)
+// ----------------------------------------------------------------------------
+//   Zero-exend a value
+// ----------------------------------------------------------------------------
+{
+    ularge_t mask = (1ULL << kshift) - 1ULL;
+    return value & mask;
+}
+
+
 bool runtime::run()
 // ----------------------------------------------------------------------------
 //    The main runtime loop

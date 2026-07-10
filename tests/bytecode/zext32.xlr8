@@ -1,7 +1,7 @@
-// sys zext to 32 bits
+// zext keeps low 32 bits in place
 
-nat 0 #65535
-sys zext 0 32
+int 0 -1
+zext 0 32
 
 [STDOUT 1]
 

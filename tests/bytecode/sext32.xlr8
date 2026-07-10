@@ -1,7 +1,7 @@
-// sys sext as 32-bit value
+// sext sign-extends to 32 bits in place
 
 nat 0 #2147483648
-sys sext 0 32
+sext 0 32
 
 [STDOUT 1]
 

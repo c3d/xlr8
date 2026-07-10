@@ -128,6 +128,8 @@ NATIVE(fpush,           SRC; done = !rt.push(SFLT))
 NATIVE(dpush,           SRC; done = !rt.push(SDBL))
 NATIVE(fpop,            DST; DFLT = rt.pop<float>())
 NATIVE(dpop,            DST; DDBL = rt.pop<double>())
+NATIVE(fmod,            DST; SRC; DFLT = std::fmod(DFLT, SFLT))
+NATIVE(dmod,            DST; SRC; DDBL = std::fmod(DDBL, SDBL))
 
 #define REAL_OP(name)                                           \
 NATIVE(f##name,         DST; SRC; DFLT = std::name(SFLT))       \
@@ -175,25 +177,6 @@ NATIVE(ld8vs,   DST; SRC; DINT = OTYPE(volatile i64, SNAT, 0))
 NATIVE(ld4vs,   DST; SRC; DINT = OTYPE(volatile i32, SNAT, 0))
 NATIVE(ld2vs,   DST; SRC; DINT = OTYPE(volatile i16, SNAT, 0))
 NATIVE(ld1vs,   DST; SRC; DINT = OTYPE(volatile i8,  SNAT, 0))
-
-NATIVE(ld8s,    DST; SRC; DINT = OTYPE(i64, SNAT, 0))
-NATIVE(ld4s,    DST; SRC; DINT = OTYPE(i32, SNAT, 0))
-NATIVE(ld2s,    DST; SRC; DINT = OTYPE(i16, SNAT, 0))
-NATIVE(ld1s,    DST; SRC; DINT = OTYPE(i8,  SNAT, 0))
-
-NATIVE(ld8os,   DST; SRC; KINT; DINT = OTYPE(i64,SNAT,kint))
-NATIVE(ld4os,   DST; SRC; KINT; DINT = OTYPE(i32,SNAT,kint))
-NATIVE(ld2os,   DST; SRC; KINT; DINT = OTYPE(i16,SNAT,kint))
-NATIVE(ld1os,   DST; SRC; KINT; DINT = OTYPE(i8, SNAT,kint))
-
-NATIVE(sext,    DST; KSHIFT;
-                ularge_t sign = (1ULL << (kshift - 1));
-                ularge_t mask = (1ULL << kshift) - 1ULL;
-                ularge_t val  = DALL;
-                DALL = ((val & sign) ? (~(~val & mask)) : (val & mask)))
-NATIVE(zext,    DST; KSHIFT;
-                ularge_t mask = (1ULL << kshift) - 1ULL;
-                DALL &= mask)
 
 NATIVE(tok,     DST; SRC; DNAT = rt.tokaddr(SNAT))
 NATIVE(leb2i,   DST; SRC; DINT = leb128<value_t>(SRPTR))

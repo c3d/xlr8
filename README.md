@@ -551,8 +551,10 @@ Use the matching arithmetic and `sys` opcodes: `fadd` / `sys ffloor` for floats,
 `dadd` / `sys dfloor` for doubles.
 
 Type conversions and math library routines are **`sys` natives** (`sys i2f`,
-`sys u2d`, `sys f2d`, `sys f2i`, `sys fsqrt`, …). Built-in `fadd`…`fmod` and
-`dadd`…`dmod` opcodes cover in-register arithmetic only.
+`sys u2d`, `sys f2d`, `sys f2i`, `sys fsqrt`, `sys fmod`, …). In-register
+addition, subtraction, multiplication, and division use built-in `fadd`…`fdiv`
+and `dadd`…`ddiv` opcodes; floating-point remainder uses `sys fmod` and
+`sys dmod`.
 
 Real literals accept decimal and based syntax (`16#1.A#f`, `1.5e2f`, …).
 See [Example 2](#example-2-counting-loop) for based-number rules, including
@@ -608,8 +610,9 @@ below.
 | Immediate math | `addi`, `subi`, `muli`, `divi`, `modi`, `addu`, `subu`, `mulu`, `divu`, `modu` | Same, with an inline LEB128 constant |
 | Bitwise | `and`, `or`, `xor`, `shl`, `shr`, `ushr`, `not`, `andu`, `oru`, `xoru`, `shlu`, `shru`, `ushru` | Bit operations; `shru`/`ushru` use an inline shift count |
 | Addressing | `frame` | `frame dst src` stores the address of register `src` in `dst` (`frame 1 0`) |
-| Memory | `ld8`…`ld1`, `st8`…`st1`, `ld8o`…`ld1o`, `st8o`…`st1o` | Load/store through an address in a register; `*o` forms add a signed LEB128 byte offset (`ld1o dst ptr +0`) |
-| Float / double | `fadd`, `fsub`, `fmul`, `fdiv`, `fmod`, `dadd`, `dsub`, `dmul`, `ddiv`, `dmod` | In-register IEEE-754 arithmetic |
+| Memory | `ld8`…`ld1`, `st8`…`st1`, `ld8o`…`ld1o`, `st8o`…`st1o`, `lds`, `ldos` | Load/store through an address in a register; `*o` forms add a signed LEB128 byte offset (`ld1o dst ptr +0`); `lds` sign-extends a register; `ldos` loads at offset and sign-extends |
+| Extension | `sext`, `zext` | Sign- or zero-extend a register to `kshift` bits (`sext dst +8`, `zext dst +32`) |
+| Float / double | `fadd`, `fsub`, `fmul`, `fdiv`, `dadd`, `dsub`, `dmul`, `ddiv` | In-register IEEE-754 add/sub/mul/div |
 
 **`null` vs `undef`.** Uninitialized heap and token storage is zero-filled. If
 the program counter ever fetches byte `0`, the VM executes `null` and stops with
@@ -645,8 +648,10 @@ the **last** label whose threshold **equals** the value in `reg`.
 **Memory addressing.** `ld1 dst ptr` loads one byte from `*ptr` into `dst`
 (zero-extended). `ld1o dst ptr +off` adds a signed byte offset before
 dereferencing. Stores mirror this (`st1`, `st1o`, …). For signed narrow values,
-use `sys ld1s` or `sys ld1os`; for arbitrary bit widths in a register, use
-`sys sext dst +width` or `sys zext dst +width`.
+load then sign-extend (`ld1 dst ptr` then `lds dst dst +8`), or use
+`ldos dst ptr +8 +off` to load at an offset and sign-extend in one step. To
+extend an arbitrary value already in a register, use `sext dst +width` or
+`zext dst +width`.
 
 
 ### 64 flags and conditional execution
@@ -776,14 +781,12 @@ All `write_*` natives take the **stream first**, then the value to write.
 | Errors | `print_error`, `clear_error`, `trap_error` |
 | Conversions | `i2f`, `i2d`, `u2f`, `u2d`, `f2i`, `d2i`, `f2u`, `d2u`, `f2d`, `d2f` |
 | Float stack | `fpush`, `fpop`, `dpush`, `dpop` |
-| Math library | `ffloor`, `fceil`, `fsqrt`, `fcbrt`, `fsin`, `fcos`, `ftan`, `fasin`, `facos`, `fatan`, `fexp`, `flog`, `fexp2`, `flog2`, and the `d…` counterparts |
+| Math library | `ffloor`, `fceil`, `fsqrt`, `fcbrt`, `fsin`, `fcos`, `ftan`, `fasin`, `facos`, `fatan`, `fexp`, `flog`, `fexp2`, `flog2`, `fmod`, and the `d…` counterparts |
 | Float compares | `fcmpeq`, `fcmpne`, `fcmplt`, `fcmpgt`, `fcmple`, `fcmpge`, and the `d…` counterparts |
 | Stack | `stack` — address of the value stack pointer |
 | Memory (bulk) | `memcpy`/`kmemcpy`, `memmove`/`kmemmove`, `memset`/`kmemset`/`memkset`/`kmemkset`, `memcmp`/`kmemcmp`, `memchr`/`kmemchr`/`memkchr`/`kmemkchr` — bulk copy/fill/compare/search; `k…` forms take size as inline natural `#n`; `memkset`/`kmemkset`/`memkchr`/`kmemkchr` take fill/search byte inline |
-| C strings (`string.h`) | `strlen`, `strnlen`/`kstrnlen`, `strcpy`, `strncpy`/`kstrncpy`, `strcat`, `strncat`/`kstrncat`, `strcmp`, `strncmp`/`kstrncmp`, `strchr`/`kstrchr`, `strrchr`/`kstrrchr`, `strstr`, ``strcasestr`, `strdup`, `strndup`/`kstrndup` — delegate to host libc for LLVM C lowering |
-| Memory (volatile) | `ld1v`…`ld8v`, `st1v`…`st8v` — volatile load/store through a register address |
-| Memory (sign-extending) | `ld1s`…`ld8s`, `ld1vs`…`ld8vs`, `ld1os`…`ld8os` — sign-extending loads (plain, volatile, and with signed offset) |
-| Extension | `sext`, `zext` — sign- or zero-extend a register to `kshift` bits (`sys sext dst +8`, `sys zext dst +32`) |
+| C strings (`string.h`) | `strlen`, `strnlen`/`kstrnlen`, `strcpy`, `strncpy`/`kstrncpy`, `strcat`, `strncat`/`kstrncat`, `strcmp`, `strncmp`/`kstrncmp`, `strchr`/`kstrchr`, `strrchr`/`kstrrchr`, `strstr`, `strcasestr`, `strdup`, `strndup`/`kstrndup` — delegate to host libc for LLVM C lowering |
+| Memory (volatile) | `ld1v`…`ld8v`, `st1v`…`st8v`, `ld1vs`…`ld8vs` — volatile load/store through a register address; `ld*vs` sign-extend |
 | Bytecode / LEB128 | `tok`, `leb2i`, `leb2u`, `i2leb`, `u2leb`, `i2lebsz`, `u2lebsz`, `nat`, `int`, `flt`, `dbl` |
 
 `malloc` and `realloc` read the size from a **register** (`sys malloc 0 1` after
@@ -841,7 +844,10 @@ scanner output stream; they are intended for use inside `{…}` bytecode
 definitions.
 
 Built-in `ld1`…`ld8` / `st1`…`st8` zero-extend loaded values into the register.
-Use `sys ld1s` (or `ld1os` with an offset) when you need a signed narrow load.
+Use `ld1` (or `ld1o` with an offset) followed by `lds` to sign-extend a narrow
+load, or `ldos` for offset load plus sign-extend in one step. See
+`tests/bytecode/ld1s.xlr8`, `lds.xlr8`, `ldos.xlr8`, `sext.xlr8`, and
+`zext.xlr8`.
 Floating-point values in memory are accessed with pointer arithmetic,
 `sys kmemcpy` / `sys kmemmove`, or by keeping them in registers after `flt` / `dbl`.
 

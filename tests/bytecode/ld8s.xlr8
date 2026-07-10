@@ -1,10 +1,10 @@
-// sys ld8s loads signed 64-bit value
+// ld8 + lds sign-extends 64-bit load from memory
 
 nat 2 8
 sys kmalloc 0 2
 int 1 -1
 st8 0 1
-sys ld8s 1 0
+lds 1 0 64
 
 [STDOUT 1]
 

@@ -1,10 +1,10 @@
-// sys ld2s sign-extends 16-bit load
+// ld2 + lds sign-extends 16-bit load from memory
 
 nat 2 #8
 sys kmalloc 0 #2
 nat 1 #32768
 st2 0 1
-sys ld2s 1 0
+lds 1 0 16
 
 [STDOUT 1]
 

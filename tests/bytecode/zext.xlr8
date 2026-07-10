@@ -1,7 +1,7 @@
-// sys zext keeps low 8 bits
+// zext keeps low 8 bits in place
 
 int 0 -1
-sys zext 0 8
+zext 0 8
 
 [STDOUT 1]
 

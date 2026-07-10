@@ -2,7 +2,7 @@
 
 flt 0 7.0f
 flt 1 2.0f
-fmod 0 1
+sys fmod 0 1
 txt 1 "7.0f%2.0f="
 
 [STDOUT 1]

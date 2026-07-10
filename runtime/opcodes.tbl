@@ -154,17 +154,23 @@ OP(ld4o,        DST; SRC; KINT; DNAT = OTYPE(u32, SNAT, kint))
 OP(ld2o,        DST; SRC; KINT; DNAT = OTYPE(u16, SNAT, kint))
 OP(ld1o,        DST; SRC; KINT; DNAT = OTYPE(u8,  SNAT, kint))
 
+OP(lds,         DST; SRC; KSHIFT;
+                DALL = sign_extend(OTYPE(u64,SNAT,0), kshift))
+OP(ldos,        DST; SRC; KSHIFT; KINT;
+                DALL = sign_extend(OTYPE(u64,SNAT,kint), kshift))
+OP(sext,        DST; KSHIFT;    DALL = sign_extend(DALL, kshift))
+OP(zext,        DST; KSHIFT;    DALL = zero_extend(DALL, kshift))
+
 OP(fadd,        DST; SRC; DFLT = DFLT + SFLT)
 OP(fsub,        DST; SRC; DFLT = DFLT - SFLT)
 OP(fmul,        DST; SRC; DFLT = DFLT * SFLT)
 OP(fdiv,        DST; SRC; DFLT = DFLT / SFLT)
-OP(fmod,        DST; SRC; DFLT = std::fmod(DFLT, SFLT))
 
 OP(dadd,        DST; SRC; DDBL = DDBL + SDBL)
 OP(dsub,        DST; SRC; DDBL = DDBL - SDBL)
 OP(dmul,        DST; SRC; DDBL = DDBL * SDBL)
 OP(ddiv,        DST; SRC; DDBL = DDBL / SDBL)
-OP(dmod,        DST; SRC; DDBL = std::fmod(DDBL, SDBL))
+
 
 #undef OP
 #undef ROP

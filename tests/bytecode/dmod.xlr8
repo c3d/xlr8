@@ -2,7 +2,7 @@
 
 dbl 0 7.0
 dbl 1 2.0
-dmod 0 1
+sys dmod 0 1
 txt 1 "7.0%2.0="
 
 [STDOUT 1]
