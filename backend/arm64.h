@@ -30,6 +30,7 @@
 // ****************************************************************************
 
 #include "backend.h"
+#include "regmap.h"
 
 
 struct arm64 : backend
@@ -49,16 +50,35 @@ struct arm64 : backend
     uint gjmp(uint t) override;
     void gsym_addr(uint t, uint a) override;
     void finish_translation() override;
+    void begin_translation() override;
 
 #define OP(op, sig) sig override;
 #include "opover.tbl"
 #undef OP
 
 protected:
+    enum hwreg_t : uint
+    {
+        HW_LOC0  = 0,       // shadow frame[0] .. frame[15]
+        HW_LOC15 = 15,
+        HW_IP    = 16,      // intra-procedure call scratch (AAPCS IP0)
+        HW_FRAME = 19,      // callee-saved, rt.frame base for spill
+        HW_LINK  = 20,      // callee-saved, saved link register
+        HW_RT    = 21,      // reserved: &runtime
+        HW_FLAGS = 22,      // callee-saved, rt.flags (64-bit predicates)
+        HW_SCR_VAL  = 23,   // scratch: values (swap, arithmetic)
+        HW_SCR_ADDR = 24,   // scratch: addresses
+        HW_SCR_OFF  = 25,   // scratch: offsets
+    };
+
     void emit32le(uint32_t insn);
+    void load_local(byte n, uint r);
+    void store_local(uint r, byte n);
     void load_imm64(uint r, uint64_t v);
     void call_abs(void *fn);
-    void spill_frame(void);
+    void spill_frame();
+    void reload_frame_reg();
+    void touch_local(byte d);
     void mov_local(byte d, byte s);
     void swap_locals(byte d, byte s);
     void store_imm(byte d, value_t v);
@@ -110,6 +130,8 @@ protected:
     void rtcall(cstring fn);
     void rtcall(cstring fn, tok_t a);
     void rtcall(cstring fn, byte a);
+
+    bool spill_arg_regs = true;
 };
 
 #endif // ARM64_H

@@ -30,6 +30,7 @@
 // ****************************************************************************
 
 #include "backend.h"
+#include "regmap.h"
 
 
 struct riscv64 : backend
@@ -55,6 +56,16 @@ struct riscv64 : backend
 #undef OP
 
 protected:
+    enum hwreg_t : uint
+    {
+        HW_LOC0  = 10,      // shadow frame[0] .. frame[15] (x10+x)
+        HW_FRAME = 8,       // s0, rt.frame (reserved)
+        HW_FLAGS = 9,       // s1, rt.flags (reserved)
+        HW_SCR_VAL  = 28,   // t3, swap and arithmetic temps
+        HW_SCR_ADDR = 29,   // address scratch (reserved)
+        HW_SCR_OFF  = 30,   // offset scratch (reserved)
+    };
+
     void emit32le(uint32_t insn);
     void mov_local(byte d, byte s);
     void swap_locals(byte d, byte s);

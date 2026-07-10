@@ -149,9 +149,9 @@ void riscv64::swap_locals(byte d, byte s)
 //   Swap values of two bytecode locals
 // ----------------------------------------------------------------------------
 {
-    emit32le(0x00000033u | (xreg(s)<<20) | (28<<15) | (28<<7));
+    emit32le(0x00000033u | (xreg(s)<<20) | (HW_SCR_VAL<<15) | (HW_SCR_VAL<<7));
     emit32le(0x00000033u | (xreg(d)<<20) | (xreg(s)<<15) | (xreg(s)<<7));
-    emit32le(0x00000033u | (28<<20) | (xreg(d)<<15) | (xreg(d)<<7));
+    emit32le(0x00000033u | (HW_SCR_VAL<<20) | (xreg(d)<<15) | (xreg(d)<<7));
 }
 
 void riscv64::store_imm(byte d, value_t v)

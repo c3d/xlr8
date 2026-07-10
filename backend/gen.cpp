@@ -41,6 +41,7 @@ bool backend::translate(byte_p &pc)
 // ----------------------------------------------------------------------------
 {
     translating = true;
+    begin_translation();
     while (translating)
     {
         op_t op = op_t(*pc++);
@@ -57,6 +58,14 @@ bool backend::translate(byte_p &pc)
     resolve_labels();
     finish_translation();
     return true;
+}
+
+
+void backend::begin_translation()
+// ----------------------------------------------------------------------------
+//   Emit prologue at start of translated code
+// ----------------------------------------------------------------------------
+{
 }
 
 

@@ -69,6 +69,7 @@ struct backend
 
     bool            translate(byte_p &pc);
     virtual void    finish_translation();
+    virtual void    begin_translation();
     void            bind(tok_t t)           { labels[t] = cursor(); }
     void            resolve_labels();
 

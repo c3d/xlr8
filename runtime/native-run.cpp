@@ -123,13 +123,21 @@ static void invoke_x86_64(runtime &rt, void *code)
 
 
 #if defined(__aarch64__)
-static void invoke_arm64(void *code)
+static void invoke_arm64(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
-//   Jump to generated AArch64 code
+//   Jump to generated AArch64 code; x19 = rt.frame, x22 = rt.flags
 // ----------------------------------------------------------------------------
 {
     typedef void (*entry_fn)(void);
     entry_fn entry = (entry_fn) code;
+    stack_p frame = rt.frame;
+    uint64_t flags = rt.flags;
+    asm volatile(
+        "mov x19, %0\n\t"
+        "mov x22, %1"
+        :
+        : "r"(frame), "r"(flags)
+        : "x19", "x22", "memory");
     entry();
 }
 #endif
@@ -157,7 +165,7 @@ static bool native_run_impl(runtime &rt, backend &be, byte_p entry)
 #if defined(__x86_64__) || defined(__amd64__)
     invoke_x86_64(rt, mem);
 #elif defined(__aarch64__)
-    invoke_arm64(mem);
+    invoke_arm64(rt, mem);
 #else
     unmap_executable(mem, sz);
     rt.error("Native execution is not supported on this CPU");

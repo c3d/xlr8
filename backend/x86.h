@@ -30,6 +30,7 @@
 // ****************************************************************************
 
 #include "backend.h"
+#include "regmap.h"
 
 
 struct x86 : backend
@@ -55,9 +56,9 @@ struct x86 : backend
         HW_R13 = 13,
         HW_R14 = 14,
         HW_R15 = 15,
-        HW_FRAME = HW_R12,
-        HW_FLAGS = HW_R15,
-        HW_SCR   = HW_R11,
+        HW_FRAME = HW_R12,  // rt.frame — see regmap.h
+        HW_FLAGS = HW_R15,  // rt.flags (64-bit predicates)
+        HW_SCR   = HW_R11,  // general scratch (swap, etc.)
     };
 
     x86(arch_t arch);

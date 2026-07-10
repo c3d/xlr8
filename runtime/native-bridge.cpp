@@ -12,7 +12,6 @@
 //
 //
 //
-//
 // ****************************************************************************
 //   (C) 2026 Christophe de Dinechin <christophe@dinechin.org>
 //   This software is licensed under the terms outlined in LICENSE.txt
@@ -141,28 +140,27 @@ void xlr8_skip_sys_args(tok_t t, byte_p &pc)
         return;
 
     runtime &rt = *xlr8_current_rt;
-    static tok_t write_integer = 0;
-    static tok_t write_token = 0;
-    static tok_t write_newline = 0;
-    if (!write_integer)
-    {
-        write_integer = rt.tok("write_integer");
-        write_token   = rt.tok("write_token");
-        write_newline = rt.tok("write_newline");
-    }
+    text name = rt.as_text(t);
+    if (name.empty())
+        return;
 
-    if (t == write_newline)
+    if (name == "write_newline")
     {
         leb128<tok_t>(pc);
     }
-    else if (t == write_integer)
+    else if (name == "write_token")
+    {
+        leb128<tok_t>(pc);
+        leb128<uvalue_t>(pc);
+    }
+    else if (name.compare(0, 6, "write_") == 0)
     {
         leb128<tok_t>(pc);
         pc++;
     }
-    else if (t == write_token)
+    else if (name.compare(0, 5, "read_") == 0)
     {
+        pc++;
         leb128<tok_t>(pc);
-        leb128<uvalue_t>(pc);
     }
 }

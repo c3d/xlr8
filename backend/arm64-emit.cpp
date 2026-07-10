@@ -205,6 +205,7 @@ void arm64::emit_enter(byte d)
 // ----------------------------------------------------------------------------
 {
     rtcall("xlr8_enter", d);
+    reload_frame_reg();
 }
 
 
@@ -214,6 +215,7 @@ void arm64::emit_leave()
 // ----------------------------------------------------------------------------
 {
     rtcall("xlr8_leave");
+    reload_frame_reg();
 }
 
 
@@ -259,6 +261,7 @@ void arm64::emit_sys(tok_t t, byte_p args)
 // ----------------------------------------------------------------------------
 {
     spill_frame();
+    spill_arg_regs = false;
     load_imm64(0, uint64_t(t));
     load_imm64(1, uint64_t(uintptr_t(args)));
     call_abs((void *) xlr8_sys);
