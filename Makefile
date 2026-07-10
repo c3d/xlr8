@@ -42,7 +42,7 @@ PACKAGE_DIR=
 PACKAGE_REQUIRES=
 
 include version.mk
-SUBDIRS=recorder runtime cmd
+SUBDIRS=recorder runtime backend cmd
 
 MIQ=make-it-quick/
 include $(MIQ)rules.mk

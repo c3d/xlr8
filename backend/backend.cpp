@@ -1,0 +1,187 @@
+// ****************************************************************************
+//  backend.cpp                                                    XLR8 project
+// ****************************************************************************
+//
+//   File Description:
+//
+//     Base class for machine-specific code generation backends
+//
+//
+//
+//
+//
+//
+//
+//
+// ****************************************************************************
+//   (C) 2026 Christophe de Dinechin <christophe@dinechin.org>
+//   This software is licensed under the terms outlined in LICENSE.txt
+// ****************************************************************************
+//   This file is part of XLR8.
+//
+//   XLR8 is free software: you can redistribute it and/or modify
+//   it under the terms outlined in the LICENSE.txt file
+//
+//   XLR8 is distributed in the hope that it will be useful,
+//   but WITHOUT ANY WARRANTY; without even the implied warranty of
+//   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// ****************************************************************************
+
+#include "backend.h"
+
+#include <cctype>
+#include <cstring>
+
+
+backend *backend_i386_new();
+backend *backend_x86_64_new();
+backend *backend_arm64_new();
+backend *backend_riscv64_new();
+
+
+backend::backend(arch_t arch)
+// ----------------------------------------------------------------------------
+//   Initialize shared backend state
+// ----------------------------------------------------------------------------
+    : current_arch(arch),
+      current_output(OUTPUT_MEMORY),
+      nocode_wanted(false),
+      verbose(false),
+      text_section(),
+      ind(),
+      loc()
+{
+}
+
+
+void backend::g(byte c)
+// ----------------------------------------------------------------------------
+//   Emit one byte into the current text section
+// ----------------------------------------------------------------------------
+{
+    if (nocode_wanted)
+        return;
+    if (ind + 1 > text_section.allocated())
+        text_section.realloc(ind + 1);
+    text_section.data[ind] = c;
+    ind++;
+    text_section.data_offset = ind;
+}
+
+
+void backend::o(uint c)
+// ----------------------------------------------------------------------------
+//   Emit a little-endian multi-byte value
+// ----------------------------------------------------------------------------
+{
+    while (c)
+    {
+        g(byte(c));
+        c >>= 8;
+    }
+}
+
+
+void backend::emit32(uint32_t c)
+// ----------------------------------------------------------------------------
+//   Emit a 32-bit little-endian value
+// ----------------------------------------------------------------------------
+{
+    g(byte(c));
+    g(byte(c >> 8));
+    g(byte(c >> 16));
+    g(byte(c >> 24));
+}
+
+
+void backend::gsym(uint t)
+// ----------------------------------------------------------------------------
+//   Patch pending jumps to the current code position
+// ----------------------------------------------------------------------------
+{
+    gsym_addr(t, uint(ind));
+}
+
+
+void backend::set_output(output_t output)
+// ----------------------------------------------------------------------------
+//   Select the output format (memory, object file, executable, ...)
+// ----------------------------------------------------------------------------
+{
+    current_output = output;
+}
+
+
+bool backend::set_options(cstring options)
+// ----------------------------------------------------------------------------
+//   Parse backend options (TinyCC's tcc_set_options analogue)
+// ----------------------------------------------------------------------------
+{
+    if (!options)
+        return true;
+
+    std::string opt = options;
+    size_t pos = 0;
+    while (pos < opt.size())
+    {
+        while (pos < opt.size() && std::isspace(opt[pos]))
+            pos++;
+        if (pos >= opt.size())
+            break;
+
+        size_t start = pos;
+        while (pos < opt.size() && !std::isspace(opt[pos]))
+            pos++;
+        std::string token = opt.substr(start, pos - start);
+
+        if (token == "-v" || token == "--verbose")
+            verbose = true;
+        else if (token == "-nostdlib")
+            { /* reserved for future link options */ }
+        else if (token == "-m32")
+        {
+            if (current_arch != ARCH_I386)
+                return false;
+        }
+        else if (token == "-m64")
+        {
+            if (current_arch != ARCH_X86_64)
+                return false;
+        }
+        else if (token == "-marm64" || token == "-maarch64")
+        {
+            if (current_arch != ARCH_ARM64)
+                return false;
+        }
+        else if (token == "-mriscv64")
+        {
+            if (current_arch != ARCH_RISCV64)
+                return false;
+        }
+        else if (token == "-r" || token == "-c")
+            set_output(OUTPUT_OBJ);
+        else if (token == "-shared")
+            set_output(OUTPUT_DLL);
+        else if (token.substr(0, 2) == "-O")
+            { /* optimization level - reserved */ }
+        else
+            return false;
+    }
+    return true;
+}
+
+
+backend *backend_new(arch_t arch)
+// ----------------------------------------------------------------------------
+//   Create a code generator for the requested architecture
+// ----------------------------------------------------------------------------
+{
+    switch (arch)
+    {
+    case ARCH_I386:     return backend_i386_new();
+    case ARCH_X86_64:   return backend_x86_64_new();
+    case ARCH_ARM64:    return backend_arm64_new();
+    case ARCH_RISCV64:  return backend_riscv64_new();
+    }
+    return backend_x86_64_new();
+}
