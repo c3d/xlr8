@@ -379,6 +379,23 @@ protected:
         return 0xd1000000u | ((imm & 0xfffu) << 10) | (rn << 5) | rd;
     }
 
+    static inline uint lsr_imm64(uint rd, uint rn, uint amt)
+    // ----------------------------------------------------------------------------
+    //   Encode lsr rd, rn, #amt
+    // ----------------------------------------------------------------------------
+    {
+        return 0xd340fc00u | ((amt & 0x3fu) << 16) | (rn << 5) | rd;
+    }
+
+    static inline uint lsl_imm64(uint rd, uint rn, uint amt)
+    // ----------------------------------------------------------------------------
+    //   Encode lsl rd, rn, #amt
+    // ----------------------------------------------------------------------------
+    {
+        return 0xd3400000u | (((64 - amt) & 0x3fu) << 16) | (63u << 10)
+               | (rn << 5) | rd;
+    }
+
     static inline uint b_cond_imm(byte cond, int32_t imm19)
     // ----------------------------------------------------------------------------
     //   Encode b.cond #imm19
@@ -392,7 +409,7 @@ protected:
     //   Encode sbfm rd, rn, #0, #(w-1)
     // ----------------------------------------------------------------------------
     {
-        return 0x93400000u | ((w - 1) << 16) | (rn << 5) | rd;
+        return 0x93400000u | ((w - 1) << 10) | (rn << 5) | rd;
     }
 
     static inline uint ubfm_width(uint rd, uint rn, uint w)
@@ -400,7 +417,7 @@ protected:
     //   Encode ubfm rd, rn, #0, #(w-1)
     // ----------------------------------------------------------------------------
     {
-        return 0x93000000u | ((w - 1) << 16) | (rn << 5) | rd;
+        return 0x9300fc00u | ((w - 1) << 10) | (rn << 5) | rd;
     }
 
     static inline uint cmp_rr(uint rn, uint rm)

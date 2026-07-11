@@ -696,10 +696,26 @@ void arm64::zext_local(byte d, byte w)
     record(arm64, "zext_local(%u, %u)", d, w);
     load_local(d, HW_SCR_ADDR);
     if (w < 64)
-        emit32le(ubfm_width(HW_SCR_ADDR, HW_SCR_ADDR, w));
+    {
+        load_imm64(HW_SCR_OFF, (1ull << w) - 1ull);
+        emit32le(and_rrr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_OFF));
+    }
     store_local(HW_SCR_ADDR, d);
     touch_local(d);
 }
+
+void arm64::frame_addr(byte d, byte s)
+// ----------------------------------------------------------------------------
+//   Compute frame-relative address into local d
+// ----------------------------------------------------------------------------
+{
+    record(arm64, "frame_addr(%u, %u)", d, s);
+    load_local(s, HW_SCR_VAL);
+    emit32le(frame_addr_rr(HW_SCR_ADDR, HW_SCR_VAL));
+    store_local(HW_SCR_ADDR, d);
+    touch_local(d);
+}
+
 
 void arm64::store_mem(byte d, byte s, uint sz)
 // ----------------------------------------------------------------------------
@@ -707,12 +723,14 @@ void arm64::store_mem(byte d, byte s, uint sz)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "store_mem(%u, %u, %u)", d, s, sz);
+    load_local(s, HW_SCR_VAL);
+    load_local(d, HW_SCR_ADDR);
     switch (sz)
     {
-    case 1: emit32le(0x39000000u | (xreg(d) << 5) | xreg(s)); break;
-    case 2: emit32le(0x79000000u | (xreg(d) << 5) | xreg(s)); break;
-    case 4: emit32le(0xb9000000u | (xreg(d) << 5) | xreg(s)); break;
-    default: emit32le(str_idx(xreg(s), xreg(d))); break;
+    case 1: emit32le(0x39000000u | (HW_SCR_VAL << 5) | HW_SCR_ADDR); break;
+    case 2: emit32le(0x79000000u | (HW_SCR_VAL << 5) | HW_SCR_ADDR); break;
+    case 4: emit32le(0xb9000000u | (HW_SCR_VAL << 5) | HW_SCR_ADDR); break;
+    default: emit32le(str_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
     }
 }
 
@@ -723,24 +741,55 @@ void arm64::load_mem(byte d, byte s, uint sz)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "load_mem(%u, %u, %u)", d, s, sz);
-    switch (sz)
+    load_local(s, HW_SCR_ADDR);
+    if (d < LOC_SHADOW_COUNT)
     {
-    case 1: emit32le(ldrb_idx(xreg(d), xreg(s))); break;
-    case 2: emit32le(ldrh_idx(xreg(d), xreg(s))); break;
-    case 4: emit32le(ldr_w_idx(xreg(d), xreg(s))); break;
-    default: emit32le(ldr_idx(xreg(d), xreg(s))); break;
+        switch (sz)
+        {
+        case 1: emit32le(ldrb_idx(xreg(d), HW_SCR_ADDR)); break;
+        case 2: emit32le(ldrh_idx(xreg(d), HW_SCR_ADDR)); break;
+        case 4: emit32le(ldr_w_idx(xreg(d), HW_SCR_ADDR)); break;
+        default: emit32le(ldr_idx(xreg(d), HW_SCR_ADDR)); break;
+        }
+        emit32le(str_off(xreg(d), HW_FRAME, d));
+    }
+    else
+    {
+        switch (sz)
+        {
+        case 1: emit32le(ldrb_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        case 2: emit32le(ldrh_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        case 4: emit32le(ldr_w_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        default: emit32le(ldr_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        }
+        store_local(HW_SCR_VAL, d);
     }
     touch_local(d);
 }
 
+
 void arm64::store_mem_off(byte d, byte s, value_t o, uint sz)
 // ----------------------------------------------------------------------------
-//   Store local d at address s plus offset
+//   Store value from local s at address in local d plus offset
 // ----------------------------------------------------------------------------
 {
     record(arm64, "store_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
-    (void)o; store_mem(d,s,sz);
+    load_local(d, HW_SCR_ADDR);
+    if (o)
+    {
+        load_imm64(HW_SCR_OFF, uint64_t(o));
+        emit32le(add_rrr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_OFF));
+    }
+    load_local(s, HW_SCR_VAL);
+    switch (sz)
+    {
+    case 1: emit32le(0x39000000u | (HW_SCR_VAL << 5) | HW_SCR_ADDR); break;
+    case 2: emit32le(0x79000000u | (HW_SCR_VAL << 5) | HW_SCR_ADDR); break;
+    case 4: emit32le(0xb9000000u | (HW_SCR_VAL << 5) | HW_SCR_ADDR); break;
+    default: emit32le(str_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+    }
 }
+
 
 void arm64::load_mem_off(byte d, byte s, value_t o, uint sz)
 // ----------------------------------------------------------------------------
@@ -748,7 +797,35 @@ void arm64::load_mem_off(byte d, byte s, value_t o, uint sz)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "load_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
-    (void)o; load_mem(d,s,sz);
+    load_local(s, HW_SCR_ADDR);
+    if (o)
+    {
+        load_imm64(HW_SCR_OFF, uint64_t(o));
+        emit32le(add_rrr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_OFF));
+    }
+    if (d < LOC_SHADOW_COUNT)
+    {
+        switch (sz)
+        {
+        case 1: emit32le(ldrb_idx(xreg(d), HW_SCR_ADDR)); break;
+        case 2: emit32le(ldrh_idx(xreg(d), HW_SCR_ADDR)); break;
+        case 4: emit32le(ldr_w_idx(xreg(d), HW_SCR_ADDR)); break;
+        default: emit32le(ldr_idx(xreg(d), HW_SCR_ADDR)); break;
+        }
+        emit32le(str_off(xreg(d), HW_FRAME, d));
+    }
+    else
+    {
+        switch (sz)
+        {
+        case 1: emit32le(ldrb_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        case 2: emit32le(ldrh_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        case 4: emit32le(ldr_w_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        default: emit32le(ldr_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        }
+        store_local(HW_SCR_VAL, d);
+    }
+    touch_local(d);
 }
 
 void arm64::load_signext(byte d, byte s, byte w)
@@ -767,15 +844,6 @@ void arm64::load_signext_off(byte d, byte s, byte w, value_t o)
 {
     record(arm64, "load_signext_off(%u, %u, %u, %lld)", d, s, w, o);
     load_mem_off(d,s,o,(w+7)/8); sext_local(d,w);
-}
-
-void arm64::frame_addr(byte d, byte s)
-// ----------------------------------------------------------------------------
-//   Compute frame-relative address into local d
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "frame_addr(%u, %u)", d, s);
-    emit32le(frame_addr_rr(xreg(d), xreg(s)));
 }
 
 void arm64::bra_offset(broff_t b)
@@ -1049,7 +1117,15 @@ void arm64::get_arg(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "get_arg(%u, %u)", d, s);
-    mov_local(d,s);
+    emit32le(sub_imm(HW_SCR_ADDR, HW_FRAME, 8));
+    emit32le(ldr_idx(HW_SCR_OFF, HW_SCR_ADDR));
+    emit32le(lsr_imm64(HW_SCR_VAL, HW_SCR_OFF, 16));
+    emit32le(add_imm(HW_SCR_VAL, HW_SCR_VAL, s));
+    emit32le(lsl_imm64(HW_SCR_ADDR, HW_SCR_VAL, 3));
+    emit32le(add_rrr(HW_SCR_ADDR, HW_FRAME, HW_SCR_ADDR));
+    emit32le(ldr_idx(HW_SCR_VAL, HW_SCR_ADDR));
+    store_local(HW_SCR_VAL, d);
+    touch_local(d);
 }
 
 void arm64::set_arg(byte d, byte s)
@@ -1058,7 +1134,14 @@ void arm64::set_arg(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "set_arg(%u, %u)", d, s);
-    mov_local(s,d);
+    load_local(d, HW_SCR_VAL);
+    emit32le(sub_imm(HW_SCR_ADDR, HW_FRAME, 8));
+    emit32le(ldr_idx(HW_SCR_OFF, HW_SCR_ADDR));
+    emit32le(lsr_imm64(HW_SCR_ADDR, HW_SCR_OFF, 16));
+    emit32le(add_imm(HW_SCR_ADDR, HW_SCR_ADDR, s));
+    emit32le(lsl_imm64(HW_SCR_OFF, HW_SCR_ADDR, 3));
+    emit32le(add_rrr(HW_SCR_ADDR, HW_FRAME, HW_SCR_OFF));
+    emit32le(str_idx(HW_SCR_VAL, HW_SCR_ADDR));
 }
 
 void arm64::push_local(byte s)

@@ -1120,6 +1120,26 @@ void x86::emit_ld1o(byte d, byte s, value_t o)
 }
 
 
+void x86::emit_lds(byte d, byte s, byte w)
+// ----------------------------------------------------------------------------
+//   Emit bytecode for the lds opcode
+// ----------------------------------------------------------------------------
+{
+    record(x86_ops, "emit_lds(%u, %u, %u)", d, s, w);
+    load_signext(d, s, w);
+}
+
+
+void x86::emit_ldos(byte d, byte s, byte w, value_t o)
+// ----------------------------------------------------------------------------
+//   Emit bytecode for the ldos opcode
+// ----------------------------------------------------------------------------
+{
+    record(x86_ops, "emit_ldos(%u, %u, %u, %lld)", d, s, w, o);
+    load_signext_off(d, s, w, o);
+}
+
+
 void x86::emit_sext(byte d, byte w)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the sext opcode

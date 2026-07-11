@@ -108,6 +108,8 @@ OP(ld8o, { byte d = *pc++; byte s = *pc++; value_t kint = leb128<value_t>(pc); e
 OP(ld4o, { byte d = *pc++; byte s = *pc++; value_t kint = leb128<value_t>(pc); emit_ld4o(d, s, kint); })
 OP(ld2o, { byte d = *pc++; byte s = *pc++; value_t kint = leb128<value_t>(pc); emit_ld2o(d, s, kint); })
 OP(ld1o, { byte d = *pc++; byte s = *pc++; value_t kint = leb128<value_t>(pc); emit_ld1o(d, s, kint); })
+OP(lds, { byte d = *pc++; byte s = *pc++; byte kshift = *pc++; emit_lds(d, s, kshift); })
+OP(ldos, { byte d = *pc++; byte s = *pc++; byte kshift = *pc++; value_t kint = leb128<value_t>(pc); emit_ldos(d, s, kshift, kint); })
 OP(sext, { byte d = *pc++; byte kshift = *pc++; emit_sext(d, kshift); })
 OP(zext, { byte d = *pc++; byte kshift = *pc++; emit_zext(d, kshift); })
 OP(fadd, { byte d = *pc++; byte s = *pc++; emit_fadd(d, s); })

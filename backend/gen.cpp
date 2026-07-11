@@ -74,6 +74,7 @@ bool backend::translate(byte_p &pc)
     record(backend, "translate(%p)", &pc);
     translating = true;
     translate_base = pc;
+    pending_branch_target = 0;
     begin_translation();
     while (translating)
     {
@@ -170,6 +171,7 @@ void backend::record_branch(broff_t offset, uint pos)
     record(backend, "record_branch(target=%p, insn_pos=%u, leb=%lld)",
            (void *) pending_branch_target, pos, offset);
     branch_fixups.push_back({ pending_branch_target, pos });
+    pending_branch_target = 0;
 }
 
 
