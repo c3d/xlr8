@@ -256,6 +256,14 @@ protected:
         return 0xE12FFF1Eu;
     }
 
+    static inline uint bx_reg(uint rm)
+    // ------------------------------------------------------------------------
+    //   Encode bx rm
+    // ------------------------------------------------------------------------
+    {
+        return 0xE12FFF10u | (rm & 0xFu);
+    }
+
     void emit32le(uint32_t insn);
     void load_local(byte n, uint r);
     void store_local(uint r, byte n);
@@ -263,6 +271,7 @@ protected:
     void call_abs(void *fn);
     void spill_frame();
     void reload_frame_reg();
+    void reload_shadows();
     void touch_local(byte d);
     void mov_local(byte d, byte s);
     void swap_locals(byte d, byte s);

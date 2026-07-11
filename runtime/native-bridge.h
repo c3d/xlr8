@@ -42,12 +42,17 @@ void     xlr8_set_runtime(runtime *rt);
 runtime *xlr8_get_runtime();
 void     xlr8_set_sys_args(byte_p args);
 void     xlr8_skip_sys_args(tok_t t, byte_p &pc);
+void     xlr8_store_float_local(byte d, uint32_t bits);
 void    *xlr8_runtime_fn(cstring name);
 
-stack_p  xlr8_enter(byte locals);
-stack_p  xlr8_leave();
-byte_p   xlr8_resolve(tok_t t);
-int      xlr8_sys(tok_t t, byte_p args);
+stack_p    xlr8_enter(byte locals);
+stack_p    xlr8_leave();
+byte_p     xlr8_resolve(tok_t t);
+int        xlr8_sys(tok_t t, byte_p args);
+void       xlr8_push_value(uintptr_t v);
+uintptr_t  xlr8_pop_value();
+void       xlr8_push_flags_val(uint64_t flags);
+uint64_t   xlr8_pop_flags_val();
 
 #ifdef __cplusplus
 }

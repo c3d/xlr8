@@ -80,6 +80,7 @@ struct arm64 : backend
     void gsym_addr(uint t, uint a) override;
     void finish_translation() override;
     void begin_translation() override;
+    void patch_branch_site(size_t insn_pos, size_t target_native) override;
 
 #define OP(op, sig) sig override;
 #include "opover.tbl"
@@ -132,12 +133,60 @@ protected:
         return 0xf9000000u | (off << 10) | (rn << 5) | rd;
     }
 
+    static inline uint str_w_off(uint wt, uint rn, uint slot)
+    // ----------------------------------------------------------------------------
+    //   Encode str wt, [rn, #slot*8]  (32-bit store into a bytecode slot)
+    // ----------------------------------------------------------------------------
+    {
+        return 0xb9000000u | (slot << 8) | (rn << 5) | wt;
+    }
+
+    static inline uint ldr_w_off(uint wt, uint rn, uint slot)
+    // ----------------------------------------------------------------------------
+    //   Encode ldr wt, [rn, #slot*8]  (32-bit load from a bytecode slot)
+    // ----------------------------------------------------------------------------
+    {
+        return 0xb9400000u | (slot << 8) | (rn << 5) | wt;
+    }
+
+    static inline uint uxtw_x(uint xd, uint ws)
+    // ----------------------------------------------------------------------------
+    //   Encode orr xd, xzr, ws  (zero-extend 32-bit W register to X)
+    // ----------------------------------------------------------------------------
+    {
+        return 0xaa0003e0u | (ws << 16) | xd;
+    }
+
     static inline uint ldr_idx(uint rd, uint rn)
     // ----------------------------------------------------------------------------
     //   Encode ldr rd, [rn]
     // ----------------------------------------------------------------------------
     {
         return 0xf9400000u | (rn << 5) | rd;
+    }
+
+    static inline uint ldr_w_idx(uint rd, uint rn)
+    // ----------------------------------------------------------------------------
+    //   Encode ldr w, [rn]
+    // ----------------------------------------------------------------------------
+    {
+        return 0xb9400000u | (rn << 5) | rd;
+    }
+
+    static inline uint ldrh_idx(uint rd, uint rn)
+    // ----------------------------------------------------------------------------
+    //   Encode ldrh w, [rn]
+    // ----------------------------------------------------------------------------
+    {
+        return 0x79400000u | (rn << 5) | rd;
+    }
+
+    static inline uint ldrb_idx(uint rd, uint rn)
+    // ----------------------------------------------------------------------------
+    //   Encode ldrb w, [rn]
+    // ----------------------------------------------------------------------------
+    {
+        return 0x39400000u | (rn << 5) | rd;
     }
 
     static inline uint str_idx(uint rd, uint rn)
@@ -373,6 +422,14 @@ protected:
         return 0xd65f03c0u;
     }
 
+    static inline uint ret_lr_insn()
+    // ----------------------------------------------------------------------------
+    //   Encode ret x20  (return through saved link register)
+    // ----------------------------------------------------------------------------
+    {
+        return 0xd65f0280u;
+    }
+
     static inline uint brk_insn()
     // ----------------------------------------------------------------------------
     //   Encode brk #0
@@ -397,6 +454,22 @@ protected:
         return 0x14000000u | (uint32_t(offset) & 0x03ffffffu);
     }
 
+    static inline uint cbz_imm(uint rt, int offset)
+    // ----------------------------------------------------------------------------
+    //   Encode cbz rt, #offset
+    // ----------------------------------------------------------------------------
+    {
+        return 0xb4000000u | ((uint32_t(offset) & 0x7ffffu) << 5) | rt;
+    }
+
+    static inline uint cbnz_imm(uint rt, int offset)
+    // ----------------------------------------------------------------------------
+    //   Encode cbnz rt, #offset
+    // ----------------------------------------------------------------------------
+    {
+        return 0xb5000000u | ((uint32_t(offset) & 0x7ffffu) << 5) | rt;
+    }
+
     void emit32le(uint32_t insn);
     void load_local(byte n, uint r);
     void store_local(uint r, byte n);
@@ -404,6 +477,7 @@ protected:
     void call_abs(void *fn);
     void spill_frame();
     void reload_frame_reg();
+    void reload_shadows();
     void touch_local(byte d);
     void mov_local(byte d, byte s);
     void swap_locals(byte d, byte s);

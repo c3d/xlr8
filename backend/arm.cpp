@@ -187,6 +187,26 @@ void arm::reload_frame_reg()
 }
 
 
+void arm::reload_shadows(void)
+// ----------------------------------------------------------------------------
+//   Reload shadowed bytecode locals from the runtime frame after a syscall
+// ----------------------------------------------------------------------------
+{
+    runtime *rt = xlr8_get_runtime();
+    if (!rt || !rt->frame)
+        return;
+
+    byte locals = byte(rt->frame[-1]);
+    if (!locals)
+        locals = byte(rt->CALL_CLOBBERED_REGS);
+    if (locals > ARM_SHADOW_COUNT)
+        locals = ARM_SHADOW_COUNT;
+
+    for (uint r = 0; r < locals; r++)
+        emit32le(ldr_off(rreg(byte(r)), HW_FRAME, r * ptr_size()));
+}
+
+
 uint arm::gjmp(uint t)
 // ----------------------------------------------------------------------------
 //   Emit jump with deferred fixup chain
@@ -783,8 +803,7 @@ void arm::do_ret()
 //   Emit return instruction
 // ----------------------------------------------------------------------------
 {
-    emit32le(mov_rr(14, HW_LINK));
-    emit32le(bx_lr());
+    emit32le(bx_reg(HW_LINK));
 }
 
 

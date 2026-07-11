@@ -42,7 +42,17 @@ void arm64::emit_undef(tok_t t)
 //   Emit bytecode for the undef opcode
 // ----------------------------------------------------------------------------
 {
-    rtcall("xlr8_resolve", t);
+    bind(t);
+}
+
+
+void arm64::emit_ret()
+// ----------------------------------------------------------------------------
+//   Emit bytecode for the ret opcode
+// ----------------------------------------------------------------------------
+{
+    rtcall("xlr8_pop_value");
+    emit32le(br(0));
 }
 
 
@@ -70,6 +80,12 @@ void arm64::emit_flt(byte d, float v)
 // ----------------------------------------------------------------------------
 {
     store_float(d, v);
+    uint32_t bits = 0;
+    memcpy(&bits, &v, 4);
+    load_imm64(0, d);
+    load_imm64(1, uint64_t(bits));
+    call_abs((void *) xlr8_store_float_local);
+    emit32le(ldr_off(xreg(d), HW_FRAME, d));
 }
 
 
@@ -163,15 +179,6 @@ void arm64::emit_icall(byte s)
 }
 
 
-void arm64::emit_ret()
-// ----------------------------------------------------------------------------
-//   Emit bytecode for the ret opcode
-// ----------------------------------------------------------------------------
-{
-    do_ret();
-}
-
-
 void arm64::emit_ppc()
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ppc opcode
@@ -206,6 +213,7 @@ void arm64::emit_enter(byte d)
 {
     rtcall("xlr8_enter", d);
     reload_frame_reg();
+    reload_shadows();
 }
 
 
@@ -216,6 +224,7 @@ void arm64::emit_leave()
 {
     rtcall("xlr8_leave");
     reload_frame_reg();
+    reload_shadows();
 }
 
 
@@ -260,11 +269,13 @@ void arm64::emit_sys(tok_t t, byte_p args)
 //   Emit bytecode for the sys opcode
 // ----------------------------------------------------------------------------
 {
+    spill_arg_regs = true;
     spill_frame();
-    spill_arg_regs = false;
     load_imm64(0, uint64_t(t));
     load_imm64(1, uint64_t(uintptr_t(args)));
     call_abs((void *) xlr8_sys);
+    reload_shadows();
+    spill_arg_regs = false;
 }
 
 

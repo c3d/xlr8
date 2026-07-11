@@ -187,6 +187,16 @@ typedef uint64_t        u64;
 
 #define TRC(s, x)
 
+static inline float frame_float(stack_p frame, byte n)
+// ----------------------------------------------------------------------------
+//   Read a float from a bytecode frame slot
+// ----------------------------------------------------------------------------
+{
+    float v = 0;
+    memcpy(&v, &frame[n], sizeof(v));
+    return v;
+}
+
 #define REG(n)          byte n = *pc++                  TRC(#n "%u", n)
 #define RALL(n)         frame[n]
 #ifndef BIG_ENDIAN
@@ -196,7 +206,7 @@ typedef uint64_t        u64;
 #endif
 #define RNAT(n)         RTYPE(uvalue_t,n)
 #define RINT(n)         RTYPE(value_t,n)
-#define RFLT(n)         RTYPE(float_t,n)
+#define RFLT(n)         frame_float(frame, n)
 #define RDBL(n)         RTYPE(double,n)
 #define RPTR(n)         RTYPE(void *,n)
 #define RRPTR(n)        RTYPE(byte_p,n)
@@ -209,7 +219,7 @@ typedef uint64_t        u64;
 #define DALL            RALL(d)
 #define DNAT            RNAT(d)
 #define DINT            RINT(d)
-#define DFLT            RFLT(d)
+#define DFLT            (*((float *)&(DALL)))
 #define DDBL            RDBL(d)
 #define DPTR            RPTR(d)
 #define DRPTR           RRPTR(d)
@@ -222,7 +232,7 @@ typedef uint64_t        u64;
 #define SALL            RALL(s)
 #define SNAT            RNAT(s)
 #define SINT            RINT(s)
-#define SFLT            RFLT(s)
+#define SFLT            frame_float(frame, s)
 #define SDBL            RDBL(s)
 #define SPTR            RPTR(s)
 #define SRPTR           RRPTR(s)

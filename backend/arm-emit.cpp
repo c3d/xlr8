@@ -260,11 +260,13 @@ void arm::emit_sys(tok_t t, byte_p args)
 //   Emit bytecode for the sys opcode
 // ----------------------------------------------------------------------------
 {
+    spill_arg_regs = true;
     spill_frame();
-    spill_arg_regs = false;
     load_imm32(0, uint32_t(t));
     load_imm32(1, uint32_t(uintptr_t(args)));
     call_abs((void *) xlr8_sys);
+    reload_shadows();
+    spill_arg_regs = false;
 }
 
 

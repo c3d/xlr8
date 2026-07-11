@@ -64,6 +64,9 @@ static void *map_executable(byte_p data, size_t sz)
     void *mem = mmap(nullptr, alloc, PROT_READ | PROT_WRITE, flags, -1, 0);
     if (mem == MAP_FAILED)
         return nullptr;
+#if defined(__APPLE__)
+    pthread_jit_write_protect_np(0);
+#endif
     memcpy(mem, data, sz);
 #if defined(__APPLE__)
     pthread_jit_write_protect_np(1);
@@ -128,17 +131,17 @@ static void invoke_arm64(runtime &rt, void *code)
 //   Jump to generated AArch64 code; x19 = rt.frame, x22 = rt.flags
 // ----------------------------------------------------------------------------
 {
-    typedef void (*entry_fn)(void);
-    entry_fn entry = (entry_fn) code;
     stack_p frame = rt.frame;
     uint64_t flags = rt.flags;
     asm volatile(
         "mov x19, %0\n\t"
-        "mov x22, %1"
+        "mov x22, %1\n\t"
+        "blr %2"
         :
-        : "r"(frame), "r"(flags)
-        : "x19", "x22", "memory");
-    entry();
+        : "r"(frame), "r"(flags), "r"(code)
+        : "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7",
+          "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15",
+          "x16", "x17", "x18", "x19", "x20", "x22", "x30", "memory", "cc");
 }
 #endif
 

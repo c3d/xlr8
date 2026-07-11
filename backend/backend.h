@@ -72,6 +72,7 @@ struct backend
     virtual void    begin_translation();
     void            bind(tok_t t)           { labels[t] = cursor(); }
     void            resolve_labels();
+    void            set_branch_target(byte_p target);
 
     // Target constants (TARGET_DEFS_ONLY section in TinyCC)
     virtual cstring machine_defs() const = 0;
@@ -106,6 +107,8 @@ protected:
     void            record_branch(broff_t offset, uint pos);
     void            record_tok_jump(tok_t t, uint pos);
     void            patch_branch(uint pos, broff_t offset);
+    virtual void    patch_branch_site(size_t insn_pos, size_t target_native);
+    void            translate_sub(byte_p &pc);
 
     arch_t                  current_arch;
     output_t                current_output;
@@ -118,6 +121,11 @@ protected:
     std::map<tok_t, size_t> labels;
     std::map<tok_t, uint>   tok_jumps;
     std::vector<uint>       branch_patches;
+    std::map<size_t, size_t> bc_positions;
+    struct branch_fixup { size_t target_off; size_t insn_pos; };
+    std::vector<branch_fixup> branch_fixups;
+    byte_p                  translate_base = nullptr;
+    size_t                  pending_branch_off = 0;
 };
 
 

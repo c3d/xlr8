@@ -60,6 +60,7 @@ void arm64::store_local(uint r, byte n)
     {
         if (r != n)
             emit32le(mov_rr(n, r));
+        emit32le(str_off(xreg(n), HW_FRAME, n));
         touch_local(n);
     }
     else
@@ -190,6 +191,26 @@ void arm64::reload_frame_reg()
 }
 
 
+void arm64::reload_shadows(void)
+// ----------------------------------------------------------------------------
+//   Reload shadowed bytecode locals from the runtime frame after a syscall
+// ----------------------------------------------------------------------------
+{
+    runtime *rt = xlr8_get_runtime();
+    if (!rt || !rt->frame)
+        return;
+
+    byte locals = byte(rt->frame[-1]);
+    if (!locals)
+        locals = byte(rt->CALL_CLOBBERED_REGS);
+    if (locals > LOC_SHADOW_COUNT)
+        locals = LOC_SHADOW_COUNT;
+
+    for (uint r = 0; r < locals; r++)
+        emit32le(ldr_off(xreg(byte(r)), HW_FRAME, r));
+}
+
+
 uint arm64::gjmp(uint t)
 // ----------------------------------------------------------------------------
 //   Emit jump with deferred fixup chain
@@ -272,7 +293,13 @@ void arm64::store_imm(byte d, value_t v)
 //   Store integer immediate into bytecode local
 // ----------------------------------------------------------------------------
 {
-    emit32le(movz(xreg(d), uint32_t(v) & 0xffffu));
+    if (d < LOC_SHADOW_COUNT)
+        load_imm64(xreg(d), uint64_t(uint32_t(v)));
+    else
+        load_imm64(HW_SCR_VAL, uint64_t(uint32_t(v))),
+        store_local(HW_SCR_VAL, d);
+    if (d < LOC_SHADOW_COUNT)
+        emit32le(str_off(xreg(d), HW_FRAME, d));
     touch_local(d);
 }
 
@@ -281,8 +308,10 @@ void arm64::store_float(byte d, float v)
 //   Store float immediate into bytecode local
 // ----------------------------------------------------------------------------
 {
-    uint32_t bits = 0; memcpy(&bits, &v, 4);
-    store_imm(d, value_t(bits));
+    uint32_t bits = 0;
+    memcpy(&bits, &v, 4);
+    load_imm64(xreg(d), uint64_t(bits));
+    touch_local(d);
 }
 
 void arm64::store_double(byte d, double v)
@@ -292,6 +321,7 @@ void arm64::store_double(byte d, double v)
 {
     uint64_t bits = 0; memcpy(&bits, &v, 8);
     load_imm64(xreg(d), bits);
+    emit32le(str_off(xreg(d), HW_FRAME, d));
     touch_local(d);
 }
 
@@ -318,7 +348,10 @@ void arm64::binop_local(byte d, byte s, cstring op)
         emit32le(asr_rrr(xreg(d), xreg(d), xreg(s)));
     else if (!strcmp(op, "ushr"))
         emit32le(lsr_rrr(xreg(d), xreg(d), xreg(s)));
-    else trap(op);
+    else
+        trap(op);
+    if (d < LOC_SHADOW_COUNT)
+        emit32le(str_off(xreg(d), HW_FRAME, d));
     touch_local(d);
 }
 
@@ -332,6 +365,8 @@ void arm64::binop_imm(byte d, value_t v, cstring op)
     else if (!strcmp(op, "sub") || !strcmp(op, "subi"))
         emit32le(sub_imm(xreg(d), xreg(d), uint32_t(v)));
     else trap(op);
+    if (d < LOC_SHADOW_COUNT)
+        emit32le(str_off(xreg(d), HW_FRAME, d));
     touch_local(d);
 }
 
@@ -454,20 +489,31 @@ void arm64::zext_local(byte d, byte w)
 
 void arm64::store_mem(byte d, byte s, uint sz)
 // ----------------------------------------------------------------------------
-//   Store local d at address in local s
+//   Store value from local s at address in local d
 // ----------------------------------------------------------------------------
 {
-    (void)sz;
-    emit32le(str_idx(xreg(d), xreg(s)));
+    switch (sz)
+    {
+    case 1: emit32le(0x39000000u | (xreg(d) << 5) | xreg(s)); break;
+    case 2: emit32le(0x79000000u | (xreg(d) << 5) | xreg(s)); break;
+    case 4: emit32le(0xb9000000u | (xreg(d) << 5) | xreg(s)); break;
+    default: emit32le(str_idx(xreg(s), xreg(d))); break;
+    }
 }
+
 
 void arm64::load_mem(byte d, byte s, uint sz)
 // ----------------------------------------------------------------------------
 //   Load from address in local s into local d
 // ----------------------------------------------------------------------------
 {
-    (void)sz;
-    emit32le(ldr_idx(xreg(d), xreg(s)));
+    switch (sz)
+    {
+    case 1: emit32le(ldrb_idx(xreg(d), xreg(s))); break;
+    case 2: emit32le(ldrh_idx(xreg(d), xreg(s))); break;
+    case 4: emit32le(ldr_w_idx(xreg(d), xreg(s))); break;
+    default: emit32le(ldr_idx(xreg(d), xreg(s))); break;
+    }
     touch_local(d);
 }
 
@@ -516,31 +562,71 @@ void arm64::bra_offset(broff_t b)
 //   Emit unconditional branch with bytecode offset
 // ----------------------------------------------------------------------------
 {
-    uint pos = gjmp(0); record_branch(b, pos);
+    uint pos = uint(cursor());
+    emit32le(b_imm(0));
+    record_branch(b, pos);
 }
 
-void arm64::bra_pred(byte p, broff_t b, bool sense)
+void arm64::patch_branch_site(size_t insn_pos, size_t target_native)
 // ----------------------------------------------------------------------------
-//   Emit branch on predicate p with given sense
+//   Patch a recorded branch instruction to jump to target_native
 // ----------------------------------------------------------------------------
 {
-    (void)p;(void)sense; bra_offset(b);
+    int32_t off = int32_t(target_native - insn_pos) / 4;
+    uint32_t insn = uint32_t(code().data[insn_pos])
+                  | (uint32_t(code().data[insn_pos + 1]) << 8)
+                  | (uint32_t(code().data[insn_pos + 2]) << 16)
+                  | (uint32_t(code().data[insn_pos + 3]) << 24);
+    uint32_t op = insn & 0xff000000u;
+    if (op == 0x14000000u)
+        insn = b_imm(off);
+    else if (op == 0xb4000000u)
+        insn = cbz_imm(insn & 0x1fu, off);
+    else if (op == 0xb5000000u)
+        insn = cbnz_imm(insn & 0x1fu, off);
+    code().patch32(insn_pos, insn);
 }
+
 
 void arm64::bra_zero(byte s, broff_t b, bool eq)
 // ----------------------------------------------------------------------------
 //   Emit branch when local s is zero or non-zero
 // ----------------------------------------------------------------------------
 {
-    (void)s;(void)eq; bra_offset(b);
+    (void) b;
+    uint pos = uint(cursor());
+    if (eq)
+        emit32le(cbz_imm(xreg(s), 0));
+    else
+        emit32le(cbnz_imm(xreg(s), 0));
+    record_branch(b, pos);
 }
+
+
+void arm64::bra_pred(byte p, broff_t b, bool sense)
+// ----------------------------------------------------------------------------
+//   Emit branch on predicate p with given sense
+// ----------------------------------------------------------------------------
+{
+    (void) b;
+    load_imm64(HW_SCR_VAL, uint64_t(1) << p);
+    emit32le(and_rrr(HW_SCR_VAL, HW_FLAGS, HW_SCR_VAL));
+    uint pos = uint(cursor());
+    if (sense)
+        emit32le(cbnz_imm(HW_SCR_VAL, 0));
+    else
+        emit32le(cbz_imm(HW_SCR_VAL, 0));
+    record_branch(b, pos);
+}
+
 
 void arm64::bra_signed(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 //   Emit signed comparison branch on local s
 // ----------------------------------------------------------------------------
 {
-    (void)s; bra_offset(b);
+    (void) s;
+    bra_offset(b);
 }
 
 void arm64::dbra_local(byte d, broff_t b)
@@ -556,7 +642,9 @@ void arm64::jmp_tok(tok_t t)
 //   Emit jump to token-resolved label
 // ----------------------------------------------------------------------------
 {
-    record_tok_jump(t, gjmp(0));
+    uint pos = uint(cursor());
+    emit32le(b_imm(0));
+    record_tok_jump(t, pos);
 }
 
 void arm64::call_tok(tok_t t)
@@ -564,7 +652,12 @@ void arm64::call_tok(tok_t t)
 //   Emit call to token-resolved label
 // ----------------------------------------------------------------------------
 {
-    record_tok_jump(t, gjmp(0));
+    uint ret_addr = uint(cursor()) + 4;
+    load_imm64(0, ret_addr);
+    rtcall("xlr8_push_value");
+    uint pos = uint(cursor());
+    emit32le(b_imm(0));
+    record_tok_jump(t, pos);
 }
 
 void arm64::ijmp_local(byte s)
@@ -588,7 +681,9 @@ void arm64::push_pc()
 //   Push program counter onto stack
 // ----------------------------------------------------------------------------
 {
-    emit32le(stp_fp_lr());
+    load_imm64(0, uint(cursor()));
+    rtcall("xlr8_push_value");
+    spill_arg_regs = true;
 }
 
 void arm64::load_pc(byte d)
@@ -628,32 +723,47 @@ void arm64::push_local(byte s)
 //   Push local s onto stack
 // ----------------------------------------------------------------------------
 {
-    emit32le(stp_push(xreg(s)));
+    if (s < LOC_SHADOW_COUNT)
+        emit32le(mov_rr(0, xreg(s)));
+    else
+        emit32le(ldr_off(0, HW_FRAME, s));
+    rtcall("xlr8_push_value");
+    spill_arg_regs = true;
 }
+
 
 void arm64::pop_local(byte d)
 // ----------------------------------------------------------------------------
 //   Pop stack value into local d
 // ----------------------------------------------------------------------------
 {
-    emit32le(ldp_pop(xreg(d)));
+    rtcall("xlr8_pop_value");
+    if (d < LOC_SHADOW_COUNT)
+        emit32le(mov_rr(xreg(d), 0));
+    else
+        emit32le(str_off(0, HW_FRAME, d));
     touch_local(d);
 }
+
 
 void arm64::push_flags()
 // ----------------------------------------------------------------------------
 //   Push flags register onto stack
 // ----------------------------------------------------------------------------
 {
-    emit32le(stp_push(HW_FLAGS));
+    emit32le(mov_rr(0, HW_FLAGS));
+    rtcall("xlr8_push_flags_val");
+    spill_arg_regs = true;
 }
+
 
 void arm64::pop_flags()
 // ----------------------------------------------------------------------------
 //   Pop stack value into flags register
 // ----------------------------------------------------------------------------
 {
-    emit32le(ldp_pop(HW_FLAGS));
+    rtcall("xlr8_pop_flags_val");
+    emit32le(mov_rr(HW_FLAGS, 0));
 }
 
 void arm64::store_global(byte d, byte s)
@@ -677,8 +787,7 @@ void arm64::do_ret()
 //   Emit return instruction
 // ----------------------------------------------------------------------------
 {
-    emit32le(mov_lr_restore());
-    emit32le(ret_insn());
+    emit32le(ret_lr_insn());
 }
 
 void arm64::trap(cstring msg)

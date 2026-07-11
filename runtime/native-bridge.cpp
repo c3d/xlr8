@@ -37,6 +37,267 @@ static runtime *xlr8_current_rt = nullptr;
 static byte_p   xlr8_sys_args_pc = nullptr;
 
 
+static void skip_reg(byte_p &pc)
+// ----------------------------------------------------------------------------
+//   Skip one bytecode register index
+// ----------------------------------------------------------------------------
+{
+    pc++;
+}
+
+
+static void skip_ostream(byte_p &pc)
+// ----------------------------------------------------------------------------
+//   Skip an output stream token
+// ----------------------------------------------------------------------------
+{
+    leb128<tok_t>(pc);
+}
+
+
+static void skip_istream(byte_p &pc)
+// ----------------------------------------------------------------------------
+//   Skip an input stream token
+// ----------------------------------------------------------------------------
+{
+    leb128<tok_t>(pc);
+}
+
+
+static void skip_klen(byte_p &pc)
+// ----------------------------------------------------------------------------
+//   Skip a LEB128-encoded length
+// ----------------------------------------------------------------------------
+{
+    leb128<size_t>(pc);
+}
+
+
+static void skip_kint(byte_p &pc)
+// ----------------------------------------------------------------------------
+//   Skip a LEB128-encoded signed integer
+// ----------------------------------------------------------------------------
+{
+    leb128<value_t>(pc);
+}
+
+
+static void skip_knat(byte_p &pc)
+// ----------------------------------------------------------------------------
+//   Skip a LEB128-encoded natural
+// ----------------------------------------------------------------------------
+{
+    leb128<uvalue_t>(pc);
+}
+
+
+static void skip_broff(byte_p &pc)
+// ----------------------------------------------------------------------------
+//   Skip a LEB128-encoded branch offset
+// ----------------------------------------------------------------------------
+{
+    leb128<broff_t>(pc);
+}
+
+
+static void skip_native_args(cstring pattern, byte_p &pc)
+// ----------------------------------------------------------------------------
+//   Advance pc past syscall arguments using a compact pattern string
+//
+//   D = destination register, S = source register, X = extra register,
+//   L = length register, I = immediate register, P = predicate register,
+//   o = output stream, i = input stream, K = klen, J = kint, N = knat,
+//   B = branch offset, T = token
+// ----------------------------------------------------------------------------
+{
+    for (cstring p = pattern; *p; p++)
+    {
+        switch (*p)
+        {
+        case 'D': case 'S': case 'X': case 'L': case 'I': case 'P':
+            skip_reg(pc);
+            break;
+        case 'o':
+            skip_ostream(pc);
+            break;
+        case 'i':
+            skip_istream(pc);
+            break;
+        case 'K':
+            skip_klen(pc);
+            break;
+        case 'J':
+            skip_kint(pc);
+            break;
+        case 'N':
+            skip_knat(pc);
+            break;
+        case 'B':
+            skip_broff(pc);
+            break;
+        case 'T':
+            leb128<tok_t>(pc);
+            break;
+        }
+    }
+}
+
+
+struct native_skip_entry
+{
+    cstring     name;
+    cstring     pattern;
+};
+
+
+static const native_skip_entry native_skip_table[] =
+{
+    { "globals",         "K" },
+    { "malloc",          "DS" },
+    { "kmalloc",         "DK" },
+    { "realloc",         "DS" },
+    { "free",            "D" },
+    { "alloca",          "DJ" },
+    { "valloca",         "DS" },
+    { "memcpy",          "DSL" },
+    { "memmove",         "DSL" },
+    { "memset",          "DSL" },
+    { "kmemcpy",         "DSK" },
+    { "kmemmove",        "DSK" },
+    { "kmemset",         "DSK" },
+    { "memkset",         "DJS" },
+    { "kmemkset",        "DJK" },
+    { "memcmp",          "DSXL" },
+    { "kmemcmp",         "DSXK" },
+    { "memchr",          "DSIL" },
+    { "kmemchr",         "DSIK" },
+    { "memkchr",         "DSJL" },
+    { "kmemkchr",        "DSJK" },
+    { "strlen",          "DS" },
+    { "strnlen",         "DSL" },
+    { "kstrnlen",        "DSK" },
+    { "strcpy",          "DS" },
+    { "strncpy",         "DSL" },
+    { "kstrncpy",        "DSK" },
+    { "strcat",          "DS" },
+    { "strncat",         "DSL" },
+    { "kstrncat",        "DSK" },
+    { "strcmp",          "DSX" },
+    { "strncmp",         "DSXL" },
+    { "kstrncmp",        "DSXK" },
+    { "strchr",          "DSI" },
+    { "kstrchr",         "DSJ" },
+    { "strrchr",         "DSI" },
+    { "kstrrchr",        "DSJ" },
+    { "strstr",          "DSX" },
+    { "strcasestr",      "DSX" },
+    { "strdup",          "DS" },
+    { "strndup",         "DSL" },
+    { "kstrndup",        "DSK" },
+    { "cmdline",         "DS" },
+    { "env",             "DS" },
+    { "branch_on_eof",   "Bi" },
+    { "branch_on_bad",   "Bi" },
+    { "read_char",       "Di" },
+    { "read_integer",    "Di" },
+    { "read_natural",    "Di" },
+    { "read_float",      "Di" },
+    { "read_double",     "Di" },
+    { "read_scanner",    "Di" },
+    { "write_char",      "oS" },
+    { "write_integer",   "oS" },
+    { "write_natural",   "oS" },
+    { "write_float",     "oS" },
+    { "write_double",    "oS" },
+    { "write_text",      "oS" },
+    { "write_token",     "oN" },
+    { "write_newline",   "o" },
+    { "nat",             "So" },
+    { "int",             "So" },
+    { "flt",             "So" },
+    { "dbl",             "So" },
+    { "print_error",     "o" },
+    { "trap_error",      "B" },
+    { "i2f",             "DS" },
+    { "i2d",             "DS" },
+    { "u2f",             "DS" },
+    { "u2d",             "DS" },
+    { "f2i",             "DS" },
+    { "d2i",             "DS" },
+    { "f2u",             "DS" },
+    { "d2u",             "DS" },
+    { "f2d",             "DS" },
+    { "d2f",             "DS" },
+    { "fpush",           "S" },
+    { "dpush",           "S" },
+    { "fpop",            "D" },
+    { "dpop",            "D" },
+    { "fmod",            "DS" },
+    { "dmod",            "DS" },
+    { "ffloor",          "DS" },
+    { "dfloor",          "DS" },
+    { "fceil",           "DS" },
+    { "dceil",           "DS" },
+    { "fsqrt",           "DS" },
+    { "dsqrt",           "DS" },
+    { "fcbrt",           "DS" },
+    { "dcbrt",           "DS" },
+    { "fsin",            "DS" },
+    { "dsin",            "DS" },
+    { "fcos",            "DS" },
+    { "dcos",            "DS" },
+    { "ftan",            "DS" },
+    { "dtan",            "DS" },
+    { "fasin",           "DS" },
+    { "dasin",           "DS" },
+    { "facos",           "DS" },
+    { "dacos",           "DS" },
+    { "fatan",           "DS" },
+    { "datan",           "DS" },
+    { "fexp",            "DS" },
+    { "dexp",            "DS" },
+    { "flog",            "DS" },
+    { "dlog",            "DS" },
+    { "fexp2",           "DS" },
+    { "dexp2",           "DS" },
+    { "flog2",           "DS" },
+    { "dlog2",           "DS" },
+    { "fcmpeq",          "PDS" },
+    { "dcmpeq",          "PDS" },
+    { "fcmpne",          "PDS" },
+    { "dcmpne",          "PDS" },
+    { "fcmplt",          "PDS" },
+    { "dcmplt",          "PDS" },
+    { "fcmpgt",          "PDS" },
+    { "dcmpgt",          "PDS" },
+    { "fcmple",          "PDS" },
+    { "dcmple",          "PDS" },
+    { "fcmpge",          "PDS" },
+    { "dcmpge",          "PDS" },
+    { "stack",           "D" },
+    { "st8v",            "DS" },
+    { "st4v",            "DS" },
+    { "st2v",            "DS" },
+    { "st1v",            "DS" },
+    { "ld8v",            "DS" },
+    { "ld4v",            "DS" },
+    { "ld2v",            "DS" },
+    { "ld1v",            "DS" },
+    { "ld8vs",           "DS" },
+    { "ld4vs",           "DS" },
+    { "ld2vs",           "DS" },
+    { "ld1vs",           "DS" },
+    { "tok",             "DS" },
+    { "leb2i",           "DS" },
+    { "leb2u",           "DS" },
+    { "i2leb",           "DS" },
+    { "u2leb",           "DS" },
+    { "i2lebsz",         "DS" },
+    { "u2lebsz",         "DS" },
+    { "cstring",         "DT" },
+};
+
+
 void xlr8_set_runtime(runtime *rt)
 // ----------------------------------------------------------------------------
 //   Select the runtime used by native helper calls
@@ -64,6 +325,19 @@ void xlr8_set_sys_args(byte_p args)
 }
 
 
+void xlr8_store_float_local(byte d, uint32_t bits)
+// ----------------------------------------------------------------------------
+//   Write a float into a bytecode local using interpreter frame layout
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt)
+        return;
+    float v = 0;
+    memcpy(&v, &bits, sizeof(v));
+    memcpy((float *) &xlr8_current_rt->frame[d], &v, sizeof(v));
+}
+
+
 void *xlr8_runtime_fn(cstring name)
 // ----------------------------------------------------------------------------
 //   Resolve a native helper name to a function pointer
@@ -75,6 +349,11 @@ void *xlr8_runtime_fn(cstring name)
         { "xlr8_leave",    (void *) xlr8_leave },
         { "xlr8_resolve",  (void *) xlr8_resolve },
         { "xlr8_sys",      (void *) xlr8_sys },
+        { "xlr8_store_float_local", (void *) xlr8_store_float_local },
+        { "xlr8_push_value",      (void *) xlr8_push_value },
+        { "xlr8_pop_value",       (void *) xlr8_pop_value },
+        { "xlr8_push_flags_val",  (void *) xlr8_push_flags_val },
+        { "xlr8_pop_flags_val",   (void *) xlr8_pop_flags_val },
     };
     for (entry &e : table)
         if (!strcmp(e.name, name))
@@ -115,6 +394,53 @@ byte_p xlr8_resolve(tok_t t)
 }
 
 
+void xlr8_push_value(uintptr_t v)
+// ----------------------------------------------------------------------------
+//   Push a value on the bytecode evaluation stack
+// ----------------------------------------------------------------------------
+{
+    if (xlr8_current_rt)
+        xlr8_current_rt->push(v);
+}
+
+
+uintptr_t xlr8_pop_value()
+// ----------------------------------------------------------------------------
+//   Pop a value from the bytecode evaluation stack
+// ----------------------------------------------------------------------------
+{
+    if (xlr8_current_rt)
+        return xlr8_current_rt->pop();
+    return 0;
+}
+
+
+void xlr8_push_flags_val(uint64_t flags)
+// ----------------------------------------------------------------------------
+//   Push the runtime flags register on the bytecode stack
+// ----------------------------------------------------------------------------
+{
+    if (xlr8_current_rt)
+    {
+        xlr8_current_rt->flags = flags;
+        xlr8_current_rt->push(flags);
+    }
+}
+
+
+uint64_t xlr8_pop_flags_val()
+// ----------------------------------------------------------------------------
+//   Pop flags from the bytecode stack into the runtime
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt)
+        return 0;
+    uint64_t flags = xlr8_current_rt->pop<uint64_t>();
+    xlr8_current_rt->flags = flags;
+    return flags;
+}
+
+
 int xlr8_sys(tok_t t, byte_p args)
 // ----------------------------------------------------------------------------
 //   Invoke a native syscall with bytecode arguments at args
@@ -144,23 +470,10 @@ void xlr8_skip_sys_args(tok_t t, byte_p &pc)
     if (name.empty())
         return;
 
-    if (name == "write_newline")
-    {
-        leb128<tok_t>(pc);
-    }
-    else if (name == "write_token")
-    {
-        leb128<tok_t>(pc);
-        leb128<uvalue_t>(pc);
-    }
-    else if (name.compare(0, 6, "write_") == 0)
-    {
-        leb128<tok_t>(pc);
-        pc++;
-    }
-    else if (name.compare(0, 5, "read_") == 0)
-    {
-        pc++;
-        leb128<tok_t>(pc);
-    }
+    for (const native_skip_entry &entry : native_skip_table)
+        if (name == entry.name)
+        {
+            skip_native_args(entry.pattern, pc);
+            return;
+        }
 }
