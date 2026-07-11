@@ -88,12 +88,6 @@ void arm64::emit_flt(byte d, float v)
 {
     record(arm64_ops, "emit_flt(%u, %g)", d, v);
     store_float(d, v);
-    uint32_t bits = 0;
-    memcpy(&bits, &v, 4);
-    load_imm64(0, d);
-    load_imm64(1, uint64_t(bits));
-    call_abs((void *) xlr8_store_float_local);
-    emit32le(ldr_off(xreg(d), HW_FRAME, d));
 }
 
 
