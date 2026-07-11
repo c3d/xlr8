@@ -65,6 +65,8 @@ struct backend
     section        &code()                  { return text_section; }
     size_t          cursor() const          { return ind; }
     void            set_cursor(size_t pos)  { ind = pos; }
+    const std::map<uintptr_t, size_t> &bytecode_positions() const
+                                            { return bc_positions; }
     int             frame_offset() const    { return loc; }
     void            set_frame_offset(int o) { loc = o; }
 

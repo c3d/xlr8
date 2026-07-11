@@ -227,6 +227,9 @@ void arm64::emit_enter(byte d)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_enter(%u)", d);
+    spill_frame();
+    emit32le(mov_rr(0, HW_FLAGS));
+    rtcall("xlr8_set_flags");
     rtcall("xlr8_enter", d);
     reload_frame_reg();
     reload_shadows();
@@ -241,6 +244,7 @@ void arm64::emit_leave()
     record(arm64_ops, "emit_leave()");
     rtcall("xlr8_leave");
     reload_frame_reg();
+    reload_flags_reg();
     reload_shadows();
 }
 
@@ -437,7 +441,8 @@ void arm64::emit_dispatch(byte s)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_dispatch(%u)", s);
-    rtcall("xlr8_dispatch", s);
+    (void) s;
+    trap("dispatch opcode");
 }
 
 
@@ -1137,7 +1142,9 @@ void arm64::emit_lds(byte d, byte s, byte w)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_lds(%u, %u, %u)", d, s, w);
-    load_signext(d, s, w);
+    if (d != s)
+        mov_local(d, s);
+    sext_local(d, w);
 }
 
 

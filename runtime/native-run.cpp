@@ -187,6 +187,10 @@ static bool native_run_impl(runtime &rt, backend &be, byte_p entry)
     if (!mem)
         return false;
 
+    be.relocate(mem);
+    rt.jit_code = mem;
+    rt.jit_pc_off = be.bytecode_positions();
+
 #if defined(__x86_64__) || defined(__amd64__)
     invoke_x86_64(rt, mem);
 #elif defined(__aarch64__)

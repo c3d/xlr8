@@ -31,6 +31,7 @@
 #include "leb128.h"
 
 #include <cstring>
+#include <functional>
 
 
 static runtime *xlr8_current_rt = nullptr;
@@ -349,6 +350,8 @@ void *xlr8_runtime_fn(cstring name)
         { "xlr8_leave",    (void *) xlr8_leave },
         { "xlr8_resolve",  (void *) xlr8_resolve },
         { "xlr8_sys",      (void *) xlr8_sys },
+        { "xlr8_after_sys", (void *) xlr8_after_sys },
+        { "xlr8_dispatch", (void *) xlr8_dispatch },
         { "xlr8_store_float_local", (void *) xlr8_store_float_local },
         { "xlr8_push_value",      (void *) xlr8_push_value },
         { "xlr8_pop_value",       (void *) xlr8_pop_value },
@@ -356,6 +359,10 @@ void *xlr8_runtime_fn(cstring name)
         { "xlr8_pop_flags_val",   (void *) xlr8_pop_flags_val },
         { "xlr8_save_jit_link",   (void *) xlr8_save_jit_link },
         { "xlr8_load_jit_link",   (void *) xlr8_load_jit_link },
+        { "xlr8_store_global",    (void *) xlr8_store_global },
+        { "xlr8_load_global",     (void *) xlr8_load_global },
+        { "xlr8_set_flags",       (void *) xlr8_set_flags },
+        { "xlr8_get_flags",       (void *) xlr8_get_flags },
     };
     for (entry &e : table)
         if (!strcmp(e.name, name))
@@ -484,6 +491,51 @@ uintptr_t xlr8_pop_value()
 }
 
 
+void xlr8_store_global(byte g, byte s)
+// ----------------------------------------------------------------------------
+//   Store bytecode local s into global slot g
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt)
+        return;
+    runtime &rt = *xlr8_current_rt;
+    if (size_t(g) < rt.globals.size())
+        rt.globals[g] = value_t(rt.frame[s]);
+}
+
+
+void xlr8_load_global(byte d, byte g)
+// ----------------------------------------------------------------------------
+//   Load global slot g into bytecode local d
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt)
+        return;
+    runtime &rt = *xlr8_current_rt;
+    if (size_t(g) < rt.globals.size())
+        rt.frame[d] = value_t(rt.globals[g]);
+}
+
+
+void xlr8_set_flags(uint64_t flags)
+// ----------------------------------------------------------------------------
+//   Update runtime flags from the JIT flags register
+// ----------------------------------------------------------------------------
+{
+    if (xlr8_current_rt)
+        xlr8_current_rt->flags = flags;
+}
+
+
+uint64_t xlr8_get_flags()
+// ----------------------------------------------------------------------------
+//   Return runtime flags for reloading the JIT flags register
+// ----------------------------------------------------------------------------
+{
+    return xlr8_current_rt ? xlr8_current_rt->flags : 0;
+}
+
+
 void xlr8_save_jit_link(uintptr_t link)
 // ----------------------------------------------------------------------------
 //   Save the native return link for JIT epilogue
@@ -544,6 +596,55 @@ int xlr8_sys(tok_t t, byte_p args)
         xlr8_current_rt->pc = xlr8_sys_args_pc;
 
     return xlr8_current_rt->native(t) ? 1 : 0;
+}
+
+
+static uintptr_t xlr8_jit_addr(uintptr_t bc_pc)
+// ----------------------------------------------------------------------------
+//   Map a bytecode PC to a native code address, or 0 if unknown
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt || !xlr8_current_rt->jit_code)
+        return 0;
+    runtime &rt = *xlr8_current_rt;
+    auto it = rt.jit_pc_off.find(bc_pc);
+    if (it == rt.jit_pc_off.end())
+    {
+        auto next = rt.jit_pc_off.lower_bound(bc_pc);
+        if (next == rt.jit_pc_off.end())
+            return 0;
+        it = next;
+    }
+    return uintptr_t(rt.jit_code) + it->second;
+}
+
+
+uintptr_t xlr8_after_sys(uintptr_t expected_next_pc)
+// ----------------------------------------------------------------------------
+//   If a sys native changed pc, return the native address to continue at
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt)
+        return 0;
+    uintptr_t pc = uintptr_t(xlr8_current_rt->pc);
+    if (pc == expected_next_pc)
+        return 0;
+    return xlr8_jit_addr(pc);
+}
+
+
+uintptr_t xlr8_dispatch(byte s, uintptr_t table_pc)
+// ----------------------------------------------------------------------------
+//   Run dispatch table logic at table_pc and return native address for new pc
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt)
+        return 0;
+    runtime &rt = *xlr8_current_rt;
+    rt.pc = byte_p(table_pc);
+    value_t ref = value_t(rt.frame[s]);
+    rt.pc = rt.dispatch(rt.pc, ref, std::greater_equal<intptr_t>());
+    return xlr8_jit_addr(uintptr_t(rt.pc));
 }
 
 

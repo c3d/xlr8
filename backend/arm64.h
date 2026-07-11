@@ -637,6 +637,7 @@ protected:
     void spill_frame();
     void reload_frame_reg();
     void reload_shadows();
+    void reload_flags_reg();
     void set_pred_cmp(byte p, byte cond);
     void touch_local(byte d);
     void mov_local(byte d, byte s);
@@ -693,6 +694,7 @@ protected:
     void rtcall(cstring fn, byte a);
 
     bool spill_arg_regs = true;
+    bool frame_memory_touched = false;
 };
 
 RECORDER_DECLARE(arm64);

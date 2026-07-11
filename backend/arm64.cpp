@@ -189,6 +189,16 @@ void arm64::spill_frame(void)
     if (locals > 16)
         locals = 16;
 
+    // Pointer stores may update frame slots without touching shadow registers.
+    // Reload shadows from frame instead of overwriting memory with stale values.
+    if (frame_memory_touched)
+    {
+        for (uint r = 0; r < locals; r++)
+            emit32le(ldr_off(xreg(byte(r)), HW_FRAME, r));
+        frame_memory_touched = false;
+        return;
+    }
+
     for (uint r = 0; r < locals; r++)
     {
         // x0/x1 become syscall arguments; only sync them once after a change
@@ -227,6 +237,17 @@ void arm64::reload_shadows(void)
 
     for (uint r = 0; r < locals; r++)
         emit32le(ldr_off(xreg(byte(r)), HW_FRAME, r));
+}
+
+
+void arm64::reload_flags_reg()
+// ----------------------------------------------------------------------------
+//   Reload x22 from runtime flags after xlr8_leave
+// ----------------------------------------------------------------------------
+{
+    record(arm64, "reload_flags_reg()");
+    rtcall("xlr8_get_flags");
+    emit32le(mov_rr(HW_FLAGS, 0));
 }
 
 
@@ -270,6 +291,7 @@ void arm64::begin_translation()
 // ----------------------------------------------------------------------------
 {
     record(arm64, "begin_translation()");
+    frame_memory_touched = false;
     emit32le(stp_push(30));
 }
 
@@ -706,12 +728,19 @@ void arm64::zext_local(byte d, byte w)
 
 void arm64::frame_addr(byte d, byte s)
 // ----------------------------------------------------------------------------
-//   Compute frame-relative address into local d
+//   Compute frame-relative address of local slot s into local d
 // ----------------------------------------------------------------------------
 {
     record(arm64, "frame_addr(%u, %u)", d, s);
-    load_local(s, HW_SCR_VAL);
-    emit32le(frame_addr_rr(HW_SCR_ADDR, HW_SCR_VAL));
+    if (s == 0)
+        emit32le(mov_rr(HW_SCR_ADDR, HW_FRAME));
+    else if (uint(s) <= 511)
+        emit32le(add_imm(HW_SCR_ADDR, HW_FRAME, uint(s) * 8));
+    else
+    {
+        load_imm64(HW_SCR_VAL, uint64_t(s) * 8);
+        emit32le(add_rrr(HW_SCR_ADDR, HW_FRAME, HW_SCR_VAL));
+    }
     store_local(HW_SCR_ADDR, d);
     touch_local(d);
 }
@@ -727,11 +756,12 @@ void arm64::store_mem(byte d, byte s, uint sz)
     load_local(d, HW_SCR_ADDR);
     switch (sz)
     {
-    case 1: emit32le(0x39000000u | (HW_SCR_VAL << 5) | HW_SCR_ADDR); break;
-    case 2: emit32le(0x79000000u | (HW_SCR_VAL << 5) | HW_SCR_ADDR); break;
-    case 4: emit32le(0xb9000000u | (HW_SCR_VAL << 5) | HW_SCR_ADDR); break;
+    case 1: emit32le(0x39000000u | (HW_SCR_ADDR << 5) | HW_SCR_VAL); break;
+    case 2: emit32le(0x79000000u | (HW_SCR_ADDR << 5) | HW_SCR_VAL); break;
+    case 4: emit32le(0xb9000000u | (HW_SCR_ADDR << 5) | HW_SCR_VAL); break;
     default: emit32le(str_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
     }
+    frame_memory_touched = true;
 }
 
 
@@ -783,11 +813,12 @@ void arm64::store_mem_off(byte d, byte s, value_t o, uint sz)
     load_local(s, HW_SCR_VAL);
     switch (sz)
     {
-    case 1: emit32le(0x39000000u | (HW_SCR_VAL << 5) | HW_SCR_ADDR); break;
-    case 2: emit32le(0x79000000u | (HW_SCR_VAL << 5) | HW_SCR_ADDR); break;
-    case 4: emit32le(0xb9000000u | (HW_SCR_VAL << 5) | HW_SCR_ADDR); break;
+    case 1: emit32le(0x39000000u | (HW_SCR_ADDR << 5) | HW_SCR_VAL); break;
+    case 2: emit32le(0x79000000u | (HW_SCR_ADDR << 5) | HW_SCR_VAL); break;
+    case 4: emit32le(0xb9000000u | (HW_SCR_ADDR << 5) | HW_SCR_VAL); break;
     default: emit32le(str_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
     }
+    frame_memory_touched = true;
 }
 
 
@@ -1203,7 +1234,11 @@ void arm64::store_global(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "store_global(%u, %u)", d, s);
-    mov_local(d,s);
+    spill_frame();
+    load_imm64(0, uint64_t(d));
+    load_imm64(1, uint64_t(s));
+    rtcall("xlr8_store_global");
+    reload_shadows();
 }
 
 void arm64::load_global(byte d, byte s)
@@ -1212,7 +1247,12 @@ void arm64::load_global(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "load_global(%u, %u)", d, s);
-    mov_local(d,s);
+    spill_frame();
+    load_imm64(0, uint64_t(d));
+    load_imm64(1, uint64_t(s));
+    rtcall("xlr8_load_global");
+    reload_shadows();
+    touch_local(d);
 }
 
 void arm64::do_ret()

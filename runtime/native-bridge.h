@@ -52,12 +52,18 @@ byte_p     xlr8_resolve_impl(tok_t t, tok_t *impl_tok);
 byte_p     xlr8_bytecode_start(tok_t t);
 byte_p     xlr8_bytecode_end(tok_t t);
 int        xlr8_sys(tok_t t, byte_p args);
+uintptr_t  xlr8_after_sys(uintptr_t expected_next_pc);
+uintptr_t  xlr8_dispatch(byte s, uintptr_t table_pc);
 void       xlr8_push_value(uintptr_t v);
 uintptr_t  xlr8_pop_value();
 void       xlr8_push_flags_val(uint64_t flags);
 uint64_t   xlr8_pop_flags_val();
 void       xlr8_save_jit_link(uintptr_t link);
 uintptr_t  xlr8_load_jit_link();
+void       xlr8_store_global(byte g, byte s);
+void       xlr8_load_global(byte d, byte g);
+void       xlr8_set_flags(uint64_t flags);
+uint64_t   xlr8_get_flags();
 
 #ifdef __cplusplus
 }

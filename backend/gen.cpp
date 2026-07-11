@@ -170,6 +170,8 @@ void backend::record_branch(broff_t offset, uint pos)
 {
     record(backend, "record_branch(target=%p, insn_pos=%u, leb=%lld)",
            (void *) pending_branch_target, pos, offset);
+    if (!pending_branch_target)
+        return;
     branch_fixups.push_back({ pending_branch_target, pos });
     pending_branch_target = 0;
 }
@@ -243,6 +245,12 @@ void backend::resolve_labels()
     for (branch_fixup &fx : branch_fixups)
     {
         auto it = bc_positions.find(fx.target);
+        if (it == bc_positions.end())
+        {
+            auto next = bc_positions.lower_bound(fx.target);
+            if (next != bc_positions.end())
+                it = next;
+        }
         if (it == bc_positions.end())
         {
             record(backend_warning, "branch_fixup miss target=%p insn_pos=%zu",
