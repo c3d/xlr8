@@ -151,9 +151,9 @@ void backend::record_branch(broff_t offset, uint pos)
 //   Record a PC-relative branch for later patching
 // ----------------------------------------------------------------------------
 {
-    record(backend, "record_branch(%lld, %u)", offset, pos);
-    (void) offset;
-    branch_fixups.push_back({ pending_branch_off, pos - 4 });
+    record(backend, "record_branch(target_off=%zu, insn_pos=%u, leb=%lld)",
+           pending_branch_off, pos, offset);
+    branch_fixups.push_back({ pending_branch_off, pos });
 }
 
 
@@ -218,7 +218,13 @@ void backend::resolve_labels()
     {
         auto it = bc_positions.find(fx.target_off);
         if (it == bc_positions.end())
+        {
+            record(backend_warning, "branch_fixup miss target_off=%zu insn_pos=%zu",
+                   fx.target_off, fx.insn_pos);
             continue;
+        }
+        record(backend, "patching branch insn_pos=%zu -> native=%zu",
+               fx.insn_pos, it->second);
         patch_branch_site(fx.insn_pos, it->second);
     }
 }

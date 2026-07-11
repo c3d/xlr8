@@ -237,8 +237,7 @@ uint arm64::gjmp(uint t)
 {
     record(arm64, "gjmp(%u)", t);
     uint pos = uint(cursor());
-    // b #0  (placeholder branch, patched later)
-    emit32(t);
+    emit32le(b_imm(0));
     return pos;
 }
 
