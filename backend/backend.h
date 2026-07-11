@@ -91,6 +91,7 @@ struct backend
     virtual void    gsym(uint t);
     virtual void    gsym_addr(uint t, uint a) = 0;
     virtual void    relocate(void *base)      { (void) base; }
+    virtual size_t  emit_over_callees_branch() { return 0; }
 
     struct abs_fixup { size_t imm_at; uintptr_t offset; };
     std::vector<abs_fixup>  abs_fixups;
@@ -131,6 +132,7 @@ protected:
     std::vector<branch_fixup> branch_fixups;
     byte_p                  translate_base = nullptr;
     uintptr_t               pending_branch_target = 0;
+    size_t                  over_callees_at = 0;
 };
 
 

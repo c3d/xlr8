@@ -479,10 +479,7 @@ bool runtime::resolve(tok_t id, tok_t called, byte_p &pc)
         tok_t impl = (*it).second;
         byte_p addr = byte_p(tok(impl));
         if (!addr || *addr == op_undef)
-        {
-            error("Undefined operation");
             return false;
-        }
         pc = addr;
         tokens[called] = tokens[impl];
         return true;
@@ -497,7 +494,6 @@ bool runtime::resolve(tok_t id, tok_t called, byte_p &pc)
             return true;
         }
     }
-    error("Undefined operation");
     return false;
 }
 

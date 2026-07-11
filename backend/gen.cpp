@@ -91,6 +91,8 @@ bool backend::translate(byte_p &pc)
         }
     }
 
+    over_callees_at = emit_over_callees_branch();
+
     for (auto &entry : tok_jumps)
     {
         byte_p target = xlr8_resolve(entry.first);
@@ -105,7 +107,10 @@ bool backend::translate(byte_p &pc)
     }
 
     resolve_labels();
+    size_t epilogue = cursor();
     finish_translation();
+    if (over_callees_at)
+        patch_branch_site(over_callees_at, epilogue);
     return true;
 }
 

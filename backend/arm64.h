@@ -83,6 +83,7 @@ struct arm64 : backend
     void begin_translation() override;
     void patch_branch_site(size_t insn_pos, size_t target_native) override;
     void relocate(void *base) override;
+    size_t emit_over_callees_branch() override;
 
 #define OP(op, sig) sig override;
 #include "opover.tbl"
@@ -488,6 +489,15 @@ protected:
     // ----------------------------------------------------------------------------
     {
         return 0x14000000u | (uint32_t(offset) & 0x03ffffffu);
+    }
+
+    static inline uint adr(uint rd, int offset_bytes)
+    // ----------------------------------------------------------------------------
+    //   Encode adr xd, #offset_bytes  (PC-relative address)
+    // ----------------------------------------------------------------------------
+    {
+        uint32_t imm = uint32_t(offset_bytes) & 0x1fffffu;
+        return 0x10000000u | ((imm & 3u) << 29) | ((imm >> 2) << 5) | rd;
     }
 
     static inline uint cbz_imm(uint rt, int offset)

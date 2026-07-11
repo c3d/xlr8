@@ -292,7 +292,10 @@ void arm64::mov_local(byte d, byte s)
 {
     record(arm64, "mov_local(%u, %u)", d, s);
     if (d < LOC_SHADOW_COUNT && s < LOC_SHADOW_COUNT)
+    {
         emit32le(mov_rr(xreg(d), xreg(s)));
+        emit32le(str_off(xreg(d), HW_FRAME, d));
+    }
     else
         load_local(s, HW_SCR_VAL), store_local(HW_SCR_VAL, d);
     touch_local(d);
@@ -762,9 +765,38 @@ void arm64::relocate(void *base)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "relocate(%p)", base);
-    uintptr_t origin = uintptr_t(base);
+    (void) base;
+    section &sec = code();
     for (abs_fixup &fx : abs_fixups)
-        patch_imm64_at(base, fx.imm_at, HW_SCR_VAL, origin + fx.offset);
+    {
+        auto it = bc_positions.find(fx.offset);
+        if (it == bc_positions.end())
+            continue;
+        int off = int(it->second) - int(fx.imm_at);
+        uint32_t insn = uint32_t(sec[fx.imm_at])
+                      | (uint32_t(sec[fx.imm_at + 1]) << 8)
+                      | (uint32_t(sec[fx.imm_at + 2]) << 16)
+                      | (uint32_t(sec[fx.imm_at + 3]) << 24);
+        uint rd = insn & 0x1fu;
+        sec.patch32(fx.imm_at, adr(rd, off));
+        if (base)
+        {
+            uint32_t patched = adr(rd, off);
+            memcpy((void *) ((byte_p) base + fx.imm_at), &patched, sizeof(patched));
+        }
+    }
+}
+
+
+size_t arm64::emit_over_callees_branch()
+// ----------------------------------------------------------------------------
+//   Emit a forward branch over callee bodies to the epilogue
+// ----------------------------------------------------------------------------
+{
+    record(arm64, "emit_over_callees_branch()");
+    size_t pos = cursor();
+    emit32le(b_imm(0));
+    return pos;
 }
 
 
@@ -776,10 +808,7 @@ void arm64::call_tok(tok_t t)
     record(arm64, "call_tok(%llu)", t);
     static const uint32_t nop = 0xd503201fu;
     spill_frame();
-    size_t imm_at = cursor();
-    emit32le(movz(HW_SCR_VAL, 0));
-    emit32le(nop);
-    emit32le(nop);
+    size_t adr_at = cursor();
     emit32le(nop);
     emit32le(mov_rr(0, HW_SCR_VAL));
     rtcall("xlr8_push_value");
@@ -787,7 +816,8 @@ void arm64::call_tok(tok_t t)
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
     uint pos = gjmp(head);
     record_tok_jump(t, pos);
-    abs_fixups.push_back({ imm_at, uintptr_t(pos + 4) });
+    int off = int(pos + 4) - int(adr_at);
+    code().patch32(adr_at, adr(HW_SCR_VAL, off));
 }
 
 void arm64::ijmp_local(byte s)
@@ -805,7 +835,16 @@ void arm64::icall_local(byte s)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "icall_local(%u)", s);
+    spill_frame();
+    size_t adr_at = cursor();
+    emit32le(adr(HW_SCR_VAL, 0));
+    emit32le(mov_rr(0, HW_SCR_VAL));
+    rtcall("xlr8_push_value");
+    reload_shadows();
+    size_t blr_at = cursor();
     emit32le(blr(xreg(s)));
+    int off = int(blr_at + 4) - int(adr_at);
+    code().patch32(adr_at, adr(HW_SCR_VAL, off));
 }
 
 void arm64::push_pc()
@@ -814,8 +853,10 @@ void arm64::push_pc()
 // ----------------------------------------------------------------------------
 {
     record(arm64, "push_pc()");
-    load_imm64(0, uint(cursor()));
+    spill_frame();
+    emit32le(adr(0, 0));
     rtcall("xlr8_push_value");
+    reload_shadows();
     spill_arg_regs = true;
 }
 
@@ -825,7 +866,13 @@ void arm64::load_pc(byte d)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "load_pc(%u)", d);
-    store_imm(d, value_t(cursor()));
+    uint r = d < LOC_SHADOW_COUNT ? xreg(d) : HW_SCR_VAL;
+    emit32le(adr(r, 0));
+    if (d >= LOC_SHADOW_COUNT)
+        store_local(r, d);
+    else
+        emit32le(str_off(xreg(d), HW_FRAME, d));
+    touch_local(d);
 }
 
 void arm64::load_pca(byte d, broff_t b)
@@ -834,7 +881,16 @@ void arm64::load_pca(byte d, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "load_pca(%u, %lld)", d, b);
-    store_imm(d, value_t(cursor() + size_t(b)));
+    (void) b;
+    uint r = d < LOC_SHADOW_COUNT ? xreg(d) : HW_SCR_VAL;
+    size_t adr_at = cursor();
+    emit32le(adr(r, 0));
+    abs_fixups.push_back({ adr_at, pending_branch_target });
+    if (d >= LOC_SHADOW_COUNT)
+        store_local(r, d);
+    else
+        emit32le(str_off(xreg(d), HW_FRAME, d));
+    touch_local(d);
 }
 
 void arm64::get_arg(byte d, byte s)
@@ -880,7 +936,8 @@ void arm64::pop_local(byte d)
     record(arm64, "pop_local(%u)", d);
     rtcall("xlr8_pop_value");
     emit32le(mov_rr(HW_SCR_VAL, 0));
-    reload_shadows();
+    if (d != 0)
+        emit32le(ldr_off(xreg(0), HW_FRAME, 0));
     store_local(HW_SCR_VAL, d);
 }
 

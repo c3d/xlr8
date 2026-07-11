@@ -29,7 +29,7 @@
 
 OP(null,        rt.error("Null opcode, probably a bug"); done = true)
 
-OP(undef,       TOK; done = !resolve(t, called, pc))
+OP(undef,       TOK; if (!resolve(t, called, pc)) { error("Undefined operation"); done = true; })
 OP(end,         done = true)
 
 OP(int,         DST; KINT; DINT = kint)
