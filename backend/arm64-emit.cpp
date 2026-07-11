@@ -61,6 +61,21 @@ void arm64::emit_ret()
 }
 
 
+void arm64::emit_user(op_t op, byte_p &pc)
+// ----------------------------------------------------------------------------
+//   Emit a user-defined opcode (128..255, or registered low opcodes)
+// ----------------------------------------------------------------------------
+{
+    record(arm64_ops, "emit_user(%lld, %p)", op, &pc);
+    byte_p args = pc;
+    spill_frame();
+    load_imm64(0, uint64_t(op));
+    load_imm64(1, uint64_t(uintptr_t(args)));
+    rtcall("xlr8_user_op");
+    reload_shadows();
+    xlr8_skip_user_args(op, pc);
+}
+
 void arm64::emit_int(byte d, value_t v)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the int opcode
@@ -289,19 +304,31 @@ void arm64::emit_pop(byte d)
 }
 
 
-void arm64::emit_sys(tok_t t, byte_p args)
+void arm64::emit_sys(tok_t t, byte_p args, byte_p next_pc)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the sys opcode
 // ----------------------------------------------------------------------------
 {
-    record(arm64_ops, "emit_sys(%llu, %p)", t, args);
+    record(arm64_ops, "emit_sys(%llu, %p, %p)", t, args, next_pc);
     spill_arg_regs = true;
     spill_frame();
     load_imm64(0, uint64_t(t));
     load_imm64(1, uint64_t(uintptr_t(args)));
     call_abs((void *) xlr8_sys);
     reload_shadows();
+    load_imm64(HW_SCR_VAL, uint64_t(uintptr_t(next_pc)));
+    emit32le(mov_rr(0, HW_SCR_VAL));
+    rtcall("xlr8_after_sys");
+    uint cbnz_at = uint(cursor());
+    emit32le(cbnz_imm(0, 0));
+    reload_shadows();
     spill_arg_regs = false;
+    uint skip_at = uint(cursor());
+    emit32le(b_imm(0));
+    uint br_at = uint(cursor());
+    emit32le(br(0));
+    code().patch32(cbnz_at, cbnz_imm(0, (int(br_at) - int(cbnz_at)) / 4));
+    code().patch32(skip_at, b_imm((int(br_at + 4) - int(skip_at)) / 4));
 }
 
 
@@ -435,14 +462,17 @@ void arm64::emit_switch(byte s)
 }
 
 
-void arm64::emit_dispatch(byte s)
+void arm64::emit_dispatch(byte s, byte_p table_pc)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the dispatch opcode
 // ----------------------------------------------------------------------------
 {
-    record(arm64_ops, "emit_dispatch(%u)", s);
-    (void) s;
-    trap("dispatch opcode");
+    record(arm64_ops, "emit_dispatch(%u, %p)", s, table_pc);
+    spill_frame();
+    load_imm64(0, uint64_t(s));
+    load_imm64(1, uint64_t(uintptr_t(table_pc)));
+    rtcall("xlr8_dispatch");
+    emit32le(br(0));
 }
 
 

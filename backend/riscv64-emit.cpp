@@ -278,12 +278,13 @@ void riscv64::emit_pop(byte d)
 }
 
 
-void riscv64::emit_sys(tok_t t, byte_p args)
+void riscv64::emit_sys(tok_t t, byte_p args, byte_p next_pc)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the sys opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_sys(%llu, %p)", t, args);
+    record(riscv64_ops, "emit_sys(%llu, %p, %p)", t, args, next_pc);
+    (void) next_pc;
     xlr8_set_sys_args(args);
     rtcall("xlr8_sys", t);
 }
@@ -419,12 +420,13 @@ void riscv64::emit_switch(byte s)
 }
 
 
-void riscv64::emit_dispatch(byte s)
+void riscv64::emit_dispatch(byte s, byte_p table_pc)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the dispatch opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_dispatch(%u)", s);
+    record(riscv64_ops, "emit_dispatch(%u, %p)", s, table_pc);
+    (void) table_pc;
     rtcall("xlr8_dispatch", s);
 }
 

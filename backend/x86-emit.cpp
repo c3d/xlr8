@@ -278,12 +278,13 @@ void x86::emit_pop(byte d)
 }
 
 
-void x86::emit_sys(tok_t t, byte_p args)
+void x86::emit_sys(tok_t t, byte_p args, byte_p next_pc)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the sys opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_sys(%llu, %p)", t, args);
+    record(x86_ops, "emit_sys(%llu, %p, %p)", t, args, next_pc);
+    (void) next_pc;
     load_hw_imm(HW_RDI, uint64_t(t));
     load_hw_imm(HW_RSI, uint64_t(uintptr_t(args)));
     call_ptr((void *) xlr8_sys);
@@ -420,12 +421,13 @@ void x86::emit_switch(byte s)
 }
 
 
-void x86::emit_dispatch(byte s)
+void x86::emit_dispatch(byte s, byte_p table_pc)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the dispatch opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_dispatch(%u)", s);
+    record(x86_ops, "emit_dispatch(%u, %p)", s, table_pc);
+    (void) table_pc;
     emit_runtime_call("xlr8_dispatch", s);
 }
 

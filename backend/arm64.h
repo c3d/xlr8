@@ -84,6 +84,7 @@ struct arm64 : backend
     void patch_branch_site(size_t insn_pos, size_t target_native) override;
     void relocate(void *base) override;
     size_t emit_over_callees_branch() override;
+    void emit_user(op_t op, byte_p &pc) override;
 
 #define OP(op, sig) sig override;
 #include "opover.tbl"

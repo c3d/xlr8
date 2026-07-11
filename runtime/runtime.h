@@ -540,6 +540,21 @@ struct runtime
     }
 
 
+    void skip_user_args(byte op, byte_p &pc)
+    // ------------------------------------------------------------------------
+    //   Advance pc past inline payload of a registered user opcode
+    // ------------------------------------------------------------------------
+    {
+        if (byte(op - 128) < user_ops.size() && user_ops[byte(op - 128)])
+        {
+            while (*pc)
+                pc++;
+            if (*pc == 0)
+                pc++;
+        }
+    }
+
+
     std::ostream *iosetup(size_t index, std::ostream *output);
     std::istream *iosetup(size_t index, std::istream *input);
     // ------------------------------------------------------------------------

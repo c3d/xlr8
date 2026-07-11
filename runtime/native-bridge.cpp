@@ -350,8 +350,10 @@ void *xlr8_runtime_fn(cstring name)
         { "xlr8_leave",    (void *) xlr8_leave },
         { "xlr8_resolve",  (void *) xlr8_resolve },
         { "xlr8_sys",      (void *) xlr8_sys },
+        { "xlr8_jit_addr", (void *) xlr8_jit_addr },
         { "xlr8_after_sys", (void *) xlr8_after_sys },
         { "xlr8_dispatch", (void *) xlr8_dispatch },
+        { "xlr8_user_op", (void *) xlr8_user_op },
         { "xlr8_store_float_local", (void *) xlr8_store_float_local },
         { "xlr8_push_value",      (void *) xlr8_push_value },
         { "xlr8_pop_value",       (void *) xlr8_pop_value },
@@ -599,23 +601,40 @@ int xlr8_sys(tok_t t, byte_p args)
 }
 
 
-static uintptr_t xlr8_jit_addr(uintptr_t bc_pc)
+static uintptr_t xlr8_jit_addr_impl(uintptr_t addr)
 // ----------------------------------------------------------------------------
-//   Map a bytecode PC to a native code address, or 0 if unknown
+//   Map a bytecode PC (or an already-native PC from pca) to a code address
 // ----------------------------------------------------------------------------
 {
     if (!xlr8_current_rt || !xlr8_current_rt->jit_code)
         return 0;
     runtime &rt = *xlr8_current_rt;
-    auto it = rt.jit_pc_off.find(bc_pc);
+    uintptr_t base = uintptr_t(rt.jit_code);
+    size_t code_top = 0;
+    for (auto const &entry : rt.jit_pc_off)
+        if (entry.second > code_top)
+            code_top = entry.second;
+    if (addr >= base && addr < base + code_top + 4096u)
+        return addr;
+
+    auto it = rt.jit_pc_off.find(addr);
     if (it == rt.jit_pc_off.end())
     {
-        auto next = rt.jit_pc_off.lower_bound(bc_pc);
+        auto next = rt.jit_pc_off.lower_bound(addr);
         if (next == rt.jit_pc_off.end())
             return 0;
         it = next;
     }
-    return uintptr_t(rt.jit_code) + it->second;
+    return base + it->second;
+}
+
+
+uintptr_t xlr8_jit_addr(uintptr_t bc_pc)
+// ----------------------------------------------------------------------------
+//   Map a bytecode PC to a native code address
+// ----------------------------------------------------------------------------
+{
+    return xlr8_jit_addr_impl(bc_pc);
 }
 
 
@@ -629,7 +648,7 @@ uintptr_t xlr8_after_sys(uintptr_t expected_next_pc)
     uintptr_t pc = uintptr_t(xlr8_current_rt->pc);
     if (pc == expected_next_pc)
         return 0;
-    return xlr8_jit_addr(pc);
+    return xlr8_jit_addr_impl(pc);
 }
 
 
@@ -642,9 +661,32 @@ uintptr_t xlr8_dispatch(byte s, uintptr_t table_pc)
         return 0;
     runtime &rt = *xlr8_current_rt;
     rt.pc = byte_p(table_pc);
-    value_t ref = value_t(rt.frame[s]);
+    value_t ref = *rt.local<value_t>(s);
     rt.pc = rt.dispatch(rt.pc, ref, std::greater_equal<intptr_t>());
-    return xlr8_jit_addr(uintptr_t(rt.pc));
+    return xlr8_jit_addr_impl(uintptr_t(rt.pc));
+}
+
+
+int xlr8_user_op(byte op, uintptr_t args_pc)
+// ----------------------------------------------------------------------------
+//   Invoke a user-defined opcode handler at args_pc
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt)
+        return 0;
+    runtime &rt = *xlr8_current_rt;
+    rt.pc = byte_p(args_pc);
+    return rt.user_operation(op) ? 1 : 0;
+}
+
+
+void xlr8_skip_user_args(byte op, byte_p &pc)
+// ----------------------------------------------------------------------------
+//   Advance the translator PC past a user opcode's inline payload
+// ----------------------------------------------------------------------------
+{
+    if (xlr8_current_rt)
+        xlr8_current_rt->skip_user_args(op, pc);
 }
 
 

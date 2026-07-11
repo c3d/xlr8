@@ -280,12 +280,13 @@ void arm::emit_pop(byte d)
 }
 
 
-void arm::emit_sys(tok_t t, byte_p args)
+void arm::emit_sys(tok_t t, byte_p args, byte_p next_pc)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the sys opcode
 // ----------------------------------------------------------------------------
 {
-    record(arm_ops, "emit_sys(%llu, %p)", t, args);
+    record(arm_ops, "emit_sys(%llu, %p, %p)", t, args, next_pc);
+    (void) next_pc;
     spill_arg_regs = true;
     spill_frame();
     load_imm32(0, uint32_t(t));
@@ -426,12 +427,13 @@ void arm::emit_switch(byte s)
 }
 
 
-void arm::emit_dispatch(byte s)
+void arm::emit_dispatch(byte s, byte_p table_pc)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the dispatch opcode
 // ----------------------------------------------------------------------------
 {
-    record(arm_ops, "emit_dispatch(%u)", s);
+    record(arm_ops, "emit_dispatch(%u, %p)", s, table_pc);
+    (void) table_pc;
     rtcall("xlr8_dispatch", s);
 }
 

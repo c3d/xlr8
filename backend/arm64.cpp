@@ -293,6 +293,7 @@ void arm64::begin_translation()
     record(arm64, "begin_translation()");
     frame_memory_touched = false;
     emit32le(stp_push(30));
+    reload_shadows();
 }
 
 
@@ -1020,7 +1021,12 @@ void arm64::relocate(void *base)
     {
         auto it = bc_positions.find(fx.offset);
         if (it == bc_positions.end())
-            continue;
+        {
+            auto next = bc_positions.lower_bound(fx.offset);
+            if (next == bc_positions.end())
+                continue;
+            it = next;
+        }
         int off = int(it->second) - int(fx.imm_at);
         uint32_t insn = uint32_t(sec[fx.imm_at])
                       | (uint32_t(sec[fx.imm_at + 1]) << 8)
@@ -1071,16 +1077,19 @@ void arm64::call_tok(tok_t t)
 
 void arm64::ijmp_local(byte s)
 // ----------------------------------------------------------------------------
-//   Indirect jump through local s
+//   Indirect jump through local s (bytecode PC -> native)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "ijmp_local(%u)", s);
-    emit32le(br(xreg(s)));
+    spill_frame();
+    load_local(s, 0);
+    rtcall("xlr8_jit_addr");
+    emit32le(br(0));
 }
 
 void arm64::icall_local(byte s)
 // ----------------------------------------------------------------------------
-//   Indirect call through local s
+//   Indirect call through local s (bytecode PC -> native)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "icall_local(%u)", s);
@@ -1090,8 +1099,10 @@ void arm64::icall_local(byte s)
     emit32le(mov_rr(0, HW_SCR_VAL));
     rtcall("xlr8_push_value");
     reload_shadows();
+    load_local(s, 0);
+    rtcall("xlr8_jit_addr");
     size_t blr_at = cursor();
-    emit32le(blr(xreg(s)));
+    emit32le(blr(0));
     int off = int(blr_at + 4) - int(adr_at);
     code().patch32(adr_at, adr(HW_SCR_VAL, off));
 }
@@ -1126,15 +1137,13 @@ void arm64::load_pc(byte d)
 
 void arm64::load_pca(byte d, broff_t b)
 // ----------------------------------------------------------------------------
-//   Load PC plus offset into local d
+//   Load bytecode PC plus offset into local d (interpreter semantics)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "load_pca(%u, %lld)", d, b);
     (void) b;
     uint r = d < LOC_SHADOW_COUNT ? xreg(d) : HW_SCR_VAL;
-    size_t adr_at = cursor();
-    emit32le(adr(r, 0));
-    abs_fixups.push_back({ adr_at, pending_branch_target });
+    load_imm64(r, uint64_t(pending_branch_target));
     if (d >= LOC_SHADOW_COUNT)
         store_local(r, d);
     else
