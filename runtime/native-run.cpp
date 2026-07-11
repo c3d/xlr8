@@ -32,8 +32,11 @@
 
 #include "arch.h"
 #include "backend.h"
+#include "recorder.h"
 #include "section.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #if defined(__unix__) || defined(__APPLE__)
@@ -45,6 +48,71 @@
 #include <pthread.h>
 #include <libkern/OSCacheControl.h>
 #endif
+
+RECORDER(native_run, 16, "Native JIT execution");
+
+
+static void dump_jit_code(void *mem, size_t sz, backend &be, cstring path)
+// ----------------------------------------------------------------------------
+//   Write JIT code to a file and log llvm-objdump disassembly via recorder
+// ----------------------------------------------------------------------------
+{
+    if (!path || !*path)
+        return;
+
+    FILE *out = fopen(path, "wb");
+    if (!out)
+    {
+        record(native_run, "JIT dump: cannot open %s", path);
+        return;
+    }
+    fwrite(mem, 1, sz, out);
+    fclose(out);
+    record(native_run, "JIT dump %zu bytes -> %s", sz, path);
+
+    for (auto const &entry : be.bytecode_positions())
+        record(native_run, "  bc %p -> native %zu",
+               (void *) entry.first, entry.second);
+
+#if defined(__aarch64__)
+    const char *arch = "aarch64";
+#elif defined(__x86_64__) || defined(__amd64__)
+    const char *arch = "x86_64";
+#elif defined(__arm__)
+    const char *arch = "arm";
+#else
+    const char *arch = nullptr;
+#endif
+
+    if (!arch)
+        return;
+
+    char cmd[640];
+    char asm_path[256];
+    char obj_path[256];
+    snprintf(asm_path, sizeof(asm_path), "%s.s", path);
+    snprintf(obj_path, sizeof(obj_path), "%s.o", path);
+    snprintf(cmd, sizeof(cmd),
+             "sh -c 'printf \".text\\n.globl _jit\\n_jit:\\n\" >\"%s\" && "
+             "od -An -tx1 -v \"%s\" | awk \"{for (i=1;i<=NF;i++) "
+             "printf \\\" .byte 0x%%s\\\\n\\\", \\$i}\" >>\"%s\" && "
+             "llvm-mc -filetype=obj -arch=%s \"%s\" -o \"%s\" && "
+             "llvm-objdump -d --no-show-raw-insn \"%s\"' 2>&1",
+             asm_path, path, asm_path, arch, asm_path, obj_path, obj_path);
+    record(native_run, "JIT disasm: %s", cmd);
+    FILE *pipe = popen(cmd, "r");
+    if (!pipe)
+        return;
+    char line[256];
+    while (fgets(line, sizeof(line), pipe))
+    {
+        size_t n = strlen(line);
+        if (n && line[n - 1] == '\n')
+            line[n - 1] = '\0';
+        record(native_run, "  %s", line);
+    }
+    pclose(pipe);
+}
 
 
 static void *map_executable(backend &be, byte_p data, size_t sz)
@@ -190,6 +258,9 @@ static bool native_run_impl(runtime &rt, backend &be, byte_p entry)
     be.relocate(mem);
     rt.jit_code = mem;
     rt.jit_pc_off = be.bytecode_positions();
+
+    if (cstring dump = getenv("XLR8_DUMP_JIT"))
+        dump_jit_code(mem, sz, be, dump);
 
 #if defined(__x86_64__) || defined(__amd64__)
     invoke_x86_64(rt, mem);

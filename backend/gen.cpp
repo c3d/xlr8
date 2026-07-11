@@ -75,6 +75,8 @@ bool backend::translate(byte_p &pc)
     translating = true;
     translate_base = pc;
     pending_branch_target = 0;
+    branch_targets.clear();
+    entry_targets.clear();
     begin_translation();
     while (translating)
     {
@@ -153,13 +155,138 @@ void backend::emit_user(op_t op, byte_p &pc)
 }
 
 
-void backend::set_branch_target(byte_p target)
+void backend::mark_entry(byte_p target)
+// ----------------------------------------------------------------------------
+//   Remember a label that may be entered without a branch insn (pca, etc.)
+// ----------------------------------------------------------------------------
+{
+    record(backend, "mark_entry(%p)", target);
+    entry_targets.insert(uintptr_t(target));
+}
+
+
+void backend::scan_sys_branches(tok_t t, byte_p args)
+// ----------------------------------------------------------------------------
+//   Record branch targets embedded in sys call arguments (branch_on_eof, etc.)
+// ----------------------------------------------------------------------------
+{
+    uintptr_t targets[8];
+    size_t n = xlr8_sys_branch_targets(t, args, targets, 8);
+    for (size_t i = 0; i < n; i++)
+        set_branch_target(byte_p(targets[i]));
+}
+
+
+void backend::set_branch_target(byte_p target, bool code_target)
 // ----------------------------------------------------------------------------
 //   Remember bytecode target offset for the next branch fixup
 // ----------------------------------------------------------------------------
 {
-    record(backend, "set_branch_target(%p)", target);
+    record(backend, "set_branch_target(%p, code=%d)", target, code_target);
+    if (code_target)
+        branch_targets.insert(uintptr_t(target));
     pending_branch_target = uintptr_t(target);
+}
+
+
+byte_p backend::next_live_code(byte_p from)
+// ----------------------------------------------------------------------------
+//   Find next not-yet-translated branch target at or after from
+// ----------------------------------------------------------------------------
+{
+    uintptr_t f = uintptr_t(from);
+    auto it = branch_targets.lower_bound(f);
+    for (; it != branch_targets.end(); ++it)
+        if (!bc_positions.count(*it))
+            return byte_p(*it);
+    return nullptr;
+}
+
+
+void backend::redirect_after_bra(byte_p target, byte_p &pc)
+// ----------------------------------------------------------------------------
+//   After unconditional bra, do not translate dead fall-through bytes
+// ----------------------------------------------------------------------------
+{
+    byte_p fallthrough = pc;
+    uintptr_t dest = uintptr_t(target);
+    uintptr_t ft = uintptr_t(fallthrough);
+
+    if (dest > ft)
+    {
+        for (uintptr_t t : branch_targets)
+            if (t >= ft && t < dest && !bc_positions.count(t))
+            {
+                record(backend, "redirect_after_bra resume %p", (void *) t);
+                pc = byte_p(t);
+                return;
+            }
+        if (!bc_positions.count(dest))
+        {
+            uintptr_t ft_addr = uintptr_t(fallthrough);
+            if (!branch_targets.count(ft_addr) && !entry_targets.count(ft_addr))
+            {
+                record(backend, "redirect_after_bra forward %p", target);
+                pc = target;
+                return;
+            }
+            record(backend, "redirect_after_bra linear %p", fallthrough);
+            return;
+        }
+    }
+
+    if (!bc_positions.count(dest))
+    {
+        record(backend, "redirect_after_bra to %p", target);
+        pc = target;
+        return;
+    }
+
+    record(backend, "redirect_after_bra back-edge %p fallthrough %p",
+           target, fallthrough);
+    byte_p next = next_live_code(fallthrough);
+    if (next)
+    {
+        record(backend, "redirect_after_bra resume %p", next);
+        pc = next;
+    }
+    else
+    {
+        record(backend, "redirect_after_bra done");
+        translating = false;
+    }
+}
+
+
+void backend::ensure_branch_target_translated(uintptr_t target)
+// ----------------------------------------------------------------------------
+//   Translate bytecode at target if not already done (for branch fixups)
+// ----------------------------------------------------------------------------
+{
+    if (bc_positions.count(target))
+        return;
+    record(backend, "ensure_branch_target_translated(%p)", (void *) target);
+    byte_p pc = byte_p(target);
+    bool saved = translating;
+    translating = true;
+    while (translating)
+    {
+        byte_p insn = pc;
+        op_t op = op_t(*pc++);
+        if (bc_positions.count(uintptr_t(insn)))
+            break;
+        bc_positions[uintptr_t(insn)] = cursor();
+        switch (op)
+        {
+#define OP(op, code) case op_##op: { code; } break;
+#include "emit.tbl"
+#undef OP
+        default:
+            emit_user(op, pc);
+            break;
+        }
+    }
+    translating = saved;
 }
 
 
@@ -244,6 +371,17 @@ void backend::resolve_labels()
 
     for (branch_fixup &fx : branch_fixups)
     {
+        if (!bc_positions.count(fx.target))
+        {
+            if (!fx.target)
+            {
+                record(backend_warning,
+                       "branch_fixup skip null target insn_pos=%zu",
+                       fx.insn_pos);
+                continue;
+            }
+            ensure_branch_target_translated(fx.target);
+        }
         auto it = bc_positions.find(fx.target);
         if (it == bc_positions.end())
         {

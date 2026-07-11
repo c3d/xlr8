@@ -1067,12 +1067,24 @@ void arm64::call_tok(tok_t t)
     emit32le(nop);
     emit32le(mov_rr(0, HW_SCR_VAL));
     rtcall("xlr8_push_value");
+    rtcall("xlr8_sync_args");
     reload_shadows();
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
     uint pos = gjmp(head);
     record_tok_jump(t, pos);
     int off = int(pos + 4) - int(adr_at);
     code().patch32(adr_at, adr(HW_SCR_VAL, off));
+}
+
+void arm64::br_via_ip()
+// ----------------------------------------------------------------------------
+//   Branch to address in x0 without leaving a stale shadow in x0
+// ----------------------------------------------------------------------------
+{
+    record(arm64, "br_via_ip()");
+    emit32le(mov_rr(HW_IP, 0));
+    reload_shadows();
+    emit32le(br(HW_IP));
 }
 
 void arm64::ijmp_local(byte s)
@@ -1084,7 +1096,7 @@ void arm64::ijmp_local(byte s)
     spill_frame();
     load_local(s, 0);
     rtcall("xlr8_jit_addr");
-    emit32le(br(0));
+    br_via_ip();
 }
 
 void arm64::icall_local(byte s)
@@ -1098,11 +1110,14 @@ void arm64::icall_local(byte s)
     emit32le(adr(HW_SCR_VAL, 0));
     emit32le(mov_rr(0, HW_SCR_VAL));
     rtcall("xlr8_push_value");
+    rtcall("xlr8_sync_args");
     reload_shadows();
     load_local(s, 0);
     rtcall("xlr8_jit_addr");
+    emit32le(mov_rr(HW_IP, 0));
+    reload_shadows();
     size_t blr_at = cursor();
-    emit32le(blr(0));
+    emit32le(blr(HW_IP));
     int off = int(blr_at + 4) - int(adr_at);
     code().patch32(adr_at, adr(HW_SCR_VAL, off));
 }
@@ -1157,31 +1172,25 @@ void arm64::get_arg(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "get_arg(%u, %u)", d, s);
-    emit32le(sub_imm(HW_SCR_ADDR, HW_FRAME, 8));
-    emit32le(ldr_idx(HW_SCR_OFF, HW_SCR_ADDR));
-    emit32le(lsr_imm64(HW_SCR_VAL, HW_SCR_OFF, 16));
-    emit32le(add_imm(HW_SCR_VAL, HW_SCR_VAL, s));
-    emit32le(lsl_imm64(HW_SCR_ADDR, HW_SCR_VAL, 3));
-    emit32le(add_rrr(HW_SCR_ADDR, HW_FRAME, HW_SCR_ADDR));
-    emit32le(ldr_idx(HW_SCR_VAL, HW_SCR_ADDR));
-    store_local(HW_SCR_VAL, d);
+    spill_frame();
+    load_imm64(0, uint64_t(d));
+    load_imm64(1, uint64_t(s));
+    rtcall("xlr8_get_arg");
+    reload_shadows();
     touch_local(d);
 }
 
 void arm64::set_arg(byte d, byte s)
 // ----------------------------------------------------------------------------
-//   Copy local d into argument slot s
+//   Copy local s into argument slot d (OP set: args[d] = local[s])
 // ----------------------------------------------------------------------------
 {
     record(arm64, "set_arg(%u, %u)", d, s);
-    load_local(d, HW_SCR_VAL);
-    emit32le(sub_imm(HW_SCR_ADDR, HW_FRAME, 8));
-    emit32le(ldr_idx(HW_SCR_OFF, HW_SCR_ADDR));
-    emit32le(lsr_imm64(HW_SCR_ADDR, HW_SCR_OFF, 16));
-    emit32le(add_imm(HW_SCR_ADDR, HW_SCR_ADDR, s));
-    emit32le(lsl_imm64(HW_SCR_OFF, HW_SCR_ADDR, 3));
-    emit32le(add_rrr(HW_SCR_ADDR, HW_FRAME, HW_SCR_OFF));
-    emit32le(str_idx(HW_SCR_VAL, HW_SCR_ADDR));
+    spill_frame();
+    load_imm64(0, uint64_t(d));
+    load_imm64(1, uint64_t(s));
+    rtcall("xlr8_set_arg");
+    frame_memory_touched = true;
 }
 
 void arm64::push_local(byte s)

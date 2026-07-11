@@ -693,6 +693,7 @@ protected:
     void rtcall(cstring fn);
     void rtcall(cstring fn, tok_t a);
     void rtcall(cstring fn, byte a);
+    void br_via_ip();
 
     bool spill_arg_regs = true;
     bool frame_memory_touched = false;

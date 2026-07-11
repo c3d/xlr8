@@ -36,6 +36,7 @@
 #include "section.h"
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -75,7 +76,7 @@ struct backend
     virtual void    begin_translation();
     void            bind(tok_t t)           { labels[t] = cursor(); }
     void            resolve_labels();
-    void            set_branch_target(byte_p target);
+    void            set_branch_target(byte_p target, bool code_target = true);
 
     // Target constants (TARGET_DEFS_ONLY section in TinyCC)
     virtual cstring machine_defs() const = 0;
@@ -117,6 +118,11 @@ protected:
     void            patch_branch(uint pos, broff_t offset);
     virtual void    patch_branch_site(size_t insn_pos, size_t target_native);
     void            translate_sub(byte_p &pc, byte_p end = nullptr);
+    void            mark_entry(byte_p target);
+    void            scan_sys_branches(tok_t t, byte_p args);
+    void            redirect_after_bra(byte_p target, byte_p &pc);
+    byte_p          next_live_code(byte_p from);
+    void            ensure_branch_target_translated(uintptr_t target);
 
     arch_t                  current_arch;
     output_t                current_output;
@@ -132,6 +138,8 @@ protected:
     std::map<uintptr_t, size_t> bc_positions;
     struct branch_fixup { uintptr_t target; size_t insn_pos; };
     std::vector<branch_fixup> branch_fixups;
+    std::set<uintptr_t>     branch_targets;
+    std::set<uintptr_t>     entry_targets;
     std::map<uint, uint>    gjmp_chain;
     byte_p                  translate_base = nullptr;
     uintptr_t               pending_branch_target = 0;

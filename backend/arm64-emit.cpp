@@ -30,11 +30,10 @@
 
 void arm64::emit_null()
 // ----------------------------------------------------------------------------
-//   Emit bytecode for the null opcode
+//   Null opcode in inline data: skip during translation (no native code)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_null()");
-    trap("null opcode");
 }
 
 
@@ -56,7 +55,7 @@ void arm64::emit_ret()
     record(arm64_ops, "emit_ret()");
     rtcall("xlr8_pop_value");
     emit32le(mov_rr(HW_SCR_VAL, 0));
-    emit32le(ldr_off(0, HW_FRAME, 0));
+    reload_shadows();
     emit32le(br(HW_SCR_VAL));
 }
 
@@ -326,7 +325,9 @@ void arm64::emit_sys(tok_t t, byte_p args, byte_p next_pc)
     uint skip_at = uint(cursor());
     emit32le(b_imm(0));
     uint br_at = uint(cursor());
-    emit32le(br(0));
+    emit32le(mov_rr(HW_IP, 0));
+    reload_shadows();
+    emit32le(br(HW_IP));
     code().patch32(cbnz_at, cbnz_imm(0, (int(br_at) - int(cbnz_at)) / 4));
     code().patch32(skip_at, b_imm((int(br_at + 4) - int(skip_at)) / 4));
 }
@@ -472,7 +473,7 @@ void arm64::emit_dispatch(byte s, byte_p table_pc)
     load_imm64(0, uint64_t(s));
     load_imm64(1, uint64_t(uintptr_t(table_pc)));
     rtcall("xlr8_dispatch");
-    emit32le(br(0));
+    br_via_ip();
 }
 
 

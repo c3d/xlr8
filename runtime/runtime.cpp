@@ -52,6 +52,7 @@ runtime::runtime(size_t sz, size_t argc, char *argv[])
       heap(),
       stack(),
       frame(),
+      arg_locals(),
       histack(),
       err(),
       entry(),
@@ -72,6 +73,7 @@ runtime::runtime(size_t sz, size_t argc, char *argv[])
     heap = memory;
     stack = (stack_p) (memory + sz);
     frame = stack;
+    arg_locals = frame;
     histack = stack;
     setup();
 }

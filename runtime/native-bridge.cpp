@@ -101,6 +101,60 @@ static void skip_broff(byte_p &pc)
 }
 
 
+static size_t note_broff(byte_p &pc, uintptr_t *out, size_t max, size_t n)
+// ----------------------------------------------------------------------------
+//   Record a branch target and advance pc past the offset
+// ----------------------------------------------------------------------------
+{
+    byte_p bpc = pc;
+    broff_t b = leb128<broff_t>(pc);
+    if (n < max)
+        out[n++] = uintptr_t(bpc + b);
+    return n;
+}
+
+
+static size_t collect_native_branch_targets(cstring pattern, byte_p &pc,
+                                            uintptr_t *out, size_t max)
+// ----------------------------------------------------------------------------
+//   Walk syscall args and collect bytecode branch targets (B in pattern)
+// ----------------------------------------------------------------------------
+{
+    size_t n = 0;
+    for (cstring p = pattern; *p; p++)
+    {
+        switch (*p)
+        {
+        case 'D': case 'S': case 'X': case 'L': case 'I': case 'P':
+            skip_reg(pc);
+            break;
+        case 'o':
+            skip_ostream(pc);
+            break;
+        case 'i':
+            skip_istream(pc);
+            break;
+        case 'K':
+            skip_klen(pc);
+            break;
+        case 'J':
+            skip_kint(pc);
+            break;
+        case 'N':
+            skip_knat(pc);
+            break;
+        case 'B':
+            n = note_broff(pc, out, max, n);
+            break;
+        case 'T':
+            leb128<tok_t>(pc);
+            break;
+        }
+    }
+    return n;
+}
+
+
 static void skip_native_args(cstring pattern, byte_p &pc)
 // ----------------------------------------------------------------------------
 //   Advance pc past syscall arguments using a compact pattern string
@@ -348,6 +402,9 @@ void *xlr8_runtime_fn(cstring name)
     static entry table[] = {
         { "xlr8_enter",    (void *) xlr8_enter },
         { "xlr8_leave",    (void *) xlr8_leave },
+        { "xlr8_sync_args", (void *) xlr8_sync_args },
+        { "xlr8_get_arg",  (void *) xlr8_get_arg },
+        { "xlr8_set_arg",  (void *) xlr8_set_arg },
         { "xlr8_resolve",  (void *) xlr8_resolve },
         { "xlr8_sys",      (void *) xlr8_sys },
         { "xlr8_jit_addr", (void *) xlr8_jit_addr },
@@ -378,7 +435,13 @@ stack_p xlr8_enter(byte locals)
 //   Allocate a bytecode frame with the given number of locals
 // ----------------------------------------------------------------------------
 {
-    return xlr8_current_rt ? xlr8_current_rt->enter(locals) : nullptr;
+    if (!xlr8_current_rt)
+        return nullptr;
+    runtime &rt = *xlr8_current_rt;
+    stack_p caller = rt.frame;
+    stack_p frame  = rt.enter(locals);
+    rt.arg_locals = caller;
+    return frame;
 }
 
 
@@ -387,7 +450,46 @@ stack_p xlr8_leave()
 //   Pop the current bytecode frame
 // ----------------------------------------------------------------------------
 {
-    return xlr8_current_rt ? xlr8_current_rt->leave() : nullptr;
+    if (!xlr8_current_rt)
+        return nullptr;
+    runtime &rt = *xlr8_current_rt;
+    stack_p frame = rt.leave();
+    rt.arg_locals = rt.arguments();
+    return frame;
+}
+
+
+void xlr8_sync_args()
+// ----------------------------------------------------------------------------
+//   Point arg_locals at the caller frame for get/set before enter
+// ----------------------------------------------------------------------------
+{
+    if (xlr8_current_rt)
+        xlr8_current_rt->arg_locals = xlr8_current_rt->frame;
+}
+
+
+void xlr8_get_arg(byte d, byte s)
+// ----------------------------------------------------------------------------
+//   Copy argument slot s into bytecode local d
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt)
+        return;
+    runtime &rt = *xlr8_current_rt;
+    rt.frame[d] = rt.arg_locals[s];
+}
+
+
+void xlr8_set_arg(byte d, byte s)
+// ----------------------------------------------------------------------------
+//   Copy bytecode local s into argument slot d
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt)
+        return;
+    runtime &rt = *xlr8_current_rt;
+    rt.arg_locals[d] = rt.frame[s];
 }
 
 
@@ -709,4 +811,26 @@ void xlr8_skip_sys_args(tok_t t, byte_p &pc)
             skip_native_args(entry.pattern, pc);
             return;
         }
+}
+
+
+size_t xlr8_sys_branch_targets(tok_t t, byte_p args,
+                               uintptr_t *out, size_t max)
+// ----------------------------------------------------------------------------
+//   Return bytecode branch targets referenced in a sys call's arguments
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt || !out || !max)
+        return 0;
+
+    runtime &rt = *xlr8_current_rt;
+    text name = rt.as_text(t);
+    if (name.empty())
+        return 0;
+
+    byte_p pc = args;
+    for (const native_skip_entry &entry : native_skip_table)
+        if (name == entry.name)
+            return collect_native_branch_targets(entry.pattern, pc, out, max);
+    return 0;
 }

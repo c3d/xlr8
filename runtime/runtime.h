@@ -658,6 +658,7 @@ public:
     byte_p              heap;           // Top of heap (lo marker for stack)
     stack_p             stack;          // Pointer to current stack
     stack_p             frame;          // Pointer to locals
+    stack_p             arg_locals;     // Caller locals for get/set (see enter/leave)
     stack_p             histack;        // High marker for stack
     cstring             err;            // Error message
     byte_p              entry;          // Main code entry point
