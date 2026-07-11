@@ -29,7 +29,7 @@ SOURCES=arch.cpp backend.cpp section.cpp gen.cpp x86.cpp \
         arm.cpp arm64.cpp riscv64.cpp
 PRODUCTS=backend.lib
 
-INCLUDES=../runtime
+INCLUDES=../recorder ../runtime
 
 CXX_STD=gnu++17
 

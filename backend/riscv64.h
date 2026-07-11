@@ -55,6 +55,7 @@
 
 #include "backend.h"
 #include "regmap.h"
+#include "recorder.h"
 
 
 struct riscv64 : backend
@@ -335,5 +336,10 @@ protected:
     void rtcall(cstring fn, tok_t a);
     void rtcall(cstring fn, byte a);
 };
+
+RECORDER_DECLARE(riscv64);
+RECORDER_DECLARE(riscv64_ops);
+RECORDER_DECLARE(riscv64_error);
+RECORDER_DECLARE(riscv64_warning);
 
 #endif // RISCV64_H

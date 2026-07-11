@@ -34,12 +34,19 @@
 #include <cstring>
 
 
+RECORDER(x86,            256, "x86 family code generation helpers");
+RECORDER(x86_ops,        256, "x86 family opcode emission");
+RECORDER(x86_error,       64, "x86 family code generation errors");
+RECORDER(x86_warning,     64, "x86 family code generation warnings");
+
+
 x86::x86(arch_t arch)
 // ----------------------------------------------------------------------------
 //   Construct an x86 family code generator
 // ----------------------------------------------------------------------------
 : backend(arch)
 {
+    record(x86, "x86(%lld)", arch);
 }
 
 
@@ -48,6 +55,7 @@ void x86::finish_translation()
 //   Emit epilogue at end of translated code
 // ----------------------------------------------------------------------------
 {
+    record(x86, "finish_translation()");
     do_ret();
 }
 
@@ -57,6 +65,7 @@ int x86::local_disp(byte n) const
 //   Return stack displacement for bytecode local n
 // ----------------------------------------------------------------------------
 {
+    record(x86, "local_disp(%u)", n);
     return int(n) * int(ptr_size());
 }
 
@@ -66,6 +75,7 @@ void x86::orex(int ll, int r, int x, byte c)
 //   Emit REX prefix and opcode byte
 // ----------------------------------------------------------------------------
 {
+    record(x86, "orex(%lld, %lld, %lld, %u)", ll, r, x, c);
     if ((ll && r >= 8) || x >= 8)
         g(0x40 | (ll ? 1 : 0) | (rex_b(r) ? 4 : 0) | (rex_x(x) ? 2 : 0) | (rex_r(r) ? 1 : 0));
     g(c);
@@ -77,6 +87,7 @@ void x86::emit_rex_modrm(int ll, int r, int x, int b, byte op)
 //   Emit REX prefix and ModR/M encoded instruction
 // ----------------------------------------------------------------------------
 {
+    record(x86, "emit_rex_modrm(%lld, %lld, %lld, %lld, %u)", ll, r, x, b, op);
     if (ll || r >= 8 || x >= 8 || b >= 8)
         g(0x48 | (rex_r(r) ? 4 : 0) | (rex_x(x) ? 2 : 0) | (rex_b(b) ? 1 : 0));
     g(op);
@@ -93,6 +104,7 @@ void x86::load_hw_imm(uint r, uint64_t imm)
 //   Load immediate into a hardware register
 // ----------------------------------------------------------------------------
 {
+    record(x86, "load_hw_imm(%u, %lld)", r, imm);
     orex(1, r, 0, 0xb8 + reg_value(r));
     emit32(uint32_t(imm));
     if (ptr_size() == 8)
@@ -105,6 +117,7 @@ void x86::load_local(byte n, uint r)
 //   Load bytecode local into a hardware register
 // ----------------------------------------------------------------------------
 {
+    record(x86, "load_local(%u, %u)", n, r);
     int disp = local_disp(n);
     emit_rex_modrm(1, r, HW_FRAME, HW_FRAME, 0x8b);
     if (disp)
@@ -120,6 +133,7 @@ void x86::store_local(uint r, byte n)
 //   Store hardware register into bytecode local
 // ----------------------------------------------------------------------------
 {
+    record(x86, "store_local(%u, %u)", r, n);
     int disp = local_disp(n);
     emit_rex_modrm(1, r, HW_FRAME, HW_FRAME, 0x89);
     if (disp)
@@ -135,6 +149,7 @@ void x86::mov_local(byte d, byte s)
 //   Copy value between bytecode locals
 // ----------------------------------------------------------------------------
 {
+    record(x86, "mov_local(%u, %u)", d, s);
     load_local(s, HW_RAX);
     store_local(HW_RAX, d);
 }
@@ -145,6 +160,7 @@ void x86::swap_locals(byte d, byte s)
 //   Swap values of two bytecode locals
 // ----------------------------------------------------------------------------
 {
+    record(x86, "swap_locals(%u, %u)", d, s);
     load_local(d, HW_RAX);
     load_local(s, HW_RCX);
     store_local(HW_RCX, d);
@@ -157,6 +173,7 @@ void x86::store_imm(byte d, value_t v)
 //   Store integer immediate into bytecode local
 // ----------------------------------------------------------------------------
 {
+    record(x86, "store_imm(%u, %lld)", d, v);
     load_hw_imm(HW_RAX, uint64_t(v));
     store_local(HW_RAX, d);
 }
@@ -167,6 +184,7 @@ void x86::store_float(byte d, float v)
 //   Store float immediate into bytecode local
 // ----------------------------------------------------------------------------
 {
+    record(x86, "store_float(%u, %g)", d, v);
     uint32_t bits = 0;
     memcpy(&bits, &v, sizeof(bits));
     load_hw_imm(HW_RAX, bits);
@@ -179,6 +197,7 @@ void x86::store_double(byte d, double v)
 //   Store double immediate into bytecode local
 // ----------------------------------------------------------------------------
 {
+    record(x86, "store_double(%u, %g)", d, v);
     uint64_t bits = 0;
     memcpy(&bits, &v, sizeof(bits));
     load_hw_imm(HW_RAX, bits);
@@ -191,6 +210,7 @@ void x86::binop_local(byte d, byte s, cstring op)
 //   Apply binary operator to two bytecode locals
 // ----------------------------------------------------------------------------
 {
+    record(x86, "binop_local(%u, %u, %s)", d, s, op);
     load_local(d, HW_RAX);
     load_local(s, HW_RCX);
 if (!strcmp(op, "add"))
@@ -354,6 +374,7 @@ void x86::binop_imm(byte d, value_t v, cstring op)
 //   Apply binary operator with immediate to local
 // ----------------------------------------------------------------------------
 {
+    record(x86, "binop_imm(%u, %lld, %s)", d, v, op);
     load_local(d, HW_RAX);
 if (!strcmp(op, "add"))
 // ----------------------------------------------------------------------------
@@ -436,6 +457,7 @@ void x86::set_pred(byte p, bool on)
 //   Set or clear predicate bit p in flags register
 // ----------------------------------------------------------------------------
 {
+    record(x86, "set_pred(%u, %d)", p, on);
     if (on)
     {
         load_hw_imm(HW_RAX, 1ULL << p);
@@ -456,6 +478,7 @@ void x86::cmp_local(byte p, byte d, byte s, cstring rel)
 //   Compare two locals and set predicate p
 // ----------------------------------------------------------------------------
 {
+    record(x86, "cmp_local(%u, %u, %u, %s)", p, d, s, rel);
     load_local(d, HW_RAX);
     load_local(s, HW_RCX);
     orex(1, HW_RAX, HW_RCX, 0x39);
@@ -478,6 +501,7 @@ void x86::cmp_imm(byte p, byte d, value_t v, cstring rel)
 //   Compare local with signed immediate and set predicate
 // ----------------------------------------------------------------------------
 {
+    record(x86, "cmp_imm(%u, %u, %lld, %s)", p, d, v, rel);
     load_local(d, HW_RAX);
     orex(1, HW_RAX, 0, 0x3d);
     emit32(uint32_t(v));
@@ -492,6 +516,7 @@ void x86::cmp_uimm(byte p, byte d, uvalue_t v, cstring rel)
 //   Compare local with unsigned immediate and set predicate
 // ----------------------------------------------------------------------------
 {
+    record(x86, "cmp_uimm(%u, %u, %llu, %s)", p, d, v, rel);
     cmp_imm(p, d, value_t(v), rel);
 }
 
@@ -501,6 +526,7 @@ void x86::cond_mov_local(byte p, byte d, byte s)
 //   Conditionally move local s into d
 // ----------------------------------------------------------------------------
 {
+    record(x86, "cond_mov_local(%u, %u, %u)", p, d, s);
     load_local(s, HW_RAX);
     uint pos = gjmp(0);
     store_local(HW_RAX, d);
@@ -514,6 +540,7 @@ void x86::select_local(byte p, byte d, byte s, byte x)
 //   Select between locals s and x into d
 // ----------------------------------------------------------------------------
 {
+    record(x86, "select_local(%u, %u, %u, %u)", p, d, s, x);
     load_local(s, HW_RAX);
     uint pos = gjmp(0);
     load_local(x, HW_RAX);
@@ -528,6 +555,7 @@ void x86::neg_local(byte d)
 //   Negate bytecode local d
 // ----------------------------------------------------------------------------
 {
+    record(x86, "neg_local(%u)", d);
     load_local(d, HW_RAX);
     orex(1, HW_RAX, 0, 0xf7);
     g(0xd8 | reg_value(HW_RAX));
@@ -540,6 +568,7 @@ void x86::not_local(byte d)
 //   Bitwise complement of bytecode local d
 // ----------------------------------------------------------------------------
 {
+    record(x86, "not_local(%u)", d);
     load_local(d, HW_RAX);
     orex(1, HW_RAX, 0, 0xf7);
     g(0xd0 | reg_value(HW_RAX));
@@ -552,6 +581,7 @@ void x86::incr_local(byte d)
 //   Increment bytecode local d
 // ----------------------------------------------------------------------------
 {
+    record(x86, "incr_local(%u)", d);
     load_local(d, HW_RAX);
     orex(1, HW_RAX, 0, 0xff);
     g(0xc0 | reg_value(HW_RAX));
@@ -564,6 +594,7 @@ void x86::decr_local(byte d)
 //   Decrement bytecode local d
 // ----------------------------------------------------------------------------
 {
+    record(x86, "decr_local(%u)", d);
     load_local(d, HW_RAX);
     orex(1, HW_RAX, 0, 0xff);
     g(0xc8 | reg_value(HW_RAX));
@@ -576,6 +607,7 @@ void x86::sext_local(byte d, byte w)
 //   Sign-extend local d to w bits
 // ----------------------------------------------------------------------------
 {
+    record(x86, "sext_local(%u, %u)", d, w);
     load_local(d, HW_RAX);
     load_hw_imm(HW_RCX, 64 - w);
     orex(1, HW_RCX, HW_RAX, 0xd3);
@@ -589,6 +621,7 @@ void x86::zext_local(byte d, byte w)
 //   Zero-extend local d to w bits
 // ----------------------------------------------------------------------------
 {
+    record(x86, "zext_local(%u, %u)", d, w);
     load_local(d, HW_RAX);
     load_hw_imm(HW_RCX, w);
     orex(1, HW_RCX, HW_RAX, 0xd3);
@@ -602,6 +635,7 @@ void x86::store_mem(byte d, byte s, uint sz)
 //   Store local d at address in local s
 // ----------------------------------------------------------------------------
 {
+    record(x86, "store_mem(%u, %u, %u)", d, s, sz);
     load_local(d, HW_RAX);
     load_local(s, HW_RCX);
 if (sz == 1)
@@ -637,6 +671,7 @@ void x86::load_mem(byte d, byte s, uint sz)
 //   Load from address in local s into local d
 // ----------------------------------------------------------------------------
 {
+    record(x86, "load_mem(%u, %u, %u)", d, s, sz);
     load_local(s, HW_RAX);
 if (sz == 1)
 // ----------------------------------------------------------------------------
@@ -672,6 +707,7 @@ void x86::store_mem_off(byte d, byte s, value_t o, uint sz)
 //   Store local d at address s plus offset
 // ----------------------------------------------------------------------------
 {
+    record(x86, "store_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
     load_local(d, HW_RAX);
     load_local(s, HW_RCX);
     load_hw_imm(HW_RDX, uint64_t(o));
@@ -686,6 +722,7 @@ void x86::load_mem_off(byte d, byte s, value_t o, uint sz)
 //   Load from address s plus offset into local d
 // ----------------------------------------------------------------------------
 {
+    record(x86, "load_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
     load_local(s, HW_RAX);
     load_hw_imm(HW_RCX, uint64_t(o));
     orex(1, HW_RCX, HW_RAX, 0x01);
@@ -699,6 +736,7 @@ void x86::load_signext(byte d, byte s, byte w)
 //   Load from memory with sign extension
 // ----------------------------------------------------------------------------
 {
+    record(x86, "load_signext(%u, %u, %u)", d, s, w);
     load_mem(d, s, (w + 7) / 8);
     sext_local(d, w);
 }
@@ -709,6 +747,7 @@ void x86::load_signext_off(byte d, byte s, byte w, value_t o)
 //   Load from memory at offset with sign extension
 // ----------------------------------------------------------------------------
 {
+    record(x86, "load_signext_off(%u, %u, %u, %lld)", d, s, w, o);
     load_mem_off(d, s, o, (w + 7) / 8);
     sext_local(d, w);
 }
@@ -719,6 +758,7 @@ void x86::frame_addr(byte d, byte s)
 //   Compute frame-relative address into local d
 // ----------------------------------------------------------------------------
 {
+    record(x86, "frame_addr(%u, %u)", d, s);
     load_local(s, HW_RAX);
     orex(1, HW_FRAME, HW_RAX, 0x8d);
     g(0x04 | (reg_value(HW_FRAME) << 3) | reg_value(HW_RAX));
@@ -731,6 +771,7 @@ void x86::bra_offset(broff_t b)
 //   Emit unconditional branch with bytecode offset
 // ----------------------------------------------------------------------------
 {
+    record(x86, "bra_offset(%lld)", b);
     uint pos = gjmp(0);
     record_branch(b, pos);
 }
@@ -741,6 +782,7 @@ void x86::bra_pred(byte p, broff_t b, bool sense)
 //   Emit branch on predicate p with given sense
 // ----------------------------------------------------------------------------
 {
+    record(x86, "bra_pred(%u, %lld, %d)", p, b, sense);
     (void) p; (void) sense;
     bra_offset(b);
 }
@@ -751,6 +793,7 @@ void x86::bra_zero(byte s, broff_t b, bool eq)
 //   Emit branch when local s is zero or non-zero
 // ----------------------------------------------------------------------------
 {
+    record(x86, "bra_zero(%u, %lld, %d)", s, b, eq);
     load_local(s, HW_RAX);
     orex(1, HW_RAX, 0, 0x85);
     g(modrm_rr(HW_RAX, HW_RAX));
@@ -766,6 +809,7 @@ void x86::bra_signed(byte s, broff_t b, byte cc)
 //   Emit signed comparison branch on local s
 // ----------------------------------------------------------------------------
 {
+    record(x86, "bra_signed(%u, %lld, %u)", s, b, cc);
     load_local(s, HW_RAX);
     orex(1, HW_RAX, 0, 0x85);
     g(modrm_rr(HW_RAX, HW_RAX));
@@ -781,6 +825,7 @@ void x86::dbra_local(byte d, broff_t b)
 //   Decrement local d and branch if non-zero
 // ----------------------------------------------------------------------------
 {
+    record(x86, "dbra_local(%u, %lld)", d, b);
     load_local(d, HW_RAX);
     orex(1, HW_RAX, 0, 0xff);
     g(0xc8 | reg_value(HW_RAX));
@@ -794,6 +839,7 @@ void x86::jmp_tok(tok_t t)
 //   Emit jump to token-resolved label
 // ----------------------------------------------------------------------------
 {
+    record(x86, "jmp_tok(%llu)", t);
     record_tok_jump(t, gjmp(0));
 }
 
@@ -803,6 +849,7 @@ void x86::call_tok(tok_t t)
 //   Emit call to token-resolved label
 // ----------------------------------------------------------------------------
 {
+    record(x86, "call_tok(%llu)", t);
     record_tok_jump(t, gjmp(0));
 }
 
@@ -812,6 +859,7 @@ void x86::ijmp_local(byte s)
 //   Indirect jump through local s
 // ----------------------------------------------------------------------------
 {
+    record(x86, "ijmp_local(%u)", s);
     load_local(s, HW_RAX);
     orex(1, HW_RAX, 0, 0xff);
     g(0xe0 | reg_value(HW_RAX));
@@ -823,6 +871,7 @@ void x86::icall_local(byte s)
 //   Indirect call through local s
 // ----------------------------------------------------------------------------
 {
+    record(x86, "icall_local(%u)", s);
     ijmp_local(s);
 }
 
@@ -832,6 +881,7 @@ void x86::push_pc()
 //   Push program counter onto stack
 // ----------------------------------------------------------------------------
 {
+    record(x86, "push_pc()");
     g(0x68);
     emit32(uint32_t(cursor()));
 }
@@ -842,6 +892,7 @@ void x86::load_pc(byte d)
 //   Load current PC into local d
 // ----------------------------------------------------------------------------
 {
+    record(x86, "load_pc(%u)", d);
     load_hw_imm(HW_RAX, cursor());
     store_local(HW_RAX, d);
 }
@@ -852,6 +903,7 @@ void x86::load_pca(byte d, broff_t b)
 //   Load PC plus offset into local d
 // ----------------------------------------------------------------------------
 {
+    record(x86, "load_pca(%u, %lld)", d, b);
     load_hw_imm(HW_RAX, cursor() + size_t(b));
     store_local(HW_RAX, d);
 }
@@ -862,6 +914,7 @@ void x86::get_arg(byte d, byte s)
 //   Copy argument local s into d
 // ----------------------------------------------------------------------------
 {
+    record(x86, "get_arg(%u, %u)", d, s);
     mov_local(d, s);
 }
 
@@ -871,6 +924,7 @@ void x86::set_arg(byte d, byte s)
 //   Copy local d into argument slot s
 // ----------------------------------------------------------------------------
 {
+    record(x86, "set_arg(%u, %u)", d, s);
     mov_local(s, d);
 }
 
@@ -880,6 +934,7 @@ void x86::push_local(byte s)
 //   Push local s onto stack
 // ----------------------------------------------------------------------------
 {
+    record(x86, "push_local(%u)", s);
     load_local(s, HW_RAX);
     orex(1, HW_RSP, 0, 0xff);
     g(0x30 | reg_value(HW_RSP));
@@ -891,6 +946,7 @@ void x86::pop_local(byte d)
 //   Pop stack value into local d
 // ----------------------------------------------------------------------------
 {
+    record(x86, "pop_local(%u)", d);
     orex(1, HW_RSP, 0, 0x8f);
     g(0x00 | reg_value(HW_RSP));
     store_local(HW_RAX, d);
@@ -902,6 +958,7 @@ void x86::push_flags()
 //   Push flags register onto stack
 // ----------------------------------------------------------------------------
 {
+    record(x86, "push_flags()");
     orex(1, HW_FLAGS, 0, 0xff);
     g(0x30 | reg_value(HW_RSP));
 }
@@ -912,6 +969,7 @@ void x86::pop_flags()
 //   Pop stack value into flags register
 // ----------------------------------------------------------------------------
 {
+    record(x86, "pop_flags()");
     orex(1, HW_RSP, 0, 0x8f);
     g(0x00 | reg_value(HW_RSP));
 }
@@ -922,6 +980,7 @@ void x86::store_global(byte d, byte s)
 //   Store local s into global slot d
 // ----------------------------------------------------------------------------
 {
+    record(x86, "store_global(%u, %u)", d, s);
     mov_local(d, s);
 }
 
@@ -931,6 +990,7 @@ void x86::load_global(byte d, byte s)
 //   Load global slot s into local d
 // ----------------------------------------------------------------------------
 {
+    record(x86, "load_global(%u, %u)", d, s);
     mov_local(d, s);
 }
 
@@ -940,6 +1000,7 @@ void x86::do_ret()
 //   Emit return instruction
 // ----------------------------------------------------------------------------
 {
+    record(x86, "do_ret()");
     g(0xc3);
 }
 
@@ -949,6 +1010,7 @@ void x86::call_ptr(void *fn)
 //   Emit a call through a function pointer in RAX
 // ----------------------------------------------------------------------------
 {
+    record(x86, "call_ptr(%p)", fn);
     load_hw_imm(HW_RAX, uint64_t(fn));
     g(0xff);
     g(0xd0);
@@ -960,6 +1022,7 @@ void x86::emit_trap(cstring msg)
 //   Emit debug trap with message
 // ----------------------------------------------------------------------------
 {
+    record(x86_warning, "emit_trap(%s)", msg);
     (void) msg;
     g(0xcc);
 }
@@ -970,6 +1033,7 @@ void x86::emit_runtime_call(cstring fn)
 //   Emit call to runtime helper function
 // ----------------------------------------------------------------------------
 {
+    record(x86, "emit_runtime_call(%s)", fn);
     call_ptr(xlr8_runtime_fn(fn));
 }
 
@@ -979,6 +1043,7 @@ void x86::emit_runtime_call(cstring fn, tok_t a)
 //   Emit call to runtime helper function
 // ----------------------------------------------------------------------------
 {
+    record(x86, "emit_runtime_call(%s, %llu)", fn, a);
     load_hw_imm(HW_RDI, uint64_t(a));
     call_ptr(xlr8_runtime_fn(fn));
 }
@@ -989,6 +1054,7 @@ void x86::emit_runtime_call(cstring fn, byte a)
 //   Emit call to runtime helper function
 // ----------------------------------------------------------------------------
 {
+    record(x86, "emit_runtime_call(%s, %u)", fn, a);
     load_hw_imm(HW_RDI, uint64_t(a));
     call_ptr(xlr8_runtime_fn(fn));
     if (!strcmp(fn, "xlr8_enter") || !strcmp(fn, "xlr8_leave"))
@@ -1002,3 +1068,4 @@ void x86::emit_runtime_call(cstring fn, byte a)
 
 
 #include "x86-emit.cpp"
+

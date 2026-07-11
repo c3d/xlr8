@@ -52,6 +52,7 @@
 
 #include "backend.h"
 #include "regmap.h"
+#include "recorder.h"
 
 
 struct x86 : backend
@@ -207,5 +208,10 @@ protected:
     void            emit_runtime_call(cstring fn, byte a);
     int             local_disp(byte n) const;
 };
+
+RECORDER_DECLARE(x86);
+RECORDER_DECLARE(x86_ops);
+RECORDER_DECLARE(x86_error);
+RECORDER_DECLARE(x86_warning);
 
 #endif // X86_H

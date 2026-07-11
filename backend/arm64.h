@@ -60,6 +60,7 @@
 
 #include "backend.h"
 #include "regmap.h"
+#include "recorder.h"
 
 
 struct arm64 : backend
@@ -533,5 +534,10 @@ protected:
 
     bool spill_arg_regs = true;
 };
+
+RECORDER_DECLARE(arm64);
+RECORDER_DECLARE(arm64_ops);
+RECORDER_DECLARE(arm64_error);
+RECORDER_DECLARE(arm64_warning);
 
 #endif // ARM64_H

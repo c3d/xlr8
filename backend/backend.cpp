@@ -38,6 +38,11 @@
 #include <cstring>
 
 
+RECORDER(backend,          256, "Architecture-neutral code generation");
+RECORDER(backend_error,     64, "Architecture-neutral code generation errors");
+RECORDER(backend_warning,   64, "Architecture-neutral code generation warnings");
+
+
 backend::backend(arch_t arch)
 // ----------------------------------------------------------------------------
 //   Initialize shared backend state

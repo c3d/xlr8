@@ -32,6 +32,7 @@
 
 #include "arch.h"
 #include "op.h"
+#include "recorder.h"
 #include "section.h"
 
 #include <map>
@@ -130,5 +131,9 @@ protected:
 
 
 backend *backend_new(arch_t arch = ARCH_NATIVE);
+
+RECORDER_DECLARE(backend);
+RECORDER_DECLARE(backend_error);
+RECORDER_DECLARE(backend_warning);
 
 #endif // BACKEND_H

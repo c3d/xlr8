@@ -35,14 +35,12 @@
 #include <cstring>
 
 
-#include <cstring>
-
-
 void backend::translate_sub(byte_p &pc)
 // ----------------------------------------------------------------------------
 //   Translate a subroutine until a ret opcode
 // ----------------------------------------------------------------------------
 {
+    record(backend, "translate_sub(%p)", &pc);
     while (true)
     {
         byte_p insn = pc;
@@ -71,6 +69,7 @@ bool backend::translate(byte_p &pc)
 //   Translate bytecode until an end opcode is seen
 // ----------------------------------------------------------------------------
 {
+    record(backend, "translate(%p)", &pc);
     translating = true;
     translate_base = pc;
     begin_translation();
@@ -112,6 +111,7 @@ void backend::begin_translation()
 //   Emit prologue at start of translated code
 // ----------------------------------------------------------------------------
 {
+    record(backend, "begin_translation()");
 }
 
 
@@ -120,6 +120,7 @@ void backend::finish_translation()
 //   Emit epilogue at end of translated code
 // ----------------------------------------------------------------------------
 {
+    record(backend, "finish_translation()");
 }
 
 
@@ -128,6 +129,7 @@ void backend::emit_user(op_t op, byte_p &pc)
 //   Hook for user-defined opcodes (128..255)
 // ----------------------------------------------------------------------------
 {
+    record(backend, "emit_user(%lld, %p)", op, &pc);
     (void) op;
     (void) pc;
 }
@@ -138,6 +140,7 @@ void backend::set_branch_target(byte_p target)
 //   Remember bytecode target offset for the next branch fixup
 // ----------------------------------------------------------------------------
 {
+    record(backend, "set_branch_target(%p)", target);
     if (translate_base)
         pending_branch_off = size_t(target - translate_base);
 }
@@ -148,6 +151,7 @@ void backend::record_branch(broff_t offset, uint pos)
 //   Record a PC-relative branch for later patching
 // ----------------------------------------------------------------------------
 {
+    record(backend, "record_branch(%lld, %u)", offset, pos);
     (void) offset;
     branch_fixups.push_back({ pending_branch_off, pos - 4 });
 }
@@ -158,6 +162,7 @@ void backend::patch_branch_site(size_t insn_pos, size_t target_native)
 //   Default branch patching (overridden per target)
 // ----------------------------------------------------------------------------
 {
+    record(backend, "patch_branch_site(%zu, %zu)", insn_pos, target_native);
     (void) insn_pos;
     (void) target_native;
 }
@@ -168,6 +173,7 @@ void backend::record_tok_jump(tok_t t, uint pos)
 //   Record a token-based jump for later patching
 // ----------------------------------------------------------------------------
 {
+    record(backend, "record_tok_jump(%llu, %u)", t, pos);
     tok_jumps[t] = pos;
 }
 
@@ -177,6 +183,7 @@ void backend::patch_branch(uint pos, broff_t offset)
 //   Patch a recorded branch site
 // ----------------------------------------------------------------------------
 {
+    record(backend, "patch_branch(%u, %lld)", pos, offset);
     code().patch32(pos - 4, uint32_t(offset));
 }
 
@@ -186,6 +193,7 @@ void backend::resolve_labels()
 //   Patch token-based jumps once all labels are known
 // ----------------------------------------------------------------------------
 {
+    record(backend, "resolve_labels()");
     for (auto &entry : tok_jumps)
     {
         size_t native = 0;
