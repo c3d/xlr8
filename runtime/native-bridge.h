@@ -48,6 +48,7 @@ void    *xlr8_runtime_fn(cstring name);
 stack_p    xlr8_enter(byte locals);
 stack_p    xlr8_leave();
 byte_p     xlr8_resolve(tok_t t);
+byte_p     xlr8_resolve_impl(tok_t t, tok_t *impl_tok);
 byte_p     xlr8_bytecode_start(tok_t t);
 byte_p     xlr8_bytecode_end(tok_t t);
 int        xlr8_sys(tok_t t, byte_p args);

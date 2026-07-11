@@ -379,6 +379,30 @@ protected:
         return 0xd1000000u | ((imm & 0xfffu) << 10) | (rn << 5) | rd;
     }
 
+    static inline uint b_cond_imm(byte cond, int32_t imm19)
+    // ----------------------------------------------------------------------------
+    //   Encode b.cond #imm19
+    // ----------------------------------------------------------------------------
+    {
+        return 0x54000000u | ((uint32_t(imm19) & 0x7ffffu) << 5) | cond;
+    }
+
+    static inline uint sbfm_width(uint rd, uint rn, uint w)
+    // ----------------------------------------------------------------------------
+    //   Encode sbfm rd, rn, #0, #(w-1)
+    // ----------------------------------------------------------------------------
+    {
+        return 0x93400000u | ((w - 1) << 16) | (rn << 5) | rd;
+    }
+
+    static inline uint ubfm_width(uint rd, uint rn, uint w)
+    // ----------------------------------------------------------------------------
+    //   Encode ubfm rd, rn, #0, #(w-1)
+    // ----------------------------------------------------------------------------
+    {
+        return 0x93000000u | ((w - 1) << 16) | (rn << 5) | rd;
+    }
+
     static inline uint cmp_rr(uint rn, uint rm)
     // ----------------------------------------------------------------------------
     //   Encode cmp rn, rm
@@ -628,7 +652,7 @@ protected:
     void bra_offset(broff_t b);
     void bra_pred(byte p, broff_t b, bool sense);
     void bra_zero(byte s, broff_t b, bool eq);
-    void bra_signed(byte s, broff_t b);
+    void bra_signed(byte s, broff_t b, byte cond);
     void dbra_local(byte d, broff_t b);
     void jmp_tok(tok_t t);
     void call_tok(tok_t t);

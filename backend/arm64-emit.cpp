@@ -56,7 +56,7 @@ void arm64::emit_ret()
     record(arm64_ops, "emit_ret()");
     rtcall("xlr8_pop_value");
     emit32le(mov_rr(HW_SCR_VAL, 0));
-    emit32le(ldr_off(xreg(0), HW_FRAME, 0));
+    emit32le(ldr_off(0, HW_FRAME, 0));
     emit32le(br(HW_SCR_VAL));
 }
 
@@ -387,7 +387,7 @@ void arm64::emit_blt(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_blt(%u, %lld)", s, b);
-    bra_signed(s, b);
+    bra_signed(s, b, 0xb);
 }
 
 
@@ -397,7 +397,7 @@ void arm64::emit_bgt(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_bgt(%u, %lld)", s, b);
-    bra_signed(s, b);
+    bra_signed(s, b, 0xc);
 }
 
 
@@ -407,7 +407,7 @@ void arm64::emit_ble(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_ble(%u, %lld)", s, b);
-    bra_signed(s, b);
+    bra_signed(s, b, 0xd);
 }
 
 
@@ -417,7 +417,7 @@ void arm64::emit_bge(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_bge(%u, %lld)", s, b);
-    bra_signed(s, b);
+    bra_signed(s, b, 0xa);
 }
 
 

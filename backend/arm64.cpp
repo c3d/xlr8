@@ -657,7 +657,9 @@ void arm64::incr_local(byte d)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "incr_local(%u)", d);
-    emit32le(add_imm(xreg(d), xreg(d), 1));
+    load_local(d, HW_SCR_VAL);
+    emit32le(add_imm(HW_SCR_VAL, HW_SCR_VAL, 1));
+    store_local(HW_SCR_VAL, d);
     touch_local(d);
 }
 
@@ -667,7 +669,9 @@ void arm64::decr_local(byte d)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "decr_local(%u)", d);
-    emit32le(sub_imm(xreg(d), xreg(d), 1));
+    load_local(d, HW_SCR_VAL);
+    emit32le(sub_imm(HW_SCR_VAL, HW_SCR_VAL, 1));
+    store_local(HW_SCR_VAL, d);
     touch_local(d);
 }
 
@@ -677,8 +681,10 @@ void arm64::sext_local(byte d, byte w)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "sext_local(%u, %u)", d, w);
-    (void)w;
-    emit32le(sbfm_64(xreg(d)));
+    load_local(d, HW_SCR_ADDR);
+    if (w < 64)
+        emit32le(sbfm_width(HW_SCR_ADDR, HW_SCR_ADDR, w));
+    store_local(HW_SCR_ADDR, d);
     touch_local(d);
 }
 
@@ -688,8 +694,10 @@ void arm64::zext_local(byte d, byte w)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "zext_local(%u, %u)", d, w);
-    (void)w;
-    emit32le(ubfm_64(xreg(d)));
+    load_local(d, HW_SCR_ADDR);
+    if (w < 64)
+        emit32le(ubfm_width(HW_SCR_ADDR, HW_SCR_ADDR, w));
+    store_local(HW_SCR_ADDR, d);
     touch_local(d);
 }
 
@@ -795,6 +803,8 @@ void arm64::patch_branch_site(size_t insn_pos, size_t target_native)
     uint32_t op = insn & 0xff000000u;
     if (op == 0x14000000u)
         insn = b_imm(off);
+    else if ((insn & 0xff000010u) == 0x54000000u)
+        insn = b_cond_imm(byte(insn & 0xfu), off);
     else if (op == 0xb4000000u)
         insn = cbz_imm(insn & 0x1fu, off);
     else if (op == 0xb5000000u)
@@ -809,12 +819,12 @@ void arm64::bra_zero(byte s, broff_t b, bool eq)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "bra_zero(%u, %lld, %d)", s, b, eq);
-    (void) b;
+    load_local(s, HW_SCR_VAL);
     uint pos = uint(cursor());
     if (eq)
-        emit32le(cbz_imm(xreg(s), 0));
+        emit32le(cbz_imm(HW_SCR_VAL, 0));
     else
-        emit32le(cbnz_imm(xreg(s), 0));
+        emit32le(cbnz_imm(HW_SCR_VAL, 0));
     record_branch(b, pos);
 }
 
@@ -837,14 +847,17 @@ void arm64::bra_pred(byte p, broff_t b, bool sense)
 }
 
 
-void arm64::bra_signed(byte s, broff_t b)
+void arm64::bra_signed(byte s, broff_t b, byte cond)
 // ----------------------------------------------------------------------------
 //   Emit signed comparison branch on local s
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "bra_signed(%u, %lld)", s, b);
-    (void) s;
-    bra_offset(b);
+    record(arm64, "bra_signed(%u, %lld, %u)", s, b, cond);
+    load_local(s, HW_SCR_VAL);
+    emit32le(cmp_r_imm(HW_SCR_VAL, 0));
+    uint pos = uint(cursor());
+    emit32le(b_cond_imm(cond, 0));
+    record_branch(b, pos);
 }
 
 void arm64::dbra_local(byte d, broff_t b)

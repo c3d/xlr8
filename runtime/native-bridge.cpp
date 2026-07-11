@@ -387,11 +387,54 @@ byte_p xlr8_resolve(tok_t t)
 //   Resolve an undefined token to its implementation address
 // ----------------------------------------------------------------------------
 {
+    tok_t impl = 0;
+    return xlr8_resolve_impl(t, &impl);
+}
+
+
+byte_p xlr8_resolve_impl(tok_t t, tok_t *impl_tok)
+// ----------------------------------------------------------------------------
+//   Resolve call/jmp target, following op_undef stubs to the implementation
+// ----------------------------------------------------------------------------
+{
     if (!xlr8_current_rt)
         return nullptr;
+    runtime &rt = *xlr8_current_rt;
     byte_p pc = nullptr;
-    if (xlr8_current_rt->resolve(t, t, pc))
+    if (rt.resolve(t, t, pc))
+    {
+        if (impl_tok)
+        {
+            auto it = rt.defined.find(t);
+            *impl_tok = (it != rt.defined.end()) ? (*it).second : t;
+        }
         return pc;
+    }
+    byte_p tp = xlr8_bytecode_start(t);
+    if (tp && *tp == runtime::op_undef)
+    {
+        byte_p ucp = tp + 1;
+        tok_t name = leb128<tok_t>(ucp);
+        if (rt.resolve(name, name, pc))
+        {
+            if (impl_tok)
+            {
+                auto it = rt.defined.find(name);
+                *impl_tok = (it != rt.defined.end()) ? (*it).second : name;
+            }
+            return pc;
+        }
+    }
+    if (t > 0 && t < rt.tokens.size())
+    {
+        pc = byte_p(rt.tok(t));
+        if (pc && *pc != runtime::op_undef)
+        {
+            if (impl_tok)
+                *impl_tok = t;
+            return pc;
+        }
+    }
     return nullptr;
 }
 

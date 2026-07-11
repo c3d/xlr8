@@ -93,17 +93,25 @@ bool backend::translate(byte_p &pc)
 
     over_callees_at = emit_over_callees_branch();
 
-    for (auto &entry : tok_jumps)
+    bool progress = true;
+    while (progress)
     {
-        byte_p target = xlr8_resolve(entry.first);
-        record(backend, "tok callee token=%llu -> %p", entry.first, target);
-        if (!target)
-            continue;
-        if (bc_positions.count(uintptr_t(target)))
-            continue;
-        byte_p end = xlr8_bytecode_end(entry.first);
-        record(backend, "translate_sub callee %p .. %p", target, end);
-        translate_sub(target, end);
+        progress = false;
+        for (auto &entry : tok_jumps)
+        {
+            tok_t impl_tok = entry.first;
+            byte_p target = xlr8_resolve_impl(entry.first, &impl_tok);
+            record(backend, "tok callee token=%llu impl=%llu -> %p",
+                   entry.first, impl_tok, target);
+            if (!target)
+                continue;
+            if (bc_positions.count(uintptr_t(target)))
+                continue;
+            progress = true;
+            byte_p end = xlr8_bytecode_end(impl_tok);
+            record(backend, "translate_sub callee %p .. %p", target, end);
+            translate_sub(target, end);
+        }
     }
 
     resolve_labels();
@@ -210,17 +218,8 @@ void backend::resolve_labels()
             native = it->second;
         else
         {
-            byte_p target = xlr8_resolve(entry.first);
-            if (!target)
-            {
-                byte_p tp = xlr8_bytecode_start(entry.first);
-                if (tp && *tp == op_undef)
-                {
-                    byte_p pc = tp + 1;
-                    tok_t name = leb128<tok_t>(pc);
-                    target = xlr8_resolve(name);
-                }
-            }
+            tok_t impl_tok = entry.first;
+            byte_p target = xlr8_resolve_impl(entry.first, &impl_tok);
             if (target)
             {
                 auto bc = bc_positions.find(uintptr_t(target));
