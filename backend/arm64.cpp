@@ -389,9 +389,19 @@ void arm64::binop_imm(byte d, value_t v, cstring op)
 {
     record(arm64, "binop_imm(%u, %lld, %s)", d, v, op);
     if (!strcmp(op, "add") || !strcmp(op, "addi"))
-        emit32le(add_imm(xreg(d), xreg(d), uint32_t(v)));
+    {
+        if (v >= 0)
+            emit32le(add_imm(xreg(d), xreg(d), uint32_t(v)));
+        else
+            emit32le(sub_imm(xreg(d), xreg(d), uint32_t(-v)));
+    }
     else if (!strcmp(op, "sub") || !strcmp(op, "subi"))
-        emit32le(sub_imm(xreg(d), xreg(d), uint32_t(v)));
+    {
+        if (v >= 0)
+            emit32le(sub_imm(xreg(d), xreg(d), uint32_t(v)));
+        else
+            emit32le(add_imm(xreg(d), xreg(d), uint32_t(-v)));
+    }
     else trap(op);
     if (d < LOC_SHADOW_COUNT)
         emit32le(str_off(xreg(d), HW_FRAME, d));
@@ -416,6 +426,24 @@ void arm64::set_pred(byte p, bool on)
     }
 }
 
+void arm64::set_pred_cmp(byte p, byte cond)
+// ----------------------------------------------------------------------------
+//   Set predicate bit p according to AArch64 condition code
+// ----------------------------------------------------------------------------
+{
+    record(arm64, "set_pred_cmp(%u, %u)", p, cond);
+    load_imm64(HW_SCR_ADDR, ~(1ULL << p));
+    emit32le(and_rrr(HW_FLAGS, HW_FLAGS, HW_SCR_ADDR));
+    emit32le(cset_x(HW_SCR_VAL, cond));
+    size_t cbz_pos = cursor();
+    emit32le(cbz_imm(HW_SCR_VAL, 0));
+    load_imm64(HW_SCR_ADDR, 1ULL << p);
+    emit32le(orr_rrr(HW_FLAGS, HW_FLAGS, HW_SCR_ADDR));
+    int off = int((cursor() - cbz_pos) / 4);
+    code().patch32(cbz_pos, cbz_imm(HW_SCR_VAL, off));
+}
+
+
 void arm64::cmp_local(byte p, byte d, byte s, cstring op)
 // ----------------------------------------------------------------------------
 //   Compare two locals and set predicate p
@@ -423,8 +451,7 @@ void arm64::cmp_local(byte p, byte d, byte s, cstring op)
 {
     record(arm64, "cmp_local(%u, %u, %u, %s)", p, d, s, op);
     emit32le(cmp_rr(xreg(d), xreg(s)));
-    set_pred(p, !strcmp(op, "cmpeq"));
-    (void) op;
+    set_pred_cmp(p, cond_from_op(op));
 }
 
 void arm64::cmp_imm(byte p, byte d, value_t v, cstring op)
@@ -434,8 +461,7 @@ void arm64::cmp_imm(byte p, byte d, value_t v, cstring op)
 {
     record(arm64, "cmp_imm(%u, %u, %lld, %s)", p, d, v, op);
     emit32le(cmp_r_imm(xreg(d), uint32_t(v)));
-    set_pred(p, !strcmp(op, "cmpeqi"));
-    (void) op;
+    set_pred_cmp(p, cond_from_op(op));
 }
 
 void arm64::cmp_uimm(byte p, byte d, uvalue_t v, cstring op)
@@ -701,27 +727,32 @@ void arm64::jmp_tok(tok_t t)
     record_tok_jump(t, pos);
 }
 
-void arm64::patch_imm64_at(size_t at, uint r, uint64_t v)
+void arm64::patch_imm64_at(void *mem, size_t at, uint r, uint64_t v)
 // ----------------------------------------------------------------------------
 //   Rewrite a 16-byte load_imm64 slot at a fixed code offset
 // ----------------------------------------------------------------------------
 {
     static const uint32_t nop = 0xd503201fu;
-    section &sec = code();
-    sec.patch32(at, movz(r, uint32_t(v) & 0xffffu));
+    auto patch32 = [&](size_t off, uint32_t insn)
+    {
+        code().patch32(off, insn);
+        if (mem)
+            memcpy((void *) ((byte_p) mem + off), &insn, sizeof(insn));
+    };
+    patch32(at, movz(r, uint32_t(v) & 0xffffu));
     at += 4;
     if ((v >> 16) & 0xffffu)
-        sec.patch32(at, movk(r, uint32_t(v >> 16), 16));
+        patch32(at, movk(r, uint32_t(v >> 16), 16));
     else
-        sec.patch32(at, nop);
+        patch32(at, nop);
     at += 4;
     if ((v >> 32) & 0xffffu)
-        sec.patch32(at, movk(r, uint32_t(v >> 32), 32));
+        patch32(at, movk(r, uint32_t(v >> 32), 32));
     else
-        sec.patch32(at, nop);
+        patch32(at, nop);
     at += 4;
     if ((v >> 48) & 0xffffu)
-        sec.patch32(at, movk(r, uint32_t(v >> 48), 48));
+        patch32(at, movk(r, uint32_t(v >> 48), 48));
 }
 
 
@@ -733,7 +764,7 @@ void arm64::relocate(void *base)
     record(arm64, "relocate(%p)", base);
     uintptr_t origin = uintptr_t(base);
     for (abs_fixup &fx : abs_fixups)
-        patch_imm64_at(fx.imm_at, HW_SCR_VAL, origin + fx.offset);
+        patch_imm64_at(base, fx.imm_at, HW_SCR_VAL, origin + fx.offset);
 }
 
 
@@ -744,6 +775,7 @@ void arm64::call_tok(tok_t t)
 {
     record(arm64, "call_tok(%llu)", t);
     static const uint32_t nop = 0xd503201fu;
+    spill_frame();
     size_t imm_at = cursor();
     emit32le(movz(HW_SCR_VAL, 0));
     emit32le(nop);
@@ -751,6 +783,7 @@ void arm64::call_tok(tok_t t)
     emit32le(nop);
     emit32le(mov_rr(0, HW_SCR_VAL));
     rtcall("xlr8_push_value");
+    reload_shadows();
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
     uint pos = gjmp(head);
     record_tok_jump(t, pos);
@@ -828,11 +861,13 @@ void arm64::push_local(byte s)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "push_local(%u)", s);
+    spill_frame();
     if (s < LOC_SHADOW_COUNT)
         emit32le(mov_rr(0, xreg(s)));
     else
         emit32le(ldr_off(0, HW_FRAME, s));
     rtcall("xlr8_push_value");
+    reload_shadows();
     spill_arg_regs = true;
 }
 
@@ -844,11 +879,9 @@ void arm64::pop_local(byte d)
 {
     record(arm64, "pop_local(%u)", d);
     rtcall("xlr8_pop_value");
-    if (d < LOC_SHADOW_COUNT)
-        emit32le(mov_rr(xreg(d), 0));
-    else
-        emit32le(str_off(0, HW_FRAME, d));
-    touch_local(d);
+    emit32le(mov_rr(HW_SCR_VAL, 0));
+    reload_shadows();
+    store_local(HW_SCR_VAL, d);
 }
 
 

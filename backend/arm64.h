@@ -89,7 +89,7 @@ struct arm64 : backend
 #undef OP
 
 protected:
-    void patch_imm64_at(size_t at, uint r, uint64_t v);
+    void patch_imm64_at(void *mem, size_t at, uint r, uint64_t v);
 
     enum hwreg_t : uint
     {
@@ -322,6 +322,38 @@ protected:
         return 0xf100001fu | ((imm & 0xfffu) << 10) | (rn << 5);
     }
 
+    static inline byte invert_cond(byte cond)
+    // ----------------------------------------------------------------------------
+    //   Invert an AArch64 condition code (for CSET)
+    // ----------------------------------------------------------------------------
+    {
+        static const byte inv[] =
+            { 1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14 };
+        return inv[cond & 15];
+    }
+
+    static inline uint cset_x(uint rd, byte cond)
+    // ----------------------------------------------------------------------------
+    //   Encode cset xd, cond  (CSINC xd, xzr, xzr, invert(cond))
+    // ----------------------------------------------------------------------------
+    {
+        return 0x9a9f07e0u | (uint(invert_cond(cond)) << 12) | rd;
+    }
+
+    static inline byte cond_from_op(cstring op)
+    // ----------------------------------------------------------------------------
+    //   Map comparison name to AArch64 condition code
+    // ----------------------------------------------------------------------------
+    {
+        if (!strcmp(op, "eq")) return 0;
+        if (!strcmp(op, "ne")) return 1;
+        if (!strcmp(op, "lt")) return 11;
+        if (!strcmp(op, "le")) return 13;
+        if (!strcmp(op, "ltu")) return 3;
+        if (!strcmp(op, "leu")) return 9;
+        return 0;
+    }
+
     static inline uint neg_rr(uint rd)
     // ----------------------------------------------------------------------------
     //   Encode neg rd, rd
@@ -482,6 +514,7 @@ protected:
     void spill_frame();
     void reload_frame_reg();
     void reload_shadows();
+    void set_pred_cmp(byte p, byte cond);
     void touch_local(byte d);
     void mov_local(byte d, byte s);
     void swap_locals(byte d, byte s);

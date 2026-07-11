@@ -55,7 +55,9 @@ void arm64::emit_ret()
 {
     record(arm64_ops, "emit_ret()");
     rtcall("xlr8_pop_value");
-    emit32le(br(0));
+    emit32le(mov_rr(HW_SCR_VAL, 0));
+    reload_shadows();
+    emit32le(br(HW_SCR_VAL));
 }
 
 

@@ -47,7 +47,7 @@
 #endif
 
 
-static void *map_executable(byte_p data, size_t sz)
+static void *map_executable(backend &be, byte_p data, size_t sz)
 // ----------------------------------------------------------------------------
 //   Copy generated code into an executable memory mapping
 // ----------------------------------------------------------------------------
@@ -68,6 +68,7 @@ static void *map_executable(byte_p data, size_t sz)
     pthread_jit_write_protect_np(0);
 #endif
     memcpy(mem, data, sz);
+    be.relocate(mem);
 #if defined(__APPLE__)
     pthread_jit_write_protect_np(1);
     sys_icache_invalidate(mem, sz);
@@ -79,6 +80,7 @@ static void *map_executable(byte_p data, size_t sz)
     }
     return mem;
 #else
+    (void) be;
     (void) data;
     (void) sz;
     return nullptr;
@@ -182,11 +184,9 @@ static bool native_run_impl(runtime &rt, backend &be, byte_p entry)
     if (!sz)
         return true;
 
-    void *mem = map_executable(code.data, sz);
+    void *mem = map_executable(be, code.data, sz);
     if (!mem)
         return false;
-
-    be.relocate(mem);
 
 #if defined(__x86_64__) || defined(__amd64__)
     invoke_x86_64(rt, mem);
