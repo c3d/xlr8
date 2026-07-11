@@ -43,7 +43,7 @@
 //  Register map:
 //    Shadow locals     x0 .. x15     frame[0] .. frame[15] when valid
 //    Frame pointer     x19 (HW_FRAME)   rt.frame, primed at JIT entry
-//    Saved link        x20 (HW_LINK)    LR across runtime calls
+//    Saved link        x28 (HW_LINK)    invoke return (not a bytecode local)
 //    Runtime (rsvd)    x21 (HW_RT)      &runtime, not yet loaded
 //    Flags/predicates  x22 (HW_FLAGS)   rt.flags (64-bit), primed at entry
 //    Scratch value     x23 (HW_SCR_VAL) swap, arithmetic, immediates
@@ -98,8 +98,8 @@ protected:
         HW_LOC15 = 15,
         HW_IP    = 16,      // intra-procedure call scratch (AAPCS IP0)
         HW_FRAME = 19,      // callee-saved, rt.frame base for spill
-        HW_LINK  = 20,      // callee-saved, saved link register
         HW_RT    = 21,      // reserved: &runtime
+        HW_LINK  = 28,      // callee-saved, saved link (not a bytecode local)
         HW_FLAGS = 22,      // callee-saved, rt.flags (64-bit predicates)
         HW_SCR_VAL  = 23,   // scratch: values (swap, arithmetic)
         HW_SCR_ADDR = 24,   // scratch: addresses
@@ -429,18 +429,18 @@ protected:
 
     static inline uint mov_lr_save()
     // ----------------------------------------------------------------------------
-    //   Encode mov x20, x30
+    //   Encode mov HW_LINK, x30
     // ----------------------------------------------------------------------------
     {
-        return 0xaa1e03f4u;
+        return mov_rr(HW_LINK, 30);
     }
 
     static inline uint mov_lr_restore()
     // ----------------------------------------------------------------------------
-    //   Encode mov x30, x20
+    //   Encode mov x30, HW_LINK
     // ----------------------------------------------------------------------------
     {
-        return 0xaa1403feu;
+        return mov_rr(30, HW_LINK);
     }
 
     static inline uint reload_frame()
@@ -461,10 +461,10 @@ protected:
 
     static inline uint ret_lr_insn()
     // ----------------------------------------------------------------------------
-    //   Encode ret x20  (return through saved link register)
+    //   Encode ret HW_LINK  (return through saved link register)
     // ----------------------------------------------------------------------------
     {
-        return 0xd65f0280u;
+        return 0xd65f0000u | (HW_LINK << 5);
     }
 
     static inline uint brk_insn()
@@ -529,6 +529,7 @@ protected:
     void mov_local(byte d, byte s);
     void swap_locals(byte d, byte s);
     void store_imm(byte d, value_t v);
+    void store_uimm(byte d, uvalue_t v);
     void store_float(byte d, float v);
     void store_double(byte d, double v);
     void binop_local(byte d, byte s, cstring op);

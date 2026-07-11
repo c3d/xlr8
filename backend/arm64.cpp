@@ -271,7 +271,7 @@ void arm64::begin_translation()
 // ----------------------------------------------------------------------------
 {
     record(arm64, "begin_translation()");
-    emit32le(mov_lr_save());
+    emit32le(stp_push(30));
 }
 
 
@@ -316,14 +316,32 @@ void arm64::swap_locals(byte d, byte s)
 
 void arm64::store_imm(byte d, value_t v)
 // ----------------------------------------------------------------------------
-//   Store integer immediate into bytecode local
+//   Store signed integer immediate into bytecode local
 // ----------------------------------------------------------------------------
 {
     record(arm64, "store_imm(%u, %lld)", d, v);
+    uint64_t imm = uint64_t(int64_t(int32_t(uint32_t(v))));
     if (d < LOC_SHADOW_COUNT)
-        load_imm64(xreg(d), uint64_t(uint32_t(v)));
+        load_imm64(xreg(d), imm);
     else
-        load_imm64(HW_SCR_VAL, uint64_t(uint32_t(v))),
+        load_imm64(HW_SCR_VAL, imm),
+        store_local(HW_SCR_VAL, d);
+    if (d < LOC_SHADOW_COUNT)
+        emit32le(str_off(xreg(d), HW_FRAME, d));
+    touch_local(d);
+}
+
+void arm64::store_uimm(byte d, uvalue_t v)
+// ----------------------------------------------------------------------------
+//   Store unsigned integer immediate into bytecode local
+// ----------------------------------------------------------------------------
+{
+    record(arm64, "store_uimm(%u, %llu)", d, v);
+    uint64_t imm = uint64_t(uint32_t(v));
+    if (d < LOC_SHADOW_COUNT)
+        load_imm64(xreg(d), imm);
+    else
+        load_imm64(HW_SCR_VAL, imm),
         store_local(HW_SCR_VAL, d);
     if (d < LOC_SHADOW_COUNT)
         emit32le(str_off(xreg(d), HW_FRAME, d));
@@ -360,28 +378,56 @@ void arm64::binop_local(byte d, byte s, cstring op)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "binop_local(%u, %u, %s)", d, s, op);
-    if (!strcmp(op, "add"))
-        emit32le(add_rrr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "sub"))
-        emit32le(sub_rrr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "mul") || !strcmp(op, "imul"))
-        emit32le(mul_rrr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "and"))
-        emit32le(and_rrr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "or"))
-        emit32le(orr_rrr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "xor"))
-        emit32le(eor_rrr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "shl"))
-        emit32le(lsl_rrr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "shr"))
-        emit32le(asr_rrr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "ushr"))
-        emit32le(lsr_rrr(xreg(d), xreg(d), xreg(s)));
+    if (d >= LOC_SHADOW_COUNT || s >= LOC_SHADOW_COUNT)
+    {
+        load_local(s, HW_SCR_VAL);
+        load_local(d, HW_SCR_ADDR);
+        if (!strcmp(op, "add"))
+            emit32le(add_rrr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_VAL));
+        else if (!strcmp(op, "sub"))
+            emit32le(sub_rrr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_VAL));
+        else if (!strcmp(op, "mul") || !strcmp(op, "imul"))
+            emit32le(mul_rrr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_VAL));
+        else if (!strcmp(op, "and"))
+            emit32le(and_rrr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_VAL));
+        else if (!strcmp(op, "or"))
+            emit32le(orr_rrr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_VAL));
+        else if (!strcmp(op, "xor"))
+            emit32le(eor_rrr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_VAL));
+        else if (!strcmp(op, "shl"))
+            emit32le(lsl_rrr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_VAL));
+        else if (!strcmp(op, "shr"))
+            emit32le(asr_rrr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_VAL));
+        else if (!strcmp(op, "ushr"))
+            emit32le(lsr_rrr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_VAL));
+        else
+            trap(op);
+        store_local(HW_SCR_ADDR, d);
+    }
     else
-        trap(op);
-    if (d < LOC_SHADOW_COUNT)
+    {
+        if (!strcmp(op, "add"))
+            emit32le(add_rrr(xreg(d), xreg(d), xreg(s)));
+        else if (!strcmp(op, "sub"))
+            emit32le(sub_rrr(xreg(d), xreg(d), xreg(s)));
+        else if (!strcmp(op, "mul") || !strcmp(op, "imul"))
+            emit32le(mul_rrr(xreg(d), xreg(d), xreg(s)));
+        else if (!strcmp(op, "and"))
+            emit32le(and_rrr(xreg(d), xreg(d), xreg(s)));
+        else if (!strcmp(op, "or"))
+            emit32le(orr_rrr(xreg(d), xreg(d), xreg(s)));
+        else if (!strcmp(op, "xor"))
+            emit32le(eor_rrr(xreg(d), xreg(d), xreg(s)));
+        else if (!strcmp(op, "shl"))
+            emit32le(lsl_rrr(xreg(d), xreg(d), xreg(s)));
+        else if (!strcmp(op, "shr"))
+            emit32le(asr_rrr(xreg(d), xreg(d), xreg(s)));
+        else if (!strcmp(op, "ushr"))
+            emit32le(lsr_rrr(xreg(d), xreg(d), xreg(s)));
+        else
+            trap(op);
         emit32le(str_off(xreg(d), HW_FRAME, d));
+    }
     touch_local(d);
 }
 
@@ -988,7 +1034,8 @@ void arm64::do_ret()
 // ----------------------------------------------------------------------------
 {
     record(arm64, "do_ret()");
-    emit32le(ret_lr_insn());
+    emit32le(ldp_pop(30));
+    emit32le(ret_insn());
 }
 
 void arm64::trap(cstring msg)

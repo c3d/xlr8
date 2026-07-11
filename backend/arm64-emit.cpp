@@ -77,7 +77,7 @@ void arm64::emit_nat(byte d, uvalue_t v)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_nat(%u, %llu)", d, v);
-    store_imm(d, value_t(v));
+    store_uimm(d, v);
 }
 
 

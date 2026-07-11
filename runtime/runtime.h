@@ -635,6 +635,7 @@ public:
     // ========================================================================
 
     uint64_t            flags;          // Conditional flags (predicates)
+    uintptr_t           jit_link;       // Saved native return address for -O
     byte_p              pc;             // Current PC
     byte_p              memory;         // Memory allocated for that runtime
     byte_p              heap;           // Top of heap (lo marker for stack)

@@ -55,6 +55,8 @@ void       xlr8_push_value(uintptr_t v);
 uintptr_t  xlr8_pop_value();
 void       xlr8_push_flags_val(uint64_t flags);
 uint64_t   xlr8_pop_flags_val();
+void       xlr8_save_jit_link(uintptr_t link);
+uintptr_t  xlr8_load_jit_link();
 
 #ifdef __cplusplus
 }

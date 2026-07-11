@@ -58,8 +58,8 @@
 //
 //     Shadow locals     x0 .. x15     frame[0] .. frame[15] when valid
 //     Frame pointer     x19           rt.frame, callee-saved, primed at entry
-//     Saved link        x20           LR across runtime calls
 //     Runtime (rsvd)    x21           &runtime, not yet loaded
+//     Saved link        x28           invoke return address (not a bytecode local)
 //     Flags/predicates  x22           rt.flags (64-bit), primed at entry
 //     Scratch value     x23           temp for swap, arithmetic, immediates
 //     Scratch address   x24           temp for address formation

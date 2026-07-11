@@ -354,6 +354,8 @@ void *xlr8_runtime_fn(cstring name)
         { "xlr8_pop_value",       (void *) xlr8_pop_value },
         { "xlr8_push_flags_val",  (void *) xlr8_push_flags_val },
         { "xlr8_pop_flags_val",   (void *) xlr8_pop_flags_val },
+        { "xlr8_save_jit_link",   (void *) xlr8_save_jit_link },
+        { "xlr8_load_jit_link",   (void *) xlr8_load_jit_link },
     };
     for (entry &e : table)
         if (!strcmp(e.name, name))
@@ -435,6 +437,27 @@ uintptr_t xlr8_pop_value()
 {
     if (xlr8_current_rt)
         return xlr8_current_rt->pop();
+    return 0;
+}
+
+
+void xlr8_save_jit_link(uintptr_t link)
+// ----------------------------------------------------------------------------
+//   Save the native return link for JIT epilogue
+// ----------------------------------------------------------------------------
+{
+    if (xlr8_current_rt)
+        xlr8_current_rt->jit_link = link;
+}
+
+
+uintptr_t xlr8_load_jit_link()
+// ----------------------------------------------------------------------------
+//   Restore the native return link for JIT epilogue
+// ----------------------------------------------------------------------------
+{
+    if (xlr8_current_rt)
+        return xlr8_current_rt->jit_link;
     return 0;
 }
 
