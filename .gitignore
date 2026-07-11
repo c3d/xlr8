@@ -2,6 +2,7 @@
 .logs/
 *.so*
 *.dylib*
+*.a
 *.dll*
 *.exe*
 *~
@@ -12,5 +13,5 @@
 /tests/**/*.result
 /tests/**/*.time
 /tests/**/*.timeref
-/tests/**/*.xlr8.mk
+/tests/**/*.mk
 /tests/failures.log
