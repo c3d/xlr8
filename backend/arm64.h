@@ -82,12 +82,15 @@ struct arm64 : backend
     void finish_translation() override;
     void begin_translation() override;
     void patch_branch_site(size_t insn_pos, size_t target_native) override;
+    void relocate(void *base) override;
 
 #define OP(op, sig) sig override;
 #include "opover.tbl"
 #undef OP
 
 protected:
+    void patch_imm64_at(size_t at, uint r, uint64_t v);
+
     enum hwreg_t : uint
     {
         HW_LOC0  = 0,       // shadow frame[0] .. frame[15]

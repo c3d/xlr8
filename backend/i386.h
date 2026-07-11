@@ -71,16 +71,15 @@ struct i386 : x86
         {
             uint n = t;
             uint32_t next = 0;
-            if (n >= 4)
+            if (n + 4 <= sec.size())
             {
-                size_t at = n - 4;
-                next = uint32_t(sec[at])
-                     | (uint32_t(sec[at + 1]) << 8)
-                     | (uint32_t(sec[at + 2]) << 16)
-                     | (uint32_t(sec[at + 3]) << 24);
+                next = uint32_t(sec[n])
+                     | (uint32_t(sec[n + 1]) << 8)
+                     | (uint32_t(sec[n + 2]) << 16)
+                     | (uint32_t(sec[n + 3]) << 24);
             }
-            int32_t offset = int32_t(a) - int32_t(n);
-            sec.patch32(n - 4, uint32_t(offset));
+            int32_t offset = int32_t(a) - int32_t(n) - 4;
+            sec.patch32(n, uint32_t(offset));
             t = next;
         }
     }

@@ -35,21 +35,23 @@
 #include <cstring>
 
 
-void backend::translate_sub(byte_p &pc)
+void backend::translate_sub(byte_p &pc, byte_p end)
 // ----------------------------------------------------------------------------
-//   Translate a subroutine until a ret opcode
+//   Translate a subroutine until ret (if open-ended) or end of bytecode range
 // ----------------------------------------------------------------------------
 {
-    record(backend, "translate_sub(%p)", &pc);
-    while (true)
+    record(backend, "translate_sub(%p, %p)", pc, end);
+    while (!end || pc < end)
     {
         byte_p insn = pc;
         op_t op = op_t(*pc++);
-        bc_positions[size_t(insn - translate_base)] = cursor();
+        bc_positions[uintptr_t(insn)] = cursor();
         if (op == op_ret)
         {
             emit_ret();
-            return;
+            if (!end)
+                return;
+            continue;
         }
         switch (op)
         {
@@ -77,7 +79,7 @@ bool backend::translate(byte_p &pc)
     {
         byte_p insn = pc;
         op_t op = op_t(*pc++);
-        bc_positions[size_t(insn - translate_base)] = cursor();
+        bc_positions[uintptr_t(insn)] = cursor();
         switch (op)
         {
 #define OP(op, code) case op_##op: { code; } break;
@@ -92,12 +94,14 @@ bool backend::translate(byte_p &pc)
     for (auto &entry : tok_jumps)
     {
         byte_p target = xlr8_resolve(entry.first);
-        if (!target || target < translate_base)
+        record(backend, "tok callee token=%llu -> %p", entry.first, target);
+        if (!target)
             continue;
-        size_t off = size_t(target - translate_base);
-        if (bc_positions.count(off))
+        if (bc_positions.count(uintptr_t(target)))
             continue;
-        translate_sub(target);
+        byte_p end = xlr8_bytecode_end(entry.first);
+        record(backend, "translate_sub callee %p .. %p", target, end);
+        translate_sub(target, end);
     }
 
     resolve_labels();
@@ -141,8 +145,7 @@ void backend::set_branch_target(byte_p target)
 // ----------------------------------------------------------------------------
 {
     record(backend, "set_branch_target(%p)", target);
-    if (translate_base)
-        pending_branch_off = size_t(target - translate_base);
+    pending_branch_target = uintptr_t(target);
 }
 
 
@@ -151,9 +154,9 @@ void backend::record_branch(broff_t offset, uint pos)
 //   Record a PC-relative branch for later patching
 // ----------------------------------------------------------------------------
 {
-    record(backend, "record_branch(target_off=%zu, insn_pos=%u, leb=%lld)",
-           pending_branch_off, pos, offset);
-    branch_fixups.push_back({ pending_branch_off, pos });
+    record(backend, "record_branch(target=%p, insn_pos=%u, leb=%lld)",
+           (void *) pending_branch_target, pos, offset);
+    branch_fixups.push_back({ pending_branch_target, pos });
 }
 
 
@@ -200,27 +203,44 @@ void backend::resolve_labels()
         auto it = labels.find(entry.first);
         if (it != labels.end())
             native = it->second;
-        else if (translate_base)
+        else
         {
             byte_p target = xlr8_resolve(entry.first);
+            if (!target)
+            {
+                byte_p tp = xlr8_bytecode_start(entry.first);
+                if (tp && *tp == op_undef)
+                {
+                    byte_p pc = tp + 1;
+                    tok_t name = leb128<tok_t>(pc);
+                    target = xlr8_resolve(name);
+                }
+            }
             if (target)
             {
-                auto bc = bc_positions.find(size_t(target - translate_base));
+                auto bc = bc_positions.find(uintptr_t(target));
                 if (bc != bc_positions.end())
                     native = bc->second;
             }
         }
-        if (native)
-            gsym_addr(entry.second, uint(native));
+        if (!native)
+        {
+            record(backend_warning, "tok_jump miss token=%llu site=%u",
+                   entry.first, entry.second);
+            continue;
+        }
+        record(backend, "patching tok_jump token=%llu site=%u -> native=%zu",
+               entry.first, entry.second, native);
+        gsym_addr(entry.second, uint(native));
     }
 
     for (branch_fixup &fx : branch_fixups)
     {
-        auto it = bc_positions.find(fx.target_off);
+        auto it = bc_positions.find(fx.target);
         if (it == bc_positions.end())
         {
-            record(backend_warning, "branch_fixup miss target_off=%zu insn_pos=%zu",
-                   fx.target_off, fx.insn_pos);
+            record(backend_warning, "branch_fixup miss target=%p insn_pos=%zu",
+                   (void *) fx.target, fx.insn_pos);
             continue;
         }
         record(backend, "patching branch insn_pos=%zu -> native=%zu",

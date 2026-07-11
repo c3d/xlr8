@@ -117,14 +117,13 @@ void riscv64::gsym_addr(uint t, uint a)
     {
         uint n = t;
         uint32_t next = 0;
-        if (n >= 4)
+        if (n + 4 <= sec.size())
         {
-            size_t at = n - 4;
-            next = uint32_t(sec[at]) | (uint32_t(sec[at+1])<<8)
-                 | (uint32_t(sec[at+2])<<16) | (uint32_t(sec[at+3])<<24);
+            next = uint32_t(sec[n]) | (uint32_t(sec[n + 1]) << 8)
+                 | (uint32_t(sec[n + 2]) << 16) | (uint32_t(sec[n + 3]) << 24);
         }
         int32_t offset = (int32_t(a) - int32_t(n)) / 4;
-        sec.patch32(n - 4, j_imm(offset));
+        sec.patch32(n, j_imm(offset));
         t = next;
     }
 }
@@ -442,7 +441,9 @@ void riscv64::jmp_tok(tok_t t)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "jmp_tok(%llu)", t);
-    record_tok_jump(t, gjmp(0));
+    uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
+    uint pos = gjmp(head);
+    record_tok_jump(t, pos);
 }
 
 void riscv64::call_tok(tok_t t)
@@ -451,7 +452,9 @@ void riscv64::call_tok(tok_t t)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "call_tok(%llu)", t);
-    record_tok_jump(t, gjmp(0));
+    uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
+    uint pos = gjmp(head);
+    record_tok_jump(t, pos);
 }
 
 void riscv64::ijmp_local(byte s)

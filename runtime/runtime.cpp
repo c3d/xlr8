@@ -476,13 +476,26 @@ bool runtime::resolve(tok_t id, tok_t called, byte_p &pc)
     auto it = defined.find(id);
     if (it != defined.end())
     {
-        // Find the actual implementation
         tok_t impl = (*it).second;
-        pc = byte_p(tok(impl));
-
-        // Patch the called token to match the implementation, no longer undef
+        byte_p addr = byte_p(tok(impl));
+        if (!addr || *addr == op_undef)
+        {
+            error("Undefined operation");
+            return false;
+        }
+        pc = addr;
         tokens[called] = tokens[impl];
         return true;
+    }
+    // Linked call/jmp targets store the implementation pgmid directly
+    if (id > 0 && id < tokens.size())
+    {
+        byte_p addr = byte_p(tok(id));
+        if (addr && *addr != op_undef)
+        {
+            pc = addr;
+            return true;
+        }
     }
     error("Undefined operation");
     return false;

@@ -232,12 +232,12 @@ void arm64::reload_shadows(void)
 
 uint arm64::gjmp(uint t)
 // ----------------------------------------------------------------------------
-//   Emit jump with deferred fixup chain
+//   Emit jump with deferred fixup chain (placeholder holds previous head)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "gjmp(%u)", t);
     uint pos = uint(cursor());
-    emit32le(b_imm(0));
+    emit32le(t);
     return pos;
 }
 
@@ -252,15 +252,14 @@ void arm64::gsym_addr(uint t, uint a)
     {
         uint n = t;
         uint32_t next = 0;
-        if (n >= 4)
+        if (n + 4 <= sec.size())
         {
-            size_t at = n - 4;
-            next = uint32_t(sec[at]) | (uint32_t(sec[at+1])<<8)
-                 | (uint32_t(sec[at+2])<<16) | (uint32_t(sec[at+3])<<24);
+            next = uint32_t(sec[n]) | (uint32_t(sec[n + 1]) << 8)
+                 | (uint32_t(sec[n + 2]) << 16) | (uint32_t(sec[n + 3]) << 24);
         }
         int32_t offset = (int32_t(a) - int32_t(n)) / 4;
-        // b #offset
-        sec.patch32(n - 4, b_imm(offset));
+        record(arm64, "gsym_addr patch site=%u next=%u offset=%d", n, next, offset);
+        sec.patch32(n, b_imm(offset));
         t = next;
     }
 }
@@ -362,7 +361,7 @@ void arm64::binop_local(byte d, byte s, cstring op)
         emit32le(add_rrr(xreg(d), xreg(d), xreg(s)));
     else if (!strcmp(op, "sub"))
         emit32le(sub_rrr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "mul"))
+    else if (!strcmp(op, "mul") || !strcmp(op, "imul"))
         emit32le(mul_rrr(xreg(d), xreg(d), xreg(s)));
     else if (!strcmp(op, "and"))
         emit32le(and_rrr(xreg(d), xreg(d), xreg(s)));
@@ -697,10 +696,46 @@ void arm64::jmp_tok(tok_t t)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "jmp_tok(%llu)", t);
-    uint pos = uint(cursor());
-    emit32le(b_imm(0));
+    uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
+    uint pos = gjmp(head);
     record_tok_jump(t, pos);
 }
+
+void arm64::patch_imm64_at(size_t at, uint r, uint64_t v)
+// ----------------------------------------------------------------------------
+//   Rewrite a 16-byte load_imm64 slot at a fixed code offset
+// ----------------------------------------------------------------------------
+{
+    static const uint32_t nop = 0xd503201fu;
+    section &sec = code();
+    sec.patch32(at, movz(r, uint32_t(v) & 0xffffu));
+    at += 4;
+    if ((v >> 16) & 0xffffu)
+        sec.patch32(at, movk(r, uint32_t(v >> 16), 16));
+    else
+        sec.patch32(at, nop);
+    at += 4;
+    if ((v >> 32) & 0xffffu)
+        sec.patch32(at, movk(r, uint32_t(v >> 32), 32));
+    else
+        sec.patch32(at, nop);
+    at += 4;
+    if ((v >> 48) & 0xffffu)
+        sec.patch32(at, movk(r, uint32_t(v >> 48), 48));
+}
+
+
+void arm64::relocate(void *base)
+// ----------------------------------------------------------------------------
+//   Fix absolute addresses embedded in generated code after mmap
+// ----------------------------------------------------------------------------
+{
+    record(arm64, "relocate(%p)", base);
+    uintptr_t origin = uintptr_t(base);
+    for (abs_fixup &fx : abs_fixups)
+        patch_imm64_at(fx.imm_at, HW_SCR_VAL, origin + fx.offset);
+}
+
 
 void arm64::call_tok(tok_t t)
 // ----------------------------------------------------------------------------
@@ -708,12 +743,18 @@ void arm64::call_tok(tok_t t)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "call_tok(%llu)", t);
-    uint ret_addr = uint(cursor()) + 4;
-    load_imm64(0, ret_addr);
+    static const uint32_t nop = 0xd503201fu;
+    size_t imm_at = cursor();
+    emit32le(movz(HW_SCR_VAL, 0));
+    emit32le(nop);
+    emit32le(nop);
+    emit32le(nop);
+    emit32le(mov_rr(0, HW_SCR_VAL));
     rtcall("xlr8_push_value");
-    uint pos = uint(cursor());
-    emit32le(b_imm(0));
+    uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
+    uint pos = gjmp(head);
     record_tok_jump(t, pos);
+    abs_fixups.push_back({ imm_at, uintptr_t(pos + 4) });
 }
 
 void arm64::ijmp_local(byte s)

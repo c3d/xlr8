@@ -394,6 +394,30 @@ byte_p xlr8_resolve(tok_t t)
 }
 
 
+byte_p xlr8_bytecode_start(tok_t t)
+// ----------------------------------------------------------------------------
+//   Return the first bytecode byte of a token's payload
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt || t >= xlr8_current_rt->tokens.size())
+        return nullptr;
+    return byte_p(xlr8_current_rt->tok(t));
+}
+
+
+byte_p xlr8_bytecode_end(tok_t t)
+// ----------------------------------------------------------------------------
+//   Return one-past-last byte of a token's bytecode payload
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt || t >= xlr8_current_rt->tokens.size())
+        return nullptr;
+    byte_p tp = xlr8_current_rt->tokens[t];
+    size_t len = leb128<size_t>(tp);
+    return byte_p(xlr8_current_rt->tok(t)) + len;
+}
+
+
 void xlr8_push_value(uintptr_t v)
 // ----------------------------------------------------------------------------
 //   Push a value on the bytecode evaluation stack

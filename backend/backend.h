@@ -90,6 +90,10 @@ struct backend
     virtual uint    gjmp(uint t) = 0;
     virtual void    gsym(uint t);
     virtual void    gsym_addr(uint t, uint a) = 0;
+    virtual void    relocate(void *base)      { (void) base; }
+
+    struct abs_fixup { size_t imm_at; uintptr_t offset; };
+    std::vector<abs_fixup>  abs_fixups;
 
     // ========================================================================
     //
@@ -109,7 +113,7 @@ protected:
     void            record_tok_jump(tok_t t, uint pos);
     void            patch_branch(uint pos, broff_t offset);
     virtual void    patch_branch_site(size_t insn_pos, size_t target_native);
-    void            translate_sub(byte_p &pc);
+    void            translate_sub(byte_p &pc, byte_p end = nullptr);
 
     arch_t                  current_arch;
     output_t                current_output;
@@ -122,11 +126,11 @@ protected:
     std::map<tok_t, size_t> labels;
     std::map<tok_t, uint>   tok_jumps;
     std::vector<uint>       branch_patches;
-    std::map<size_t, size_t> bc_positions;
-    struct branch_fixup { size_t target_off; size_t insn_pos; };
+    std::map<uintptr_t, size_t> bc_positions;
+    struct branch_fixup { uintptr_t target; size_t insn_pos; };
     std::vector<branch_fixup> branch_fixups;
     byte_p                  translate_base = nullptr;
-    size_t                  pending_branch_off = 0;
+    uintptr_t               pending_branch_target = 0;
 };
 
 

@@ -840,7 +840,9 @@ void x86::jmp_tok(tok_t t)
 // ----------------------------------------------------------------------------
 {
     record(x86, "jmp_tok(%llu)", t);
-    record_tok_jump(t, gjmp(0));
+    uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
+    uint pos = gjmp(head);
+    record_tok_jump(t, pos);
 }
 
 
@@ -850,7 +852,9 @@ void x86::call_tok(tok_t t)
 // ----------------------------------------------------------------------------
 {
     record(x86, "call_tok(%llu)", t);
-    record_tok_jump(t, gjmp(0));
+    uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
+    uint pos = gjmp(head);
+    record_tok_jump(t, pos);
 }
 
 
