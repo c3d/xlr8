@@ -130,6 +130,7 @@ protected:
     std::map<uintptr_t, size_t> bc_positions;
     struct branch_fixup { uintptr_t target; size_t insn_pos; };
     std::vector<branch_fixup> branch_fixups;
+    std::map<uint, uint>    gjmp_chain;
     byte_p                  translate_base = nullptr;
     uintptr_t               pending_branch_target = 0;
     size_t                  over_callees_at = 0;

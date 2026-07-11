@@ -237,7 +237,8 @@ uint arm64::gjmp(uint t)
 {
     record(arm64, "gjmp(%u)", t);
     uint pos = uint(cursor());
-    emit32le(t);
+    emit32le(b_imm(0));
+    gjmp_chain[pos] = t;
     return pos;
 }
 
@@ -251,12 +252,10 @@ void arm64::gsym_addr(uint t, uint a)
     while (t)
     {
         uint n = t;
-        uint32_t next = 0;
-        if (n + 4 <= sec.size())
-        {
-            next = uint32_t(sec[n]) | (uint32_t(sec[n + 1]) << 8)
-                 | (uint32_t(sec[n + 2]) << 16) | (uint32_t(sec[n + 3]) << 24);
-        }
+        uint next = 0;
+        auto it = gjmp_chain.find(n);
+        if (it != gjmp_chain.end())
+            next = it->second;
         int32_t offset = (int32_t(a) - int32_t(n)) / 4;
         record(arm64, "gsym_addr patch site=%u next=%u offset=%d", n, next, offset);
         sec.patch32(n, b_imm(offset));
