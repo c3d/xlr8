@@ -1,12 +1,17 @@
 #!/bin/bash
-printf "%5s %-30s %8s %8s %8s\n" "OPT" "TEST" "TIME" "REF" "%CHG"
+printf "%10s %-40s %8s %8s %8s\n" "OPT" "TEST" "TIME" "REF" "%CHG"
 for I in $(find . -name '*.time');
 do
-    base=$(echo $I | sed 's|.*/performance/||g')
-    name=$(echo $base | sed 's/[.]xlr8.*time//g')
-    opt=$(echo $base | sed -e 's/.*[.]xlr8[.]//g' -e 's/[.]time//g')
+    stem=${I%.time}
+    base=${stem##*/}
+    name=${base%%.xlr8*}
+    rest=${base#*.xlr8}
+    oplevel=${rest%%.*}
+    target=${rest#*.}
+    [ "$oplevel" = "$rest" ] && oplevel="" && target=$rest
+    label=${oplevel:+$oplevel.}${target}
     export time=$(cat $I)
     export ref=$(cat ${I}ref)
     pctchg=$(echo "scale=3;100.0*($time-$ref)/$time" | bc)
-    printf "%5s %-30s %8s %8s %8s\n" $opt $name $time $ref $pctchg
+    printf "%10s %-40s %8s %8s %8s\n" "$label" "$name" "$time" "$ref" "$pctchg"
 done | sort

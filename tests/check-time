@@ -1,5 +1,6 @@
 #!/bin/bash
-export TIMEFILE=$1.${TARGET:-def}.time
+TIMEFILE=$($(dirname $0)/time-path "$1")
+export TIMEFILE
 TIME=$(cat ${TIMEFILE})
 REF=$(cat ${TIMEFILE}ref)
 exit $(echo "( $TIME > 1.25 * $REF ) + ( $TIME < 0.60 * $REF )" | bc)

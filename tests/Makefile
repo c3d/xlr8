@@ -47,6 +47,7 @@ export LANG=C
 export LC_ALL=C
 export LC_CTYPE=C
 export XLR8
+export OPTLEVEL
 export LD_LIBRARY_PATH=..
 export DYLD_LIBRARY_PATH=..
 

@@ -1,0 +1,4 @@
+#!/bin/bash
+# Print the .time / .timeref path for a test (uses OPTLEVEL and TARGET)
+# Usage: TIMEFILE=$(./time-path performance/foo.xlr8)
+echo "$1${OPTLEVEL}.${TARGET:-def}.time"
