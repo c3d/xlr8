@@ -1312,6 +1312,8 @@ void x86::icall_local(byte s)
     g(0xc7);
     emit_runtime_call("xlr8_jit_addr");
     br_via_ip();
+    int off = int(cursor()) - int(adr_at + 7);
+    code().patch32(adr_at + 3, uint32_t(off));
 }
 
 
