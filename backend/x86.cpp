@@ -1183,10 +1183,8 @@ void x86::bra_pred(byte p, broff_t b, bool sense)
 {
     record(x86, "bra_pred(%u, %lld, %d)", p, b, sense);
     load_hw_imm(HW_RAX, 1ULL << p);
-    orex(1, HW_RAX, HW_FLAGS, 0x23);
+    orex(1, HW_RAX, HW_FLAGS, 0x85);
     g(modrm_rr(HW_RAX, HW_FLAGS));
-    orex(1, HW_RAX, 0, 0x85);
-    g(modrm_rr(HW_RAX, HW_RAX));
     g(0x0f);
     g(sense ? 0x85 : 0x84);
     uint pos = uint(cursor());
