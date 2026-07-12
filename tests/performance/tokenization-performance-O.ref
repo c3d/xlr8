@@ -1,0 +1,6 @@
+arg[0]='./xlr8'
+arg[1]='-O'
+arg[2]='performance/tokenization-performance.xlr8'
+arg[3]='null'
+Done!
+
