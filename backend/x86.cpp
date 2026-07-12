@@ -1151,13 +1151,13 @@ void x86::load_signext_off(byte d, byte s, byte w, value_t o)
 
 void x86::frame_addr(byte d, byte s)
 // ----------------------------------------------------------------------------
-//   Compute frame-relative address into local d
+//   Compute frame-relative address of local slot s into local d
 // ----------------------------------------------------------------------------
 {
     record(x86, "frame_addr(%u, %u)", d, s);
-    load_local(s, HW_RAX);
-    orex(1, HW_FRAME, HW_RAX, 0x8d);
-    g(0x04 | (reg_value(HW_FRAME) << 3) | reg_value(HW_RAX));
+    load_hw_imm(HW_RAX, uint64_t(local_disp(s)));
+    orex(1, HW_RAX, HW_FRAME, 0x03);
+    g(modrm_rr(HW_RAX, HW_FRAME));
     store_local(HW_RAX, d);
 }
 
