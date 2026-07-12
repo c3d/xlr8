@@ -289,7 +289,7 @@ void arm64::gsym_addr(uint t, uint a)
 
 void arm64::begin_translation()
 // ----------------------------------------------------------------------------
-//   Reload shadow registers; invoke return address lives in x28 (HW_LINK)
+//   Reload shadow registers; invoke return address lives in x30 (LR)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "begin_translation()");
@@ -1280,7 +1280,7 @@ void arm64::do_ret()
 // ----------------------------------------------------------------------------
 {
     record(arm64, "do_ret()");
-    emit32le(ret_lr_insn());
+    emit32le(ret_insn());
 }
 
 void arm64::trap(cstring msg)
