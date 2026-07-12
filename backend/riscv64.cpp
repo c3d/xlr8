@@ -347,6 +347,7 @@ void riscv64::patch_pc_rel(size_t auipc_at, uint rd, size_t target)
 //   Patch auipc+addi pair at auipc_at to form address of target
 // ----------------------------------------------------------------------------
 {
+    pc_rel_fixups.push_back({ auipc_at, rd, target });
     int off = int(target) - int(auipc_at);
     int hi = int((off + 0x800) >> 12);
     int lo = off - (hi << 12);
@@ -1159,6 +1160,21 @@ void riscv64::relocate(void *base)
 {
     record(riscv64, "relocate(%p)", base);
     section &sec = code();
+    for (pc_rel_fixup &fx : pc_rel_fixups)
+    {
+        int off = int(fx.target) - int(fx.at);
+        int hi = int((off + 0x800) >> 12);
+        int lo = off - (hi << 12);
+        sec.patch32(fx.at, auipc(fx.rd, uint32_t(hi) & 0xfffffu));
+        sec.patch32(fx.at + 4, addi(fx.rd, fx.rd, lo));
+        if (base)
+        {
+            uint32_t patched = auipc(fx.rd, uint32_t(hi) & 0xfffffu);
+            memcpy((void *) ((byte_p) base + fx.at), &patched, sizeof(patched));
+            patched = addi(fx.rd, fx.rd, lo);
+            memcpy((void *) ((byte_p) base + fx.at + 4), &patched, sizeof(patched));
+        }
+    }
     for (abs_fixup &fx : abs_fixups)
     {
         auto it = bc_positions.find(fx.offset);
@@ -1208,14 +1224,13 @@ void riscv64::call_tok(tok_t t)
     size_t auipc_at = cursor();
     emit32le(nop_insn());
     emit32le(nop_insn());
-    emit32le(mv_rr(10, HW_SCR_VAL));
     rtcall("xlr8_push_value");
     rtcall("xlr8_sync_args");
     reload_shadows();
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
     uint pos = gjmp(head);
     record_tok_jump(t, pos);
-    patch_pc_rel(auipc_at, HW_SCR_VAL, pos + 4);
+    patch_pc_rel(auipc_at, 10, pos + 4);
 }
 
 
@@ -1257,7 +1272,6 @@ void riscv64::icall_local(byte s)
     size_t auipc_at = cursor();
     emit32le(nop_insn());
     emit32le(nop_insn());
-    emit32le(mv_rr(10, HW_SCR_VAL));
     rtcall("xlr8_push_value");
     rtcall("xlr8_sync_args");
     reload_shadows();
@@ -1270,7 +1284,7 @@ void riscv64::icall_local(byte s)
     reload_shadows();
     size_t jalr_at = cursor();
     emit32le(jalr_ra(HW_IP));
-    patch_pc_rel(auipc_at, HW_SCR_VAL, jalr_at + 4);
+    patch_pc_rel(auipc_at, 10, jalr_at + 4);
 }
 
 

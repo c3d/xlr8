@@ -637,7 +637,7 @@ protected:
     //   Encode fmv.x.w rd, fs
     // ----------------------------------------------------------------------------
     {
-        return 0xf0001053u | (fs << 15) | (rd << 7);
+        return 0xe0001053u | (fs << 15) | (rd << 7);
     }
 
     static inline uint fadd_s(uint fd, uint fs1, uint fs2)
@@ -786,6 +786,9 @@ protected:
     void rtcall(cstring fn, byte a);
     void br_via_ip();
     void patch_pc_rel(size_t auipc_at, uint rd, size_t target);
+
+    struct pc_rel_fixup { size_t at; uint rd; size_t target; };
+    std::vector<pc_rel_fixup> pc_rel_fixups;
 
     bool spill_arg_regs = true;
     bool frame_memory_touched = false;
