@@ -1209,7 +1209,7 @@ void riscv64::call_tok(tok_t t)
     emit32le(nop_insn());
     emit32le(nop_insn());
     emit32le(mv_rr(10, HW_SCR_VAL));
-    rtcall("xlr8_push_value");
+    call_abs((void *) xlr8_save_jit_link);
     rtcall("xlr8_sync_args");
     reload_shadows();
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
@@ -1255,7 +1255,7 @@ void riscv64::icall_local(byte s)
     emit32le(nop_insn());
     emit32le(nop_insn());
     emit32le(mv_rr(10, HW_SCR_VAL));
-    rtcall("xlr8_push_value");
+    call_abs((void *) xlr8_save_jit_link);
     rtcall("xlr8_sync_args");
     reload_shadows();
     load_local(s, 10);

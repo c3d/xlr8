@@ -199,7 +199,7 @@ void riscv64::emit_ret()
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_ret()");
-    rtcall("xlr8_pop_value");
+    call_abs((void *) xlr8_load_jit_link);
     emit32le(mv_rr(HW_SCR_VAL, 10));
     reload_shadows();
     emit32le(jalr(HW_SCR_VAL));
