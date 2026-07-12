@@ -124,7 +124,7 @@ void x86::orex(int ll, int r, int x, byte c)
 {
     record(x86, "orex(%lld, %lld, %lld, %u)", ll, r, x, c);
     if (ll || r >= 8 || x >= 8)
-        g(0x40 | (ll ? 1 : 0) | (rex_b(r) ? 4 : 0) | (rex_x(x) ? 2 : 0) | (rex_r(r) ? 1 : 0));
+        g(0x40 | (ll ? 8 : 0) | (rex_r(r) ? 4 : 0) | (rex_b(x) ? 1 : 0));
     g(c);
 }
 
@@ -152,7 +152,9 @@ void x86::load_hw_imm(uint r, uint64_t imm)
 // ----------------------------------------------------------------------------
 {
     record(x86, "load_hw_imm(%u, %lld)", r, imm);
-    orex(1, r, 0, 0xb8 + reg_value(r));
+    if (ptr_size() == 8 || r >= 8)
+        g(0x40 | (ptr_size() == 8 ? 8 : 0) | (rex_b(r) ? 1 : 0));
+    g(0xb8 + reg_value(r));
     emit32(uint32_t(imm));
     if (ptr_size() == 8)
         emit32(uint32_t(imm >> 32));
