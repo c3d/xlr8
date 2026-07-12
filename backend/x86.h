@@ -156,6 +156,8 @@ protected:
     void            emit_rex_modrm(int ll, int r, int x, int b, byte op);
     void            load_hw_imm(uint r, uint64_t imm);
     void            load_local(byte n, uint r);
+    void            load_double_local(byte n, uint xmm);
+    void            store_double_local(byte n, uint xmm);
     void            store_local(uint r, byte n);
     void            mov_local(byte d, byte s);
     void            swap_locals(byte d, byte s);

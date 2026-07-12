@@ -178,6 +178,42 @@ void x86::load_hw_imm(uint r, uint64_t imm)
 }
 
 
+void x86::load_double_local(byte n, uint xmm)
+// ----------------------------------------------------------------------------
+//   Load a bytecode double local into an xmm register
+// ----------------------------------------------------------------------------
+{
+    record(x86, "load_double_local(%u, %u)", n, xmm);
+    int disp = local_disp(n);
+    g(0x49 | (rex_r(xmm) ? 4 : 0));
+    g(0xf2);
+    g(0x0f);
+    g(0x10);
+    g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
+    g(byte((reg_value(HW_RSP) << 3) | reg_value(HW_FRAME)));
+    if (disp)
+        emit32(uint32_t(disp));
+}
+
+
+void x86::store_double_local(byte n, uint xmm)
+// ----------------------------------------------------------------------------
+//   Store an xmm register into a bytecode double local
+// ----------------------------------------------------------------------------
+{
+    record(x86, "store_double_local(%u, %u)", n, xmm);
+    int disp = local_disp(n);
+    g(0x49 | (rex_r(xmm) ? 4 : 0));
+    g(0xf2);
+    g(0x0f);
+    g(0x11);
+    g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
+    g(byte((reg_value(HW_RSP) << 3) | reg_value(HW_FRAME)));
+    if (disp)
+        emit32(uint32_t(disp));
+}
+
+
 void x86::load_local(byte n, uint r)
 // ----------------------------------------------------------------------------
 //   Load bytecode local into a hardware register
@@ -291,6 +327,7 @@ void x86::binop_local(byte d, byte s, cstring op)
 // ----------------------------------------------------------------------------
 {
     record(x86, "binop_local(%u, %u, %s)", d, s, op);
+    bool stored = false;
     load_local(d, HW_RAX);
     load_local(s, HW_RCX);
 if (!strcmp(op, "add"))
@@ -456,11 +493,11 @@ else if (!strcmp(op, "dadd"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0x48); g(0x66); g(0x0f); g(0x6e); g(0xc0);
-    load_local(s, HW_RCX);
-    g(0x48); g(0x66); g(0x0f); g(0x6e); g(0xc9);
+    load_double_local(d, 0);
+    load_double_local(s, 1);
     g(0xf2); g(0x0f); g(0x58); g(0xc1);
-    g(0x48); g(0x66); g(0x0f); g(0x7e); g(0xc0);
+    store_double_local(d, 0);
+    stored = true;
 }
 
 else if (!strcmp(op, "dsub"))
@@ -468,11 +505,11 @@ else if (!strcmp(op, "dsub"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0x48); g(0x66); g(0x0f); g(0x6e); g(0xc0);
-    load_local(s, HW_RCX);
-    g(0x48); g(0x66); g(0x0f); g(0x6e); g(0xc9);
+    load_double_local(d, 0);
+    load_double_local(s, 1);
     g(0xf2); g(0x0f); g(0x5c); g(0xc1);
-    g(0x48); g(0x66); g(0x0f); g(0x7e); g(0xc0);
+    store_double_local(d, 0);
+    stored = true;
 }
 
 else if (!strcmp(op, "dmul"))
@@ -480,11 +517,11 @@ else if (!strcmp(op, "dmul"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0x48); g(0x66); g(0x0f); g(0x6e); g(0xc0);
-    load_local(s, HW_RCX);
-    g(0x48); g(0x66); g(0x0f); g(0x6e); g(0xc9);
+    load_double_local(d, 0);
+    load_double_local(s, 1);
     g(0xf2); g(0x0f); g(0x59); g(0xc1);
-    g(0x48); g(0x66); g(0x0f); g(0x7e); g(0xc0);
+    store_double_local(d, 0);
+    stored = true;
 }
 
 else if (!strcmp(op, "ddiv"))
@@ -492,14 +529,15 @@ else if (!strcmp(op, "ddiv"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0x48); g(0x66); g(0x0f); g(0x6e); g(0xc0);
-    load_local(s, HW_RCX);
-    g(0x48); g(0x66); g(0x0f); g(0x6e); g(0xc9);
+    load_double_local(d, 0);
+    load_double_local(s, 1);
     g(0xf2); g(0x0f); g(0x5e); g(0xc1);
-    g(0x48); g(0x66); g(0x0f); g(0x7e); g(0xc0);
+    store_double_local(d, 0);
+    stored = true;
 }
 
-    store_local(HW_RAX, d);
+    if (!stored)
+        store_local(HW_RAX, d);
 }
 
 
