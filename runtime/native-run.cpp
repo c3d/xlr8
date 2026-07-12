@@ -80,6 +80,8 @@ static void dump_jit_code(void *mem, size_t sz, backend &be, cstring path)
     const char *arch = "x86_64";
 #elif defined(__arm__)
     const char *arch = "arm";
+#elif defined(__riscv)
+    const char *arch = "riscv64";
 #else
     const char *arch = nullptr;
 #endif
@@ -140,7 +142,7 @@ static void *map_executable(backend &be, byte_p data, size_t sz)
 #if defined(__APPLE__)
     pthread_jit_write_protect_np(1);
     sys_icache_invalidate(mem, sz);
-#elif defined(__linux__) && defined(__aarch64__)
+#elif defined(__linux__) && (defined(__aarch64__) || defined(__riscv))
     __builtin___clear_cache((char *) mem, (char *) mem + sz);
 #endif
     if (mprotect(mem, alloc, PROT_READ | PROT_EXEC) != 0)
@@ -241,6 +243,31 @@ static void invoke_arm(runtime &rt, void *code)
 #endif
 
 
+#if defined(__riscv)
+static void invoke_riscv64(runtime &rt, void *code)
+// ----------------------------------------------------------------------------
+//   Jump to generated RISC-V code; s0 = rt.frame, s1 = rt.flags.
+//   Save ra on the C stack so JIT may use ret after call_abs saves.
+// ----------------------------------------------------------------------------
+{
+    stack_p frame = rt.frame;
+    uint64_t flags = rt.flags;
+    asm volatile(
+        "mv s0, %0\n\t"
+        "mv s1, %1\n\t"
+        "addi sp, sp, -16\n\t"
+        "sd ra, 0(sp)\n\t"
+        "mv t0, %2\n\t"
+        "jalr ra, t0, 0\n\t"
+        "ld ra, 0(sp)\n\t"
+        "addi sp, sp, 16"
+        :
+        : "r"(frame), "r"(flags), "r"(code)
+        : "s0", "s1", "t0", "ra", "memory", "cc");
+}
+#endif
+
+
 static bool native_run_impl(runtime &rt, backend &be, byte_p entry)
 // ----------------------------------------------------------------------------
 //   Translate bytecode and execute the generated native code
@@ -272,6 +299,8 @@ static bool native_run_impl(runtime &rt, backend &be, byte_p entry)
     invoke_arm64(rt, mem);
 #elif defined(__arm__)
     invoke_arm(rt, mem);
+#elif defined(__riscv)
+    invoke_riscv64(rt, mem);
 #else
     unmap_executable(mem, sz);
     rt.error("Native execution is not supported on this CPU");

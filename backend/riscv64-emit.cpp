@@ -30,11 +30,26 @@
 
 void riscv64::emit_null()
 // ----------------------------------------------------------------------------
-//   Emit bytecode for the null opcode
+//   Null opcode in inline data: skip during translation (no native code)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_null()");
-    trap("null opcode");
+}
+
+
+void riscv64::emit_user(op_t op, byte_p &pc)
+// ----------------------------------------------------------------------------
+//   Emit a user-defined opcode (128..255, or registered low opcodes)
+// ----------------------------------------------------------------------------
+{
+    record(riscv64_ops, "emit_user(%lld, %p)", op, &pc);
+    byte_p args = pc;
+    spill_frame();
+    load_imm64(10, uint64_t(op));
+    load_imm64(11, uint64_t(uintptr_t(args)));
+    rtcall("xlr8_user_op");
+    reload_shadows();
+    xlr8_skip_user_args(op, pc);
 }
 
 
@@ -44,7 +59,7 @@ void riscv64::emit_undef(tok_t t)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_undef(%llu)", t);
-    rtcall("xlr8_resolve", t);
+    bind(t);
 }
 
 
@@ -64,7 +79,7 @@ void riscv64::emit_nat(byte d, uvalue_t v)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_nat(%u, %llu)", d, v);
-    store_imm(d, value_t(v));
+    store_uimm(d, v);
 }
 
 
@@ -184,7 +199,10 @@ void riscv64::emit_ret()
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_ret()");
-    do_ret();
+    rtcall("xlr8_pop_value");
+    emit32le(mv_rr(HW_SCR_VAL, 10));
+    reload_shadows();
+    emit32le(jalr(HW_SCR_VAL));
 }
 
 
@@ -224,7 +242,12 @@ void riscv64::emit_enter(byte d)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_enter(%u)", d);
+    spill_frame();
+    emit32le(mv_rr(10, HW_FLAGS));
+    rtcall("xlr8_set_flags");
     rtcall("xlr8_enter", d);
+    reload_frame_reg();
+    reload_shadows();
 }
 
 
@@ -235,6 +258,9 @@ void riscv64::emit_leave()
 {
     record(riscv64_ops, "emit_leave()");
     rtcall("xlr8_leave");
+    reload_frame_reg();
+    reload_flags_reg();
+    reload_shadows();
 }
 
 
@@ -284,9 +310,27 @@ void riscv64::emit_sys(tok_t t, byte_p args, byte_p next_pc)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_sys(%llu, %p, %p)", t, args, next_pc);
-    (void) next_pc;
-    xlr8_set_sys_args(args);
-    rtcall("xlr8_sys", t);
+    spill_arg_regs = true;
+    spill_frame();
+    load_imm64(10, uint64_t(t));
+    load_imm64(11, uint64_t(uintptr_t(args)));
+    call_abs((void *) xlr8_sys);
+    reload_shadows();
+    load_imm64(HW_SCR_VAL, uint64_t(uintptr_t(next_pc)));
+    emit32le(mv_rr(10, HW_SCR_VAL));
+    rtcall("xlr8_after_sys");
+    uint bne_at = uint(cursor());
+    emit32le(bne_imm(10, 0, 0));
+    reload_shadows();
+    spill_arg_regs = false;
+    uint skip_at = uint(cursor());
+    emit32le(j_imm(0));
+    uint br_at = uint(cursor());
+    emit32le(mv_rr(HW_IP, 10));
+    reload_shadows();
+    emit32le(jalr(HW_IP));
+    code().patch32(bne_at, bne_imm(10, 0, int(br_at) - int(bne_at)));
+    code().patch32(skip_at, j_imm(int(br_at + 4) - int(skip_at)));
 }
 
 
@@ -376,7 +420,7 @@ void riscv64::emit_blt(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_blt(%u, %lld)", s, b);
-    bra_signed(s, b);
+    bra_signed(s, b, 0xb);
 }
 
 
@@ -386,7 +430,7 @@ void riscv64::emit_bgt(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_bgt(%u, %lld)", s, b);
-    bra_signed(s, b);
+    bra_signed(s, b, 0xc);
 }
 
 
@@ -396,7 +440,7 @@ void riscv64::emit_ble(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_ble(%u, %lld)", s, b);
-    bra_signed(s, b);
+    bra_signed(s, b, 0xd);
 }
 
 
@@ -406,7 +450,7 @@ void riscv64::emit_bge(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_bge(%u, %lld)", s, b);
-    bra_signed(s, b);
+    bra_signed(s, b, 0xa);
 }
 
 
@@ -426,8 +470,11 @@ void riscv64::emit_dispatch(byte s, byte_p table_pc)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_dispatch(%u, %p)", s, table_pc);
-    (void) table_pc;
-    rtcall("xlr8_dispatch", s);
+    spill_frame();
+    load_imm64(10, uint64_t(s));
+    load_imm64(11, uint64_t(uintptr_t(table_pc)));
+    rtcall("xlr8_dispatch");
+    br_via_ip();
 }
 
 

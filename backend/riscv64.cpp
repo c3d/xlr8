@@ -12,7 +12,6 @@
 //
 //
 //
-//
 // ****************************************************************************
 //   (C) 2026 Christophe de Dinechin <christophe@dinechin.org>
 //   This software is licensed under the terms outlined in LICENSE.txt
@@ -30,14 +29,53 @@
 #include "riscv64.h"
 
 #include "native-bridge.h"
+#include "runtime.h"
 
 #include <cstring>
 
 
 RECORDER(riscv64,        256, "RISC-V 64-bit code generation helpers");
 RECORDER(riscv64_ops,    256, "RISC-V 64-bit opcode emission");
-RECORDER(riscv64_error,   64, "RISC-V 64-bit code generation errors");
+RECORDER(riscv64_error,     64, "RISC-V 64-bit code generation errors");
 RECORDER(riscv64_warning, 64, "RISC-V 64-bit code generation warnings");
+
+
+void riscv64::load_local(byte n, uint r)
+// ----------------------------------------------------------------------------
+//   Load bytecode local n into hardware register r
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "load_local(%u, %u)", n, r);
+    if (n < LOC_SHADOW_COUNT)
+    {
+        if (r != xreg(n))
+            emit32le(mv_rr(r, xreg(n)));
+    }
+    else
+    {
+        emit32le(ld_off(r, HW_FRAME, int(n) * int(ptr_size())));
+    }
+}
+
+
+void riscv64::store_local(uint r, byte n)
+// ----------------------------------------------------------------------------
+//   Store hardware register r into bytecode local n
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "store_local(%u, %u)", r, n);
+    if (n < LOC_SHADOW_COUNT)
+    {
+        if (r != xreg(n))
+            emit32le(mv_rr(xreg(n), r));
+        emit32le(sd_off(xreg(n), HW_FRAME, int(n) * int(ptr_size())));
+        touch_local(n);
+    }
+    else
+    {
+        emit32le(sd_off(r, HW_FRAME, int(n) * int(ptr_size())));
+    }
+}
 
 
 riscv64::riscv64()
@@ -59,6 +97,7 @@ cstring riscv64::machine_defs() const
     return "__riscv\0__riscv_xlen 64\0";
 }
 
+
 uint riscv64::nb_regs() const
 // ----------------------------------------------------------------------------
 //   Return number of bytecode registers
@@ -67,6 +106,8 @@ uint riscv64::nb_regs() const
     record(riscv64, "nb_regs()");
     return 19;
 }
+
+
 uint riscv64::ptr_size() const
 // ----------------------------------------------------------------------------
 //   Return pointer size in bytes
@@ -76,6 +117,7 @@ uint riscv64::ptr_size() const
     return 8;
 }
 
+
 uint riscv64::reg_iret() const
 // ----------------------------------------------------------------------------
 //   Return integer return-value register index
@@ -84,6 +126,7 @@ uint riscv64::reg_iret() const
     record(riscv64, "reg_iret()");
     return 0;
 }
+
 
 void riscv64::emit32le(uint32_t insn)
 // ----------------------------------------------------------------------------
@@ -95,16 +138,134 @@ void riscv64::emit32le(uint32_t insn)
 }
 
 
+void riscv64::load_imm64(uint r, uint64_t v)
+// ----------------------------------------------------------------------------
+//   Load a 64-bit constant into RISC-V register r
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "load_imm64(%u, %lld)", r, v);
+    int64_t sv = int64_t(v);
+    int32_t hi = int32_t((sv + 0x800) >> 12);
+    int32_t lo = int32_t(sv - (int64_t(hi) << 12));
+    emit32le(lui(r, uint32_t(hi) & 0xfffffu));
+    if (lo)
+        emit32le(addi(r, r, lo));
+}
+
+
+void riscv64::call_abs(void *fn)
+// ----------------------------------------------------------------------------
+//   Emit an absolute call to fn using t0 as scratch; save ra on stack
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "call_abs(%p)", fn);
+    emit32le(addi(2, 2, -16));
+    emit32le(sd_off(1, 2, 0));
+    load_imm64(HW_IP, uint64_t(fn));
+    emit32le(jalr_ra(HW_IP));
+    emit32le(ld_off(1, 2, 0));
+    emit32le(addi(2, 2, 16));
+}
+
+
+void riscv64::touch_local(byte d)
+// ----------------------------------------------------------------------------
+//   Note that bytecode local d was modified in a hardware register
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "touch_local(%u)", d);
+    if (d <= 1)
+        spill_arg_regs = true;
+}
+
+
+void riscv64::spill_frame(void)
+// ----------------------------------------------------------------------------
+//   Store live bytecode locals in x10-x25 into the runtime frame at s0
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "spill_frame()");
+    runtime *rt = xlr8_get_runtime();
+    if (!rt || !rt->frame)
+        return;
+
+    byte locals = byte(rt->frame[-1]);
+    if (!locals)
+        locals = byte(rt->CALL_CLOBBERED_REGS);
+    if (locals > 16)
+        locals = 16;
+
+    if (frame_memory_touched)
+    {
+        for (uint r = 0; r < locals; r++)
+            emit32le(ld_off(xreg(byte(r)), HW_FRAME, int(r) * int(ptr_size())));
+        frame_memory_touched = false;
+        return;
+    }
+
+    for (uint r = 0; r < locals; r++)
+    {
+        if (r <= 1 && !spill_arg_regs)
+            continue;
+        emit32le(sd_off(xreg(byte(r)), HW_FRAME, int(r) * int(ptr_size())));
+    }
+}
+
+
+void riscv64::reload_frame_reg()
+// ----------------------------------------------------------------------------
+//   Reload s0 from a0 after xlr8_enter or xlr8_leave
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "reload_frame_reg()");
+    emit32le(reload_frame());
+}
+
+
+void riscv64::reload_shadows(void)
+// ----------------------------------------------------------------------------
+//   Reload shadowed bytecode locals from the runtime frame after a syscall
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "reload_shadows()");
+    runtime *rt = xlr8_get_runtime();
+    if (!rt || !rt->frame)
+        return;
+
+    byte locals = byte(rt->frame[-1]);
+    if (!locals)
+        locals = byte(rt->CALL_CLOBBERED_REGS);
+    if (locals > LOC_SHADOW_COUNT)
+        locals = LOC_SHADOW_COUNT;
+
+    for (uint r = 0; r < locals; r++)
+        emit32le(ld_off(xreg(byte(r)), HW_FRAME, int(r) * int(ptr_size())));
+}
+
+
+void riscv64::reload_flags_reg()
+// ----------------------------------------------------------------------------
+//   Reload s1 from runtime flags after xlr8_leave
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "reload_flags_reg()");
+    rtcall("xlr8_get_flags");
+    emit32le(mv_rr(HW_FLAGS, 10));
+}
+
+
 uint riscv64::gjmp(uint t)
 // ----------------------------------------------------------------------------
-//   Emit jump with deferred fixup chain
+//   Emit jump with deferred fixup chain (placeholder holds previous head)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "gjmp(%u)", t);
     uint pos = uint(cursor());
-    emit32(t);
+    emit32le(j_imm(0));
+    gjmp_chain[pos] = t;
     return pos;
 }
+
 
 void riscv64::gsym_addr(uint t, uint a)
 // ----------------------------------------------------------------------------
@@ -116,16 +277,26 @@ void riscv64::gsym_addr(uint t, uint a)
     while (t)
     {
         uint n = t;
-        uint32_t next = 0;
-        if (n + 4 <= sec.size())
-        {
-            next = uint32_t(sec[n]) | (uint32_t(sec[n + 1]) << 8)
-                 | (uint32_t(sec[n + 2]) << 16) | (uint32_t(sec[n + 3]) << 24);
-        }
-        int32_t offset = (int32_t(a) - int32_t(n)) / 4;
+        uint next = 0;
+        auto it = gjmp_chain.find(n);
+        if (it != gjmp_chain.end())
+            next = it->second;
+        int32_t offset = int32_t(a) - int32_t(n);
+        record(riscv64, "gsym_addr patch site=%u next=%u offset=%d", n, next, offset);
         sec.patch32(n, j_imm(offset));
         t = next;
     }
+}
+
+
+void riscv64::begin_translation()
+// ----------------------------------------------------------------------------
+//   Reload shadow registers at JIT entry
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "begin_translation()");
+    frame_memory_touched = false;
+    reload_shadows();
 }
 
 
@@ -139,14 +310,35 @@ void riscv64::finish_translation()
 }
 
 
+void riscv64::patch_pc_rel(size_t auipc_at, uint rd, size_t target)
+// ----------------------------------------------------------------------------
+//   Patch auipc+addi pair at auipc_at to form address of target
+// ----------------------------------------------------------------------------
+{
+    int off = int(target) - int(auipc_at);
+    int hi = int((off + 0x800) >> 12);
+    int lo = off - (hi << 12);
+    code().patch32(auipc_at, auipc(rd, uint32_t(hi) & 0xfffffu));
+    code().patch32(auipc_at + 4, addi(rd, rd, lo));
+}
+
+
 void riscv64::mov_local(byte d, byte s)
 // ----------------------------------------------------------------------------
 //   Copy value between bytecode locals
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "mov_local(%u, %u)", d, s);
-    emit32le(mv_rr(xreg(d), xreg(s)));
+    if (d < LOC_SHADOW_COUNT && s < LOC_SHADOW_COUNT)
+    {
+        emit32le(mv_rr(xreg(d), xreg(s)));
+        emit32le(sd_off(xreg(d), HW_FRAME, int(d) * int(ptr_size())));
+    }
+    else
+        load_local(s, HW_SCR_VAL), store_local(HW_SCR_VAL, d);
+    touch_local(d);
 }
+
 
 void riscv64::swap_locals(byte d, byte s)
 // ----------------------------------------------------------------------------
@@ -154,19 +346,48 @@ void riscv64::swap_locals(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "swap_locals(%u, %u)", d, s);
-    emit32le(mv_rr(HW_SCR_VAL, xreg(s)));
-    emit32le(mv_rr(xreg(s), xreg(d)));
-    emit32le(mv_rr(xreg(d), HW_SCR_VAL));
+    load_local(s, HW_SCR_VAL);
+    load_local(d, HW_SCR_ADDR);
+    store_local(HW_SCR_VAL, d);
+    store_local(HW_SCR_ADDR, s);
 }
+
 
 void riscv64::store_imm(byte d, value_t v)
 // ----------------------------------------------------------------------------
-//   Store integer immediate into bytecode local
+//   Store signed integer immediate into bytecode local
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "store_imm(%u, %lld)", d, v);
-    emit32le(addi(xreg(d), 0, uint32_t(v & 0xfff)));
+    uint64_t imm = uint64_t(int64_t(int32_t(uint32_t(v))));
+    if (d < LOC_SHADOW_COUNT)
+        load_imm64(xreg(d), imm);
+    else
+        load_imm64(HW_SCR_VAL, imm),
+        store_local(HW_SCR_VAL, d);
+    if (d < LOC_SHADOW_COUNT)
+        emit32le(sd_off(xreg(d), HW_FRAME, int(d) * int(ptr_size())));
+    touch_local(d);
 }
+
+
+void riscv64::store_uimm(byte d, uvalue_t v)
+// ----------------------------------------------------------------------------
+//   Store unsigned integer immediate into bytecode local
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "store_uimm(%u, %llu)", d, v);
+    uint64_t imm = uint64_t(uint32_t(v));
+    if (d < LOC_SHADOW_COUNT)
+        load_imm64(xreg(d), imm);
+    else
+        load_imm64(HW_SCR_VAL, imm),
+        store_local(HW_SCR_VAL, d);
+    if (d < LOC_SHADOW_COUNT)
+        emit32le(sd_off(xreg(d), HW_FRAME, int(d) * int(ptr_size())));
+    touch_local(d);
+}
+
 
 void riscv64::store_float(byte d, float v)
 // ----------------------------------------------------------------------------
@@ -174,9 +395,21 @@ void riscv64::store_float(byte d, float v)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "store_float(%u, %g)", d, v);
-    uint32_t bits = 0; memcpy(&bits, &v, 4);
-    store_imm(d, value_t(bits));
+    uint32_t bits = 0;
+    memcpy(&bits, &v, 4);
+    if (d < LOC_SHADOW_COUNT)
+    {
+        load_imm64(xreg(d), uint64_t(bits));
+        emit32le(sd_off(xreg(d), HW_FRAME, int(d) * int(ptr_size())));
+    }
+    else
+    {
+        load_imm64(HW_SCR_VAL, uint64_t(bits));
+        store_local(HW_SCR_VAL, d);
+    }
+    touch_local(d);
 }
+
 
 void riscv64::store_double(byte d, double v)
 // ----------------------------------------------------------------------------
@@ -184,9 +417,13 @@ void riscv64::store_double(byte d, double v)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "store_double(%u, %g)", d, v);
-    uint64_t bits = 0; memcpy(&bits, &v, 8);
-    store_imm(d, value_t(bits));
+    uint64_t bits = 0;
+    memcpy(&bits, &v, 8);
+    load_imm64(xreg(d), bits);
+    emit32le(sd_off(xreg(d), HW_FRAME, int(d) * int(ptr_size())));
+    touch_local(d);
 }
+
 
 void riscv64::binop_local(byte d, byte s, cstring op)
 // ----------------------------------------------------------------------------
@@ -194,17 +431,80 @@ void riscv64::binop_local(byte d, byte s, cstring op)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "binop_local(%u, %u, %s)", d, s, op);
-    if (!strcmp(op, "add")) emit32le(add_rr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "sub")) emit32le(sub_rr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "mul")) emit32le(mul_rr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "and")) emit32le(and_rr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "or"))  emit32le(or_rr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "xor")) emit32le(xor_rr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "shl")) emit32le(sll_rr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "shr")) emit32le(srl_rr(xreg(d), xreg(d), xreg(s)));
-    else if (!strcmp(op, "ushr")) emit32le(sra_rr(xreg(d), xreg(d), xreg(s)));
-    else trap(op);
+    load_local(d, HW_SCR_ADDR);
+    load_local(s, HW_SCR_VAL);
+    uint rd = HW_SCR_ADDR;
+    uint rs = HW_SCR_VAL;
+
+    if (!strcmp(op, "add"))
+        emit32le(add_rr(rd, rd, rs));
+    else if (!strcmp(op, "sub"))
+        emit32le(sub_rr(rd, rd, rs));
+    else if (!strcmp(op, "mul") || !strcmp(op, "imul"))
+        emit32le(mul_rr(rd, rd, rs));
+    else if (!strcmp(op, "and"))
+        emit32le(and_rr(rd, rd, rs));
+    else if (!strcmp(op, "or"))
+        emit32le(or_rr(rd, rd, rs));
+    else if (!strcmp(op, "xor"))
+        emit32le(xor_rr(rd, rd, rs));
+    else if (!strcmp(op, "shl"))
+        emit32le(sll_rr(rd, rd, rs));
+    else if (!strcmp(op, "sar") || !strcmp(op, "shr"))
+        emit32le(sra_rr(rd, rd, rs));
+    else if (!strcmp(op, "ushr"))
+        emit32le(srl_rr(rd, rd, rs));
+    else if (!strcmp(op, "idiv"))
+        emit32le(div_rr(rd, rd, rs));
+    else if (!strcmp(op, "div"))
+        emit32le(divu_rr(rd, rd, rs));
+    else if (!strcmp(op, "idiv_mod"))
+    {
+        emit32le(div_rr(HW_SCR_OFF, rd, rs));
+        emit32le(rem_rr(rd, rd, rs));
+    }
+    else if (!strcmp(op, "div_mod"))
+    {
+        emit32le(divu_rr(HW_SCR_OFF, rd, rs));
+        emit32le(remu_rr(rd, rd, rs));
+    }
+    else if (!strcmp(op, "fadd") || !strcmp(op, "fsub")
+          || !strcmp(op, "fmul") || !strcmp(op, "fdiv"))
+    {
+        emit32le(fmv_w_x(0, rd));
+        emit32le(fmv_w_x(1, rs));
+        if (!strcmp(op, "fadd"))
+            emit32le(fadd_s(0, 0, 1));
+        else if (!strcmp(op, "fsub"))
+            emit32le(fsub_s(0, 0, 1));
+        else if (!strcmp(op, "fmul"))
+            emit32le(fmul_s(0, 0, 1));
+        else
+            emit32le(fdiv_s(0, 0, 1));
+        emit32le(fmv_x_w(rd, 0));
+    }
+    else if (!strcmp(op, "dadd") || !strcmp(op, "dsub")
+          || !strcmp(op, "dmul") || !strcmp(op, "ddiv"))
+    {
+        emit32le(fcvt_d_x(0, rd));
+        emit32le(fcvt_d_x(1, rs));
+        if (!strcmp(op, "dadd"))
+            emit32le(fadd_d(0, 0, 1));
+        else if (!strcmp(op, "dsub"))
+            emit32le(fsub_d(0, 0, 1));
+        else if (!strcmp(op, "dmul"))
+            emit32le(fmul_d(0, 0, 1));
+        else
+            emit32le(fdiv_d(0, 0, 1));
+        emit32le(fcvt_x_d(rd, 0));
+    }
+    else
+        trap(op);
+
+    store_local(rd, d);
+    touch_local(d);
 }
+
 
 void riscv64::binop_imm(byte d, value_t v, cstring op)
 // ----------------------------------------------------------------------------
@@ -212,10 +512,89 @@ void riscv64::binop_imm(byte d, value_t v, cstring op)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "binop_imm(%u, %lld, %s)", d, v, op);
-    if (!strcmp(op, "addi")) emit32le(addi(xreg(d), xreg(d), uint32_t(v & 0xfff)));
-    else if (!strcmp(op, "subi")) emit32le(subi(xreg(d), xreg(d), uint32_t(v & 0xfff)));
-    else trap(op);
+    load_local(d, HW_SCR_ADDR);
+    uint rd = HW_SCR_ADDR;
+
+    if (!strcmp(op, "add") || !strcmp(op, "addi"))
+    {
+        if (v >= -2048 && v < 2048)
+            emit32le(addi(rd, rd, int(v)));
+        else
+        {
+            load_imm64(HW_SCR_VAL, uint64_t(v));
+            emit32le(add_rr(rd, rd, HW_SCR_VAL));
+        }
+    }
+    else if (!strcmp(op, "sub") || !strcmp(op, "subi"))
+    {
+        if (v >= -2048 && v < 2048)
+            emit32le(addi(rd, rd, -int(v)));
+        else
+        {
+            load_imm64(HW_SCR_VAL, uint64_t(v));
+            emit32le(sub_rr(rd, rd, HW_SCR_VAL));
+        }
+    }
+    else if (!strcmp(op, "imul"))
+    {
+        load_imm64(HW_SCR_VAL, uint64_t(v));
+        emit32le(mul_rr(rd, rd, HW_SCR_VAL));
+    }
+    else if (!strcmp(op, "and"))
+    {
+        load_imm64(HW_SCR_VAL, uint64_t(v));
+        emit32le(and_rr(rd, rd, HW_SCR_VAL));
+    }
+    else if (!strcmp(op, "or"))
+    {
+        load_imm64(HW_SCR_VAL, uint64_t(v));
+        emit32le(or_rr(rd, rd, HW_SCR_VAL));
+    }
+    else if (!strcmp(op, "xor"))
+    {
+        load_imm64(HW_SCR_VAL, uint64_t(v));
+        emit32le(xor_rr(rd, rd, HW_SCR_VAL));
+    }
+    else if (!strcmp(op, "shl_imm") || !strcmp(op, "sar_imm")
+          || !strcmp(op, "shr_imm"))
+    {
+        load_imm64(HW_SCR_VAL, uint64_t(v));
+        if (!strcmp(op, "shl_imm"))
+            emit32le(sll_rr(rd, rd, HW_SCR_VAL));
+        else if (!strcmp(op, "sar_imm"))
+            emit32le(sra_rr(rd, rd, HW_SCR_VAL));
+        else
+            emit32le(srl_rr(rd, rd, HW_SCR_VAL));
+    }
+    else if (!strcmp(op, "idiv_imm"))
+    {
+        load_imm64(HW_SCR_VAL, uint64_t(v));
+        emit32le(div_rr(rd, rd, HW_SCR_VAL));
+    }
+    else if (!strcmp(op, "div_imm"))
+    {
+        load_imm64(HW_SCR_VAL, uint64_t(v));
+        emit32le(divu_rr(rd, rd, HW_SCR_VAL));
+    }
+    else if (!strcmp(op, "idiv_mod_imm"))
+    {
+        load_imm64(HW_SCR_VAL, uint64_t(v));
+        emit32le(div_rr(HW_SCR_OFF, rd, HW_SCR_VAL));
+        emit32le(rem_rr(rd, rd, HW_SCR_VAL));
+    }
+    else if (!strcmp(op, "div_mod_imm"))
+    {
+        load_imm64(HW_SCR_VAL, uint64_t(v));
+        emit32le(divu_rr(HW_SCR_OFF, rd, HW_SCR_VAL));
+        emit32le(remu_rr(rd, rd, HW_SCR_VAL));
+    }
+    else
+        trap(op);
+
+    store_local(rd, d);
+    touch_local(d);
 }
+
 
 void riscv64::set_pred(byte p, bool on)
 // ----------------------------------------------------------------------------
@@ -223,8 +602,73 @@ void riscv64::set_pred(byte p, bool on)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "set_pred(%u, %d)", p, on);
-    (void)on; emit32le(addi(15, 0, 1u << p));
+    if (on)
+    {
+        load_imm64(HW_SCR_VAL, 1ULL << p);
+        emit32le(or_rr(HW_FLAGS, HW_FLAGS, HW_SCR_VAL));
+    }
+    else
+    {
+        load_imm64(HW_SCR_VAL, ~(1ULL << p));
+        emit32le(and_rr(HW_FLAGS, HW_FLAGS, HW_SCR_VAL));
+    }
 }
+
+
+void riscv64::set_pred_cmp(byte p, byte cond)
+// ----------------------------------------------------------------------------
+//   Set predicate bit p according to comparison of HW_SCR_ADDR vs HW_SCR_VAL
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "set_pred_cmp(%u, %u)", p, cond);
+    load_imm64(HW_SCR_OFF, ~(1ULL << p));
+    emit32le(and_rr(HW_FLAGS, HW_FLAGS, HW_SCR_OFF));
+
+    uint res = HW_SCR_OFF;
+    switch (cond)
+    {
+    case 0: // EQ
+        emit32le(sub_rr(res, HW_SCR_ADDR, HW_SCR_VAL));
+        emit32le(sltiu(res, res, 1));
+        break;
+    case 1: // NE
+        emit32le(sub_rr(res, HW_SCR_ADDR, HW_SCR_VAL));
+        emit32le(sltu_rr(res, 0, res));
+        break;
+    case 11: // LT signed
+        emit32le(slt_rr(res, HW_SCR_ADDR, HW_SCR_VAL));
+        break;
+    case 12: // GT signed
+        emit32le(slt_rr(res, HW_SCR_VAL, HW_SCR_ADDR));
+        break;
+    case 13: // LE signed
+        emit32le(slt_rr(res, HW_SCR_VAL, HW_SCR_ADDR));
+        emit32le(xori(res, res, 1));
+        break;
+    case 10: // GE signed
+        emit32le(slt_rr(res, HW_SCR_ADDR, HW_SCR_VAL));
+        emit32le(xori(res, res, 1));
+        break;
+    case 3: // LTU
+        emit32le(sltu_rr(res, HW_SCR_ADDR, HW_SCR_VAL));
+        break;
+    case 9: // LEU
+        emit32le(sltu_rr(res, HW_SCR_VAL, HW_SCR_ADDR));
+        emit32le(xori(res, res, 1));
+        break;
+    default:
+        emit32le(mv_rr(res, 0));
+        break;
+    }
+
+    size_t skip_pos = cursor();
+    emit32le(beq_imm(res, 0, 0));
+    load_imm64(HW_SCR_ADDR, 1ULL << p);
+    emit32le(or_rr(HW_FLAGS, HW_FLAGS, HW_SCR_ADDR));
+    int off = int((cursor() - skip_pos));
+    code().patch32(skip_pos, beq_imm(res, 0, off));
+}
+
 
 void riscv64::cmp_local(byte p, byte d, byte s, cstring op)
 // ----------------------------------------------------------------------------
@@ -232,28 +676,33 @@ void riscv64::cmp_local(byte p, byte d, byte s, cstring op)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "cmp_local(%u, %u, %u, %s)", p, d, s, op);
-    emit32le(sub_rr(31, xreg(d), xreg(s)));
-    set_pred(p, !strcmp(op, "cmpeq"));
-    (void) op;
+    load_local(d, HW_SCR_ADDR);
+    load_local(s, HW_SCR_VAL);
+    set_pred_cmp(p, cond_from_op(op));
 }
+
+
 void riscv64::cmp_imm(byte p, byte d, value_t v, cstring op)
 // ----------------------------------------------------------------------------
 //   Compare local with signed immediate and set predicate
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "cmp_imm(%u, %u, %lld, %s)", p, d, v, op);
-    emit32le(slti(31, xreg(d), uint32_t(v)));
-    set_pred(p, !strcmp(op, "cmpeqi"));
-    (void) op;
+    load_local(d, HW_SCR_ADDR);
+    load_imm64(HW_SCR_VAL, uint64_t(int64_t(int32_t(uint32_t(v)))));
+    set_pred_cmp(p, cond_from_op(op));
 }
+
+
 void riscv64::cmp_uimm(byte p, byte d, uvalue_t v, cstring op)
 // ----------------------------------------------------------------------------
 //   Compare local with unsigned immediate and set predicate
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "cmp_uimm(%u, %u, %llu, %s)", p, d, v, op);
-    cmp_imm(p,d,value_t(v),op);
+    cmp_imm(p, d, value_t(v), op);
 }
+
 
 void riscv64::cond_mov_local(byte p, byte d, byte s)
 // ----------------------------------------------------------------------------
@@ -261,8 +710,10 @@ void riscv64::cond_mov_local(byte p, byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "cond_mov_local(%u, %u, %u)", p, d, s);
-    (void)p; mov_local(d,s);
+    (void)p;
+    mov_local(d, s);
 }
+
 
 void riscv64::select_local(byte p, byte d, byte s, byte x)
 // ----------------------------------------------------------------------------
@@ -270,8 +721,11 @@ void riscv64::select_local(byte p, byte d, byte s, byte x)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "select_local(%u, %u, %u, %u)", p, d, s, x);
-    (void)p; mov_local(d,s); (void)x;
+    (void)p;
+    mov_local(d, s);
+    (void)x;
 }
+
 
 void riscv64::neg_local(byte d)
 // ----------------------------------------------------------------------------
@@ -279,8 +733,17 @@ void riscv64::neg_local(byte d)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "neg_local(%u)", d);
-    emit32le(neg_rr(xreg(d)));
+    if (d < LOC_SHADOW_COUNT)
+        emit32le(neg_rr(xreg(d)));
+    else
+    {
+        load_local(d, HW_SCR_VAL);
+        emit32le(neg_rr(HW_SCR_VAL));
+        store_local(HW_SCR_VAL, d);
+    }
+    touch_local(d);
 }
+
 
 void riscv64::not_local(byte d)
 // ----------------------------------------------------------------------------
@@ -288,8 +751,17 @@ void riscv64::not_local(byte d)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "not_local(%u)", d);
-    emit32le(not_rr(xreg(d)));
+    if (d < LOC_SHADOW_COUNT)
+        emit32le(not_rr(xreg(d)));
+    else
+    {
+        load_local(d, HW_SCR_VAL);
+        emit32le(not_rr(HW_SCR_VAL));
+        store_local(HW_SCR_VAL, d);
+    }
+    touch_local(d);
 }
+
 
 void riscv64::incr_local(byte d)
 // ----------------------------------------------------------------------------
@@ -297,8 +769,12 @@ void riscv64::incr_local(byte d)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "incr_local(%u)", d);
-    emit32le(addi(xreg(d), xreg(d), 1));
+    load_local(d, HW_SCR_VAL);
+    emit32le(addi(HW_SCR_VAL, HW_SCR_VAL, 1));
+    store_local(HW_SCR_VAL, d);
+    touch_local(d);
 }
+
 
 void riscv64::decr_local(byte d)
 // ----------------------------------------------------------------------------
@@ -306,8 +782,12 @@ void riscv64::decr_local(byte d)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "decr_local(%u)", d);
-    emit32le(subi(xreg(d), xreg(d), 1));
+    load_local(d, HW_SCR_VAL);
+    emit32le(addi(HW_SCR_VAL, HW_SCR_VAL, -1));
+    store_local(HW_SCR_VAL, d);
+    touch_local(d);
 }
+
 
 void riscv64::sext_local(byte d, byte w)
 // ----------------------------------------------------------------------------
@@ -315,8 +795,17 @@ void riscv64::sext_local(byte d, byte w)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "sext_local(%u, %u)", d, w);
-    (void)w; emit32le(slli(xreg(d), xreg(d), 0));
+    load_local(d, HW_SCR_ADDR);
+    if (w < 64)
+    {
+        uint sh = 64 - w;
+        emit32le(slli(HW_SCR_ADDR, HW_SCR_ADDR, sh));
+        emit32le(srai(HW_SCR_ADDR, HW_SCR_ADDR, sh));
+    }
+    store_local(HW_SCR_ADDR, d);
+    touch_local(d);
 }
+
 
 void riscv64::zext_local(byte d, byte w)
 // ----------------------------------------------------------------------------
@@ -324,17 +813,55 @@ void riscv64::zext_local(byte d, byte w)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "zext_local(%u, %u)", d, w);
-    (void)w; emit32le(srli(xreg(d), xreg(d), 0));
+    load_local(d, HW_SCR_ADDR);
+    if (w < 64)
+    {
+        load_imm64(HW_SCR_OFF, (1ull << w) - 1ull);
+        emit32le(and_rr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_OFF));
+    }
+    store_local(HW_SCR_ADDR, d);
+    touch_local(d);
 }
+
+
+void riscv64::frame_addr(byte d, byte s)
+// ----------------------------------------------------------------------------
+//   Compute frame-relative address of local slot s into local d
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "frame_addr(%u, %u)", d, s);
+    if (s == 0)
+        emit32le(mv_rr(HW_SCR_ADDR, HW_FRAME));
+    else if (uint(s) * 8 <= 2047)
+        emit32le(addi(HW_SCR_ADDR, HW_FRAME, int(s) * int(ptr_size())));
+    else
+    {
+        load_imm64(HW_SCR_VAL, uint64_t(s) * 8);
+        emit32le(add_rr(HW_SCR_ADDR, HW_FRAME, HW_SCR_VAL));
+    }
+    store_local(HW_SCR_ADDR, d);
+    touch_local(d);
+}
+
 
 void riscv64::store_mem(byte d, byte s, uint sz)
 // ----------------------------------------------------------------------------
-//   Store local d at address in local s
+//   Store value from local s at address in local d
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "store_mem(%u, %u, %u)", d, s, sz);
-    (void)sz; emit32le(sw(xreg(d), xreg(s)));
+    load_local(s, HW_SCR_VAL);
+    load_local(d, HW_SCR_ADDR);
+    switch (sz)
+    {
+    case 1: emit32le(sb_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+    case 2: emit32le(sh_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+    case 4: emit32le(sw_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+    default: emit32le(sd_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+    }
+    frame_memory_touched = true;
 }
+
 
 void riscv64::load_mem(byte d, byte s, uint sz)
 // ----------------------------------------------------------------------------
@@ -342,17 +869,56 @@ void riscv64::load_mem(byte d, byte s, uint sz)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "load_mem(%u, %u, %u)", d, s, sz);
-    (void)sz; emit32le(lw(xreg(d), xreg(s)));
+    load_local(s, HW_SCR_ADDR);
+    if (d < LOC_SHADOW_COUNT)
+    {
+        switch (sz)
+        {
+        case 1: emit32le(lb_idx(xreg(d), HW_SCR_ADDR)); break;
+        case 2: emit32le(lh_idx(xreg(d), HW_SCR_ADDR)); break;
+        case 4: emit32le(lw_idx(xreg(d), HW_SCR_ADDR)); break;
+        default: emit32le(ld_idx(xreg(d), HW_SCR_ADDR)); break;
+        }
+        emit32le(sd_off(xreg(d), HW_FRAME, int(d) * int(ptr_size())));
+    }
+    else
+    {
+        switch (sz)
+        {
+        case 1: emit32le(lb_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        case 2: emit32le(lh_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        case 4: emit32le(lw_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        default: emit32le(ld_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        }
+        store_local(HW_SCR_VAL, d);
+    }
+    touch_local(d);
 }
+
 
 void riscv64::store_mem_off(byte d, byte s, value_t o, uint sz)
 // ----------------------------------------------------------------------------
-//   Store local d at address s plus offset
+//   Store value from local s at address in local d plus offset
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "store_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
-    (void)o; store_mem(d,s,sz);
+    load_local(d, HW_SCR_ADDR);
+    if (o)
+    {
+        load_imm64(HW_SCR_OFF, uint64_t(o));
+        emit32le(add_rr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_OFF));
+    }
+    load_local(s, HW_SCR_VAL);
+    switch (sz)
+    {
+    case 1: emit32le(sb_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+    case 2: emit32le(sh_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+    case 4: emit32le(sw_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+    default: emit32le(sd_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+    }
+    frame_memory_touched = true;
 }
+
 
 void riscv64::load_mem_off(byte d, byte s, value_t o, uint sz)
 // ----------------------------------------------------------------------------
@@ -360,8 +926,37 @@ void riscv64::load_mem_off(byte d, byte s, value_t o, uint sz)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "load_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
-    (void)o; load_mem(d,s,sz);
+    load_local(s, HW_SCR_ADDR);
+    if (o)
+    {
+        load_imm64(HW_SCR_OFF, uint64_t(o));
+        emit32le(add_rr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_OFF));
+    }
+    if (d < LOC_SHADOW_COUNT)
+    {
+        switch (sz)
+        {
+        case 1: emit32le(lb_idx(xreg(d), HW_SCR_ADDR)); break;
+        case 2: emit32le(lh_idx(xreg(d), HW_SCR_ADDR)); break;
+        case 4: emit32le(lw_idx(xreg(d), HW_SCR_ADDR)); break;
+        default: emit32le(ld_idx(xreg(d), HW_SCR_ADDR)); break;
+        }
+        emit32le(sd_off(xreg(d), HW_FRAME, int(d) * int(ptr_size())));
+    }
+    else
+    {
+        switch (sz)
+        {
+        case 1: emit32le(lb_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        case 2: emit32le(lh_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        case 4: emit32le(lw_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        default: emit32le(ld_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        }
+        store_local(HW_SCR_VAL, d);
+    }
+    touch_local(d);
 }
+
 
 void riscv64::load_signext(byte d, byte s, byte w)
 // ----------------------------------------------------------------------------
@@ -369,8 +964,10 @@ void riscv64::load_signext(byte d, byte s, byte w)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "load_signext(%u, %u, %u)", d, s, w);
-    load_mem(d,s,(w+7)/8); sext_local(d,w);
+    load_mem(d, s, (w + 7) / 8);
+    sext_local(d, w);
 }
+
 
 void riscv64::load_signext_off(byte d, byte s, byte w, value_t o)
 // ----------------------------------------------------------------------------
@@ -378,17 +975,10 @@ void riscv64::load_signext_off(byte d, byte s, byte w, value_t o)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "load_signext_off(%u, %u, %u, %lld)", d, s, w, o);
-    load_mem_off(d,s,o,(w+7)/8); sext_local(d,w);
+    load_mem_off(d, s, o, (w + 7) / 8);
+    sext_local(d, w);
 }
 
-void riscv64::frame_addr(byte d, byte s)
-// ----------------------------------------------------------------------------
-//   Compute frame-relative address into local d
-// ----------------------------------------------------------------------------
-{
-    record(riscv64, "frame_addr(%u, %u)", d, s);
-    emit32le(addi(xreg(d), xreg(s), 0));
-}
 
 void riscv64::bra_offset(broff_t b)
 // ----------------------------------------------------------------------------
@@ -396,17 +986,36 @@ void riscv64::bra_offset(broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "bra_offset(%lld)", b);
-    uint pos = gjmp(0); record_branch(b, pos);
+    uint pos = uint(cursor());
+    emit32le(j_imm(0));
+    record_branch(b, pos);
 }
 
-void riscv64::bra_pred(byte p, broff_t b, bool sense)
+
+void riscv64::patch_branch_site(size_t insn_pos, size_t target_native)
 // ----------------------------------------------------------------------------
-//   Emit branch on predicate p with given sense
+//   Patch a recorded branch instruction to jump to target_native
 // ----------------------------------------------------------------------------
 {
-    record(riscv64, "bra_pred(%u, %lld, %d)", p, b, sense);
-    (void)p;(void)sense; bra_offset(b);
+    record(riscv64, "patch_branch_site(%zu, %zu)", insn_pos, target_native);
+    int32_t off = int32_t(target_native) - int32_t(insn_pos);
+    uint32_t insn = uint32_t(code().data[insn_pos])
+                  | (uint32_t(code().data[insn_pos + 1]) << 8)
+                  | (uint32_t(code().data[insn_pos + 2]) << 16)
+                  | (uint32_t(code().data[insn_pos + 3]) << 24);
+    uint opcode = insn & 0x7fu;
+    if (opcode == 0x6fu)
+        insn = j_imm(off);
+    else if (opcode == 0x63u)
+    {
+        uint rs1 = (insn >> 15) & 0x1fu;
+        uint rs2 = (insn >> 20) & 0x1fu;
+        uint f3 = (insn >> 12) & 0x7u;
+        insn = enc_b_imm(off, rs1, rs2, f3);
+    }
+    code().patch32(insn_pos, insn);
 }
+
 
 void riscv64::bra_zero(byte s, broff_t b, bool eq)
 // ----------------------------------------------------------------------------
@@ -414,17 +1023,52 @@ void riscv64::bra_zero(byte s, broff_t b, bool eq)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "bra_zero(%u, %lld, %d)", s, b, eq);
-    (void)s;(void)eq; bra_offset(b);
+    load_local(s, HW_SCR_VAL);
+    uint pos = uint(cursor());
+    if (eq)
+        emit32le(beq_imm(HW_SCR_VAL, 0, 0));
+    else
+        emit32le(bne_imm(HW_SCR_VAL, 0, 0));
+    record_branch(b, pos);
 }
 
-void riscv64::bra_signed(byte s, broff_t b)
+
+void riscv64::bra_pred(byte p, broff_t b, bool sense)
 // ----------------------------------------------------------------------------
-//   Emit signed comparison branch on local s
+//   Emit branch on predicate p with given sense
 // ----------------------------------------------------------------------------
 {
-    record(riscv64, "bra_signed(%u, %lld)", s, b);
-    (void)s; bra_offset(b);
+    record(riscv64, "bra_pred(%u, %lld, %d)", p, b, sense);
+    load_imm64(HW_SCR_VAL, uint64_t(1) << p);
+    emit32le(and_rr(HW_SCR_VAL, HW_FLAGS, HW_SCR_VAL));
+    uint pos = uint(cursor());
+    if (sense)
+        emit32le(bne_imm(HW_SCR_VAL, 0, 0));
+    else
+        emit32le(beq_imm(HW_SCR_VAL, 0, 0));
+    record_branch(b, pos);
 }
+
+
+void riscv64::bra_signed(byte s, broff_t b, byte cond)
+// ----------------------------------------------------------------------------
+//   Emit signed comparison branch on local s vs zero
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "bra_signed(%u, %lld, %u)", s, b, cond);
+    load_local(s, HW_SCR_VAL);
+    uint pos = uint(cursor());
+    switch (cond)
+    {
+    case 0xb: emit32le(blt_imm(HW_SCR_VAL, 0, 0)); break;       // LT
+    case 0xc: emit32le(blt_imm(0, HW_SCR_VAL, 0)); break;       // GT
+    case 0xd: emit32le(bge_imm(0, HW_SCR_VAL, 0)); break;       // LE
+    case 0xa: emit32le(bge_imm(HW_SCR_VAL, 0, 0)); break;       // GE
+    default:  emit32le(beq_imm(0, 0, 0)); break;
+    }
+    record_branch(b, pos);
+}
+
 
 void riscv64::dbra_local(byte d, broff_t b)
 // ----------------------------------------------------------------------------
@@ -432,8 +1076,10 @@ void riscv64::dbra_local(byte d, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "dbra_local(%u, %lld)", d, b);
-    decr_local(d); bra_zero(d,b,false);
+    decr_local(d);
+    bra_zero(d, b, false);
 }
+
 
 void riscv64::jmp_tok(tok_t t)
 // ----------------------------------------------------------------------------
@@ -446,34 +1092,149 @@ void riscv64::jmp_tok(tok_t t)
     record_tok_jump(t, pos);
 }
 
+
+void riscv64::patch_imm64_at(void *mem, size_t at, uint r, uint64_t v)
+// ----------------------------------------------------------------------------
+//   Rewrite a 16-byte load_imm64 slot at a fixed code offset
+// ----------------------------------------------------------------------------
+{
+    auto patch32 = [&](size_t off, uint32_t insn)
+    {
+        code().patch32(off, insn);
+        if (mem)
+            memcpy((void *) ((byte_p) mem + off), &insn, sizeof(insn));
+    };
+    int64_t sv = int64_t(v);
+    int32_t hi = int32_t((sv + 0x800) >> 12);
+    int32_t lo = int32_t(sv - (int64_t(hi) << 12));
+    patch32(at, lui(r, uint32_t(hi) & 0xfffffu));
+    at += 4;
+    if (lo)
+        patch32(at, addi(r, r, lo));
+    else
+        patch32(at, nop_insn());
+    at += 4;
+    patch32(at, nop_insn());
+    at += 4;
+    patch32(at, nop_insn());
+}
+
+
+void riscv64::relocate(void *base)
+// ----------------------------------------------------------------------------
+//   Fix PC-relative addresses embedded in generated code after mmap
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "relocate(%p)", base);
+    section &sec = code();
+    for (abs_fixup &fx : abs_fixups)
+    {
+        auto it = bc_positions.find(fx.offset);
+        if (it == bc_positions.end())
+        {
+            auto next = bc_positions.lower_bound(fx.offset);
+            if (next == bc_positions.end())
+                continue;
+            it = next;
+        }
+        int off = int(it->second) - int(fx.imm_at);
+        int hi = int((off + 0x800) >> 12);
+        int lo = off - (hi << 12);
+        uint rd = sec[fx.imm_at] >> 7 & 0x1fu;
+        sec.patch32(fx.imm_at, auipc(rd, uint32_t(hi) & 0xfffffu));
+        sec.patch32(fx.imm_at + 4, addi(rd, rd, lo));
+        if (base)
+        {
+            uint32_t patched = auipc(rd, uint32_t(hi) & 0xfffffu);
+            memcpy((void *) ((byte_p) base + fx.imm_at), &patched, sizeof(patched));
+            patched = addi(rd, rd, lo);
+            memcpy((void *) ((byte_p) base + fx.imm_at + 4), &patched, sizeof(patched));
+        }
+    }
+}
+
+
+size_t riscv64::emit_over_callees_branch()
+// ----------------------------------------------------------------------------
+//   Emit a forward branch over callee bodies to the epilogue
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "emit_over_callees_branch()");
+    size_t pos = cursor();
+    emit32le(j_imm(0));
+    return pos;
+}
+
+
 void riscv64::call_tok(tok_t t)
 // ----------------------------------------------------------------------------
 //   Emit call to token-resolved label
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "call_tok(%llu)", t);
+    spill_frame();
+    size_t auipc_at = cursor();
+    emit32le(nop_insn());
+    emit32le(nop_insn());
+    emit32le(mv_rr(10, HW_SCR_VAL));
+    rtcall("xlr8_push_value");
+    rtcall("xlr8_sync_args");
+    reload_shadows();
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
     uint pos = gjmp(head);
     record_tok_jump(t, pos);
+    patch_pc_rel(auipc_at, HW_SCR_VAL, pos + 4);
 }
+
+
+void riscv64::br_via_ip()
+// ----------------------------------------------------------------------------
+//   Branch to address in a0 without leaving a stale shadow in a0
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "br_via_ip()");
+    emit32le(mv_rr(HW_IP, 10));
+    reload_shadows();
+    emit32le(jalr(HW_IP));
+}
+
 
 void riscv64::ijmp_local(byte s)
 // ----------------------------------------------------------------------------
-//   Indirect jump through local s
+//   Indirect jump through local s (bytecode PC -> native)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "ijmp_local(%u)", s);
-    emit32le(jalr(xreg(s)));
+    spill_frame();
+    load_local(s, 10);
+    rtcall("xlr8_jit_addr");
+    br_via_ip();
 }
+
 
 void riscv64::icall_local(byte s)
 // ----------------------------------------------------------------------------
-//   Indirect call through local s
+//   Indirect call through local s (bytecode PC -> native)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "icall_local(%u)", s);
-    ijmp_local(s);
+    spill_frame();
+    size_t auipc_at = cursor();
+    emit32le(nop_insn());
+    emit32le(nop_insn());
+    emit32le(mv_rr(10, HW_SCR_VAL));
+    rtcall("xlr8_push_value");
+    rtcall("xlr8_sync_args");
+    reload_shadows();
+    load_local(s, 10);
+    rtcall("xlr8_jit_addr");
+    emit32le(mv_rr(HW_IP, 10));
+    reload_shadows();
+    size_t jalr_at = cursor();
+    emit32le(jalr_ra(HW_IP));
+    patch_pc_rel(auipc_at, HW_SCR_VAL, jalr_at + 4);
 }
+
 
 void riscv64::push_pc()
 // ----------------------------------------------------------------------------
@@ -481,8 +1242,16 @@ void riscv64::push_pc()
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "push_pc()");
-    emit32le(0x00011023u);
+    spill_frame();
+    size_t auipc_at = cursor();
+    emit32le(auipc(10, 0));
+    emit32le(addi(10, 10, 0));
+    rtcall("xlr8_push_value");
+    reload_shadows();
+    spill_arg_regs = true;
+    (void) auipc_at;
 }
+
 
 void riscv64::load_pc(byte d)
 // ----------------------------------------------------------------------------
@@ -490,17 +1259,32 @@ void riscv64::load_pc(byte d)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "load_pc(%u)", d);
-    store_imm(d, value_t(cursor()));
+    uint r = d < LOC_SHADOW_COUNT ? xreg(d) : HW_SCR_VAL;
+    emit32le(auipc(r, 0));
+    if (d >= LOC_SHADOW_COUNT)
+        store_local(r, d);
+    else
+        emit32le(sd_off(xreg(d), HW_FRAME, int(d) * int(ptr_size())));
+    touch_local(d);
 }
+
 
 void riscv64::load_pca(byte d, broff_t b)
 // ----------------------------------------------------------------------------
-//   Load PC plus offset into local d
+//   Load bytecode PC plus offset into local d (interpreter semantics)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "load_pca(%u, %lld)", d, b);
-    store_imm(d, value_t(cursor() + size_t(b)));
+    (void) b;
+    uint r = d < LOC_SHADOW_COUNT ? xreg(d) : HW_SCR_VAL;
+    load_imm64(r, uint64_t(pending_branch_target));
+    if (d >= LOC_SHADOW_COUNT)
+        store_local(r, d);
+    else
+        emit32le(sd_off(xreg(d), HW_FRAME, int(d) * int(ptr_size())));
+    touch_local(d);
 }
+
 
 void riscv64::get_arg(byte d, byte s)
 // ----------------------------------------------------------------------------
@@ -508,17 +1292,28 @@ void riscv64::get_arg(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "get_arg(%u, %u)", d, s);
-    mov_local(d,s);
+    spill_frame();
+    load_imm64(10, uint64_t(d));
+    load_imm64(11, uint64_t(s));
+    rtcall("xlr8_get_arg");
+    reload_shadows();
+    touch_local(d);
 }
+
 
 void riscv64::set_arg(byte d, byte s)
 // ----------------------------------------------------------------------------
-//   Copy local d into argument slot s
+//   Copy local s into argument slot d
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "set_arg(%u, %u)", d, s);
-    mov_local(s,d);
+    spill_frame();
+    load_imm64(10, uint64_t(d));
+    load_imm64(11, uint64_t(s));
+    rtcall("xlr8_set_arg");
+    frame_memory_touched = true;
 }
+
 
 void riscv64::push_local(byte s)
 // ----------------------------------------------------------------------------
@@ -526,8 +1321,16 @@ void riscv64::push_local(byte s)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "push_local(%u)", s);
-    emit32le(0x00012023u | (xreg(s) << 20));
+    spill_frame();
+    if (s < LOC_SHADOW_COUNT)
+        emit32le(mv_rr(10, xreg(s)));
+    else
+        emit32le(ld_off(10, HW_FRAME, int(s) * int(ptr_size())));
+    rtcall("xlr8_push_value");
+    reload_shadows();
+    spill_arg_regs = true;
 }
+
 
 void riscv64::pop_local(byte d)
 // ----------------------------------------------------------------------------
@@ -535,8 +1338,13 @@ void riscv64::pop_local(byte d)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "pop_local(%u)", d);
-    emit32le(0x00013003u | (xreg(d) << 7));
+    rtcall("xlr8_pop_value");
+    emit32le(mv_rr(HW_SCR_VAL, 10));
+    if (d != 0)
+        emit32le(ld_off(xreg(0), HW_FRAME, 0));
+    store_local(HW_SCR_VAL, d);
 }
+
 
 void riscv64::push_flags()
 // ----------------------------------------------------------------------------
@@ -544,8 +1352,11 @@ void riscv64::push_flags()
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "push_flags()");
-    emit32le(0x00012023u | (15u << 20));
+    emit32le(mv_rr(10, HW_FLAGS));
+    rtcall("xlr8_push_flags_val");
+    spill_arg_regs = true;
 }
+
 
 void riscv64::pop_flags()
 // ----------------------------------------------------------------------------
@@ -553,8 +1364,10 @@ void riscv64::pop_flags()
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "pop_flags()");
-    emit32le(0x00013003u | (15u << 7));
+    rtcall("xlr8_pop_flags_val");
+    emit32le(mv_rr(HW_FLAGS, 10));
 }
+
 
 void riscv64::store_global(byte d, byte s)
 // ----------------------------------------------------------------------------
@@ -562,8 +1375,13 @@ void riscv64::store_global(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "store_global(%u, %u)", d, s);
-    mov_local(d,s);
+    spill_frame();
+    load_imm64(10, uint64_t(d));
+    load_imm64(11, uint64_t(s));
+    rtcall("xlr8_store_global");
+    reload_shadows();
 }
+
 
 void riscv64::load_global(byte d, byte s)
 // ----------------------------------------------------------------------------
@@ -571,8 +1389,14 @@ void riscv64::load_global(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "load_global(%u, %u)", d, s);
-    mov_local(d,s);
+    spill_frame();
+    load_imm64(10, uint64_t(d));
+    load_imm64(11, uint64_t(s));
+    rtcall("xlr8_load_global");
+    reload_shadows();
+    touch_local(d);
 }
+
 
 void riscv64::do_ret()
 // ----------------------------------------------------------------------------
@@ -583,14 +1407,17 @@ void riscv64::do_ret()
     emit32le(ret_insn());
 }
 
+
 void riscv64::trap(cstring msg)
 // ----------------------------------------------------------------------------
 //   Emit debug trap with message
 // ----------------------------------------------------------------------------
 {
     record(riscv64_warning, "trap(%s)", msg);
-    (void)msg; emit32le(ebreak_insn());
+    (void) msg;
+    emit32le(ebreak_insn());
 }
+
 
 void riscv64::rtcall(cstring fn)
 // ----------------------------------------------------------------------------
@@ -598,28 +1425,31 @@ void riscv64::rtcall(cstring fn)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "rtcall(%s)", fn);
-    (void)fn; trap(fn);
+    call_abs(xlr8_runtime_fn(fn));
 }
+
 
 void riscv64::rtcall(cstring fn, tok_t a)
 // ----------------------------------------------------------------------------
-//   Emit call to runtime helper function
+//   Emit call to runtime helper function with token argument in a0
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "rtcall(%s, %llu)", fn, a);
-    (void)fn;(void)a; trap(fn);
+    load_imm64(10, uint64_t(a));
+    call_abs(xlr8_runtime_fn(fn));
 }
+
 
 void riscv64::rtcall(cstring fn, byte a)
 // ----------------------------------------------------------------------------
-//   Emit call to runtime helper function
+//   Emit call to runtime helper function with byte argument in a0
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "rtcall(%s, %u)", fn, a);
-    (void)fn;(void)a; trap(fn);
+    load_imm64(10, uint64_t(a));
+    call_abs(xlr8_runtime_fn(fn));
 }
 
 
 
 #include "riscv64-emit.cpp"
-
