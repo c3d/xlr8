@@ -1311,11 +1311,7 @@ void x86::icall_local(byte s)
     g(0x89);
     g(0xc7);
     emit_runtime_call("xlr8_jit_addr");
-    size_t call_at = cursor();
-    g(0xff);
-    g(0xd0);
-    int off = int(call_at + 2) - int(adr_at + 7);
-    code().patch32(adr_at + 3, uint32_t(off));
+    br_via_ip();
 }
 
 
