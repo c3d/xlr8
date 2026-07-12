@@ -37,6 +37,20 @@ void x86::emit_null()
 }
 
 
+void x86::emit_user(op_t op, byte_p &pc)
+// ----------------------------------------------------------------------------
+//   Emit a user-defined opcode (128..255, or registered low opcodes)
+// ----------------------------------------------------------------------------
+{
+    record(x86_ops, "emit_user(%lld, %p)", op, &pc);
+    byte_p args = pc;
+    load_hw_imm(HW_RDI, uint64_t(op));
+    load_hw_imm(HW_RSI, uint64_t(uintptr_t(args)));
+    emit_runtime_call("xlr8_user_op");
+    xlr8_skip_user_args(op, pc);
+}
+
+
 void x86::emit_undef(tok_t t)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the undef opcode
@@ -292,6 +306,7 @@ void x86::emit_sys(tok_t t, byte_p args, byte_p next_pc)
     load_hw_imm(HW_RDI, uint64_t(t));
     load_hw_imm(HW_RSI, uint64_t(uintptr_t(args)));
     call_ptr((void *) xlr8_sys);
+    reload_frame_reg();
     load_hw_imm(HW_RDI, uint64_t(uintptr_t(next_pc)));
     call_ptr((void *) xlr8_after_sys);
     orex(1, HW_RAX, 0, 0x85);
@@ -1141,7 +1156,9 @@ void x86::emit_lds(byte d, byte s, byte w)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_lds(%u, %u, %u)", d, s, w);
-    load_signext(d, s, w);
+    if (d != s)
+        mov_local(d, s);
+    sext_local(d, w);
 }
 
 

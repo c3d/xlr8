@@ -90,6 +90,8 @@ struct x86 : backend
     size_t emit_over_callees_branch() override;
     void patch_branch_site(size_t insn_pos, size_t target_native) override;
 
+    void emit_user(op_t op, byte_p &pc) override;
+
     // All opcode emitters — implemented in x86-emit.cpp
 #define OP(op, sig) sig override;
 #include "opover.tbl"
