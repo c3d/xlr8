@@ -224,6 +224,9 @@ void x86::emit_enter(byte d)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_enter(%u)", d);
+    orex(1, HW_RDI, HW_FLAGS, 0x8b);
+    g(modrm_rr(HW_RDI, HW_FLAGS));
+    emit_runtime_call("xlr8_set_flags");
     emit_runtime_call("xlr8_enter", d);
 }
 

@@ -938,9 +938,14 @@ void x86::sext_local(byte d, byte w)
 {
     record(x86, "sext_local(%u, %u)", d, w);
     load_local(d, HW_RAX);
-    load_hw_imm(HW_RCX, 64 - w);
-    orex(1, HW_RCX, HW_RAX, 0xd3);
-    g(0xf8 | reg_value(HW_RAX));
+    if (w < 64)
+    {
+        load_hw_imm(HW_RCX, 64 - w);
+        orex(1, HW_RCX, HW_RAX, 0xd3);
+        g(0xe0 | reg_value(HW_RAX));
+        orex(1, HW_RCX, HW_RAX, 0xd3);
+        g(0xf8 | reg_value(HW_RAX));
+    }
     store_local(HW_RAX, d);
 }
 
