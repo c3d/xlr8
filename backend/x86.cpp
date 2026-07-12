@@ -353,7 +353,24 @@ else if (!strcmp(op, "idiv"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RDX, 0x99); g(0xf1);
+    g(0x48);
+    g(0x99);
+    g(0x48);
+    g(0xf7);
+    g(0xf9);
+}
+
+else if (!strcmp(op, "udiv"))
+// ----------------------------------------------------------------------------
+//   If
+// ----------------------------------------------------------------------------
+{
+    g(0x48);
+    g(0x31);
+    g(0xd2);
+    g(0x48);
+    g(0xf7);
+    g(0xf1);
 }
 
 else if (!strcmp(op, "div"))
@@ -361,7 +378,12 @@ else if (!strcmp(op, "div"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RDX, 0xf7); g(0xf0);
+    g(0x48);
+    g(0x31);
+    g(0xd2);
+    g(0x48);
+    g(0xf7);
+    g(0xf1);
 }
 
 else if (!strcmp(op, "fadd"))
@@ -369,7 +391,11 @@ else if (!strcmp(op, "fadd"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0xf3); g(0x0f); g(0x58); g(0xc0);
+    g(0xf3); g(0x0f); g(0x6e); g(0xc0);
+    load_local(s, HW_RCX);
+    g(0xf3); g(0x0f); g(0x6e); g(0xc9);
+    g(0xf3); g(0x0f); g(0x58); g(0xc1);
+    g(0xf3); g(0x0f); g(0x7e); g(0xc0);
 }
 
 else if (!strcmp(op, "fsub"))
@@ -377,7 +403,11 @@ else if (!strcmp(op, "fsub"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0xf3); g(0x0f); g(0x5c); g(0xc0);
+    g(0xf3); g(0x0f); g(0x6e); g(0xc0);
+    load_local(s, HW_RCX);
+    g(0xf3); g(0x0f); g(0x6e); g(0xc9);
+    g(0xf3); g(0x0f); g(0x5c); g(0xc1);
+    g(0xf3); g(0x0f); g(0x7e); g(0xc0);
 }
 
 else if (!strcmp(op, "fmul"))
@@ -385,7 +415,11 @@ else if (!strcmp(op, "fmul"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0xf3); g(0x0f); g(0x59); g(0xc0);
+    g(0xf3); g(0x0f); g(0x6e); g(0xc0);
+    load_local(s, HW_RCX);
+    g(0xf3); g(0x0f); g(0x6e); g(0xc9);
+    g(0xf3); g(0x0f); g(0x59); g(0xc1);
+    g(0xf3); g(0x0f); g(0x7e); g(0xc0);
 }
 
 else if (!strcmp(op, "fdiv"))
@@ -393,7 +427,11 @@ else if (!strcmp(op, "fdiv"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0xf3); g(0x0f); g(0x5e); g(0xc0);
+    g(0xf3); g(0x0f); g(0x6e); g(0xc0);
+    load_local(s, HW_RCX);
+    g(0xf3); g(0x0f); g(0x6e); g(0xc9);
+    g(0xf3); g(0x0f); g(0x5e); g(0xc1);
+    g(0xf3); g(0x0f); g(0x7e); g(0xc0);
 }
 
 else if (!strcmp(op, "dadd"))
@@ -401,7 +439,11 @@ else if (!strcmp(op, "dadd"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0xf2); g(0x0f); g(0x58); g(0xc0);
+    g(0x66); g(0x0f); g(0x6e); g(0xc0);
+    load_local(s, HW_RCX);
+    g(0x66); g(0x0f); g(0x6e); g(0xc9);
+    g(0xf2); g(0x0f); g(0x58); g(0xc1);
+    g(0x66); g(0x0f); g(0x7e); g(0xc0);
 }
 
 else if (!strcmp(op, "dsub"))
@@ -409,7 +451,11 @@ else if (!strcmp(op, "dsub"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0xf2); g(0x0f); g(0x5c); g(0xc0);
+    g(0x66); g(0x0f); g(0x6e); g(0xc0);
+    load_local(s, HW_RCX);
+    g(0x66); g(0x0f); g(0x6e); g(0xc9);
+    g(0xf2); g(0x0f); g(0x5c); g(0xc1);
+    g(0x66); g(0x0f); g(0x7e); g(0xc0);
 }
 
 else if (!strcmp(op, "dmul"))
@@ -417,7 +463,11 @@ else if (!strcmp(op, "dmul"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0xf2); g(0x0f); g(0x59); g(0xc0);
+    g(0x66); g(0x0f); g(0x6e); g(0xc0);
+    load_local(s, HW_RCX);
+    g(0x66); g(0x0f); g(0x6e); g(0xc9);
+    g(0xf2); g(0x0f); g(0x59); g(0xc1);
+    g(0x66); g(0x0f); g(0x7e); g(0xc0);
 }
 
 else if (!strcmp(op, "ddiv"))
@@ -425,7 +475,11 @@ else if (!strcmp(op, "ddiv"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0xf2); g(0x0f); g(0x5e); g(0xc0);
+    g(0x66); g(0x0f); g(0x6e); g(0xc0);
+    load_local(s, HW_RCX);
+    g(0x66); g(0x0f); g(0x6e); g(0xc9);
+    g(0xf2); g(0x0f); g(0x5e); g(0xc1);
+    g(0x66); g(0x0f); g(0x7e); g(0xc0);
 }
 
     store_local(HW_RAX, d);
