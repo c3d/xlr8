@@ -442,7 +442,7 @@ if (!strcmp(op, "add"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, 0, 0x05); emit32(uint32_t(v)); if (ptr_size()==8) emit32(uint32_t(uint64_t(v)>>32));
+    orex(1, HW_RAX, 0, 0x05); emit32(uint32_t(v));
 }
 
 else if (!strcmp(op, "sub"))
@@ -450,7 +450,7 @@ else if (!strcmp(op, "sub"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, 0, 0x2d); emit32(uint32_t(v)); if (ptr_size()==8) emit32(uint32_t(uint64_t(v)>>32));
+    orex(1, HW_RAX, 0, 0x2d); emit32(uint32_t(v));
 }
 
 else if (!strcmp(op, "imul"))
@@ -466,7 +466,7 @@ else if (!strcmp(op, "and"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, 0, 0x25); emit32(uint32_t(v)); if (ptr_size()==8) emit32(uint32_t(uint64_t(v)>>32));
+    orex(1, HW_RAX, 0, 0x25); emit32(uint32_t(v));
 }
 
 else if (!strcmp(op, "or"))
@@ -474,7 +474,7 @@ else if (!strcmp(op, "or"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, 0, 0x0d); emit32(uint32_t(v)); if (ptr_size()==8) emit32(uint32_t(uint64_t(v)>>32));
+    orex(1, HW_RAX, 0, 0x0d); emit32(uint32_t(v));
 }
 
 else if (!strcmp(op, "xor"))
@@ -482,7 +482,7 @@ else if (!strcmp(op, "xor"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, 0, 0x35); emit32(uint32_t(v)); if (ptr_size()==8) emit32(uint32_t(uint64_t(v)>>32));
+    orex(1, HW_RAX, 0, 0x35); emit32(uint32_t(v));
 }
 
 else if (!strcmp(op, "shl_imm"))
@@ -566,7 +566,6 @@ void x86::cmp_imm(byte p, byte d, value_t v, cstring rel)
     load_local(d, HW_RAX);
     orex(1, HW_RAX, 0, 0x3d);
     emit32(uint32_t(v));
-    if (ptr_size() == 8) emit32(uint32_t(uint64_t(v) >> 32));
     (void) rel;
     set_pred(p, true);
 }
@@ -927,7 +926,11 @@ void x86::call_tok(tok_t t)
     uint pos = gjmp(head);
     record_tok_jump(t, pos);
     int off = int(pos + 4) - int(adr_at + 7);
-    code().patch32(adr_at + 3, uint32_t(off));(byte s)
+    code().patch32(adr_at + 3, uint32_t(off));
+}
+
+
+void x86::ijmp_local(byte s)
 // ----------------------------------------------------------------------------
 //   Indirect jump through local s (bytecode PC -> native)
 // ----------------------------------------------------------------------------

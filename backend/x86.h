@@ -204,6 +204,7 @@ protected:
     void            load_global(byte d, byte s);
     void            reload_frame_reg();
     void            br_via_ip();
+    void            do_ret();
     void            call_ptr(void *fn);
     void            emit_trap(cstring msg);
     void            emit_runtime_call(cstring fn);
