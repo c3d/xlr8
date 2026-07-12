@@ -286,14 +286,26 @@ void arm::emit_sys(tok_t t, byte_p args, byte_p next_pc)
 // ----------------------------------------------------------------------------
 {
     record(arm_ops, "emit_sys(%llu, %p, %p)", t, args, next_pc);
-    (void) next_pc;
     spill_arg_regs = true;
     spill_frame();
     load_imm32(0, uint32_t(t));
     load_imm32(1, uint32_t(uintptr_t(args)));
     call_abs((void *) xlr8_sys);
     reload_shadows();
+    load_imm32(0, uint32_t(uintptr_t(next_pc)));
+    rtcall("xlr8_after_sys");
+    uint cbnz_at = uint(cursor());
+    emit32le(b_cond_imm(0x1, 0));
+    reload_shadows();
     spill_arg_regs = false;
+    uint skip_at = uint(cursor());
+    emit32le(b_imm(0));
+    uint br_at = uint(cursor());
+    emit32le(mov_rr(HW_IP, 0));
+    reload_shadows();
+    emit32le(bx_reg(HW_IP));
+    code().patch32(cbnz_at, b_cond_imm(0x1, int(br_at - cbnz_at - 8) / 4));
+    code().patch32(skip_at, b_imm(int(br_at + 4 - skip_at - 8) / 4));
 }
 
 
@@ -383,7 +395,7 @@ void arm::emit_blt(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(arm_ops, "emit_blt(%u, %lld)", s, b);
-    bra_signed(s, b);
+    bra_signed(s, b, 0xb);
 }
 
 
@@ -393,7 +405,7 @@ void arm::emit_bgt(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(arm_ops, "emit_bgt(%u, %lld)", s, b);
-    bra_signed(s, b);
+    bra_signed(s, b, 0xc);
 }
 
 
@@ -403,7 +415,7 @@ void arm::emit_ble(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(arm_ops, "emit_ble(%u, %lld)", s, b);
-    bra_signed(s, b);
+    bra_signed(s, b, 0xd);
 }
 
 
@@ -413,7 +425,7 @@ void arm::emit_bge(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(arm_ops, "emit_bge(%u, %lld)", s, b);
-    bra_signed(s, b);
+    bra_signed(s, b, 0xa);
 }
 
 

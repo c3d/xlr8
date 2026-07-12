@@ -376,6 +376,34 @@ void arm::binop_local(byte d, byte s, cstring op)
         emit32le(shift_rrr(rd, rd, rs, 2));
     else if (!strcmp(op, "ushr"))
         emit32le(shift_rrr(rd, rd, rs, 1));
+    else if (!strcmp(op, "fadd"))
+    {
+        emit32le(vmov_s_r(0, rd));
+        emit32le(vmov_s_r(1, rs));
+        emit32le(0xEE300A20u); // vadd.f32 s0, s0, s1
+        emit32le(vmov_r_s(rd, 0));
+    }
+    else if (!strcmp(op, "fsub"))
+    {
+        emit32le(vmov_s_r(0, rd));
+        emit32le(vmov_s_r(1, rs));
+        emit32le(0xEE300A60u); // vsub.f32 s0, s0, s1
+        emit32le(vmov_r_s(rd, 0));
+    }
+    else if (!strcmp(op, "fmul"))
+    {
+        emit32le(vmov_s_r(0, rd));
+        emit32le(vmov_s_r(1, rs));
+        emit32le(0xEE200A20u); // vmul.f32 s0, s0, s1
+        emit32le(vmov_r_s(rd, 0));
+    }
+    else if (!strcmp(op, "fdiv"))
+    {
+        emit32le(vmov_s_r(0, rd));
+        emit32le(vmov_s_r(1, rs));
+        emit32le(0xEE800A20u); // vdiv.f32 s0, s0, s1
+        emit32le(vmov_r_s(rd, 0));
+    }
     else
         trap(op);
     if (d >= ARM_SHADOW_COUNT)
@@ -648,13 +676,33 @@ void arm::frame_addr(byte d, byte s)
 }
 
 
+void arm::patch_branch_site(size_t insn_pos, size_t target_native)
+// ----------------------------------------------------------------------------
+//   Patch a recorded branch instruction to jump to target_native
+// ----------------------------------------------------------------------------
+{
+    record(arm, "patch_branch_site(%zu, %zu)", insn_pos, target_native);
+    int32_t off = int32_t(target_native - insn_pos - 8) / 4;
+    uint32_t insn = uint32_t(code().data[insn_pos])
+                  | (uint32_t(code().data[insn_pos + 1]) << 8)
+                  | (uint32_t(code().data[insn_pos + 2]) << 16)
+                  | (uint32_t(code().data[insn_pos + 3]) << 24);
+    if ((insn & 0xFF000000u) == 0xEA000000u)
+        insn = b_imm(off);
+    else
+        insn = b_cond_imm(byte(insn >> 28), off);
+    code().patch32(insn_pos, insn);
+}
+
+
 void arm::bra_offset(broff_t b)
 // ----------------------------------------------------------------------------
 //   Emit unconditional branch with bytecode offset
 // ----------------------------------------------------------------------------
 {
     record(arm, "bra_offset(%lld)", b);
-    uint pos = gjmp(0);
+    uint pos = uint(cursor());
+    emit32le(b_imm(0));
     record_branch(b, pos);
 }
 
@@ -665,9 +713,11 @@ void arm::bra_pred(byte p, broff_t b, bool sense)
 // ----------------------------------------------------------------------------
 {
     record(arm, "bra_pred(%u, %lld, %d)", p, b, sense);
-    (void)p;
-    (void)sense;
-    bra_offset(b);
+    load_imm32(HW_SCR_ADDR, 1u << p);
+    emit32le(and_rrr(HW_SCR_ADDR, HW_FLAGS, HW_SCR_ADDR));
+    uint pos = uint(cursor());
+    emit32le(b_cond_imm(sense ? 0x1 : 0x0, 0));
+    record_branch(b, pos);
 }
 
 
@@ -677,20 +727,25 @@ void arm::bra_zero(byte s, broff_t b, bool eq)
 // ----------------------------------------------------------------------------
 {
     record(arm, "bra_zero(%u, %lld, %d)", s, b, eq);
-    (void)s;
-    (void)eq;
-    bra_offset(b);
+    load_local(s, HW_SCR_ADDR);
+    emit32le(cmp_r_imm(HW_SCR_ADDR, 0));
+    uint pos = uint(cursor());
+    emit32le(b_cond_imm(eq ? 0x0 : 0x1, 0));
+    record_branch(b, pos);
 }
 
 
-void arm::bra_signed(byte s, broff_t b)
+void arm::bra_signed(byte s, broff_t b, byte cond)
 // ----------------------------------------------------------------------------
 //   Emit signed comparison branch on local s
 // ----------------------------------------------------------------------------
 {
-    record(arm, "bra_signed(%u, %lld)", s, b);
-    (void)s;
-    bra_offset(b);
+    record(arm, "bra_signed(%u, %lld, %u)", s, b, cond);
+    load_local(s, HW_SCR_ADDR);
+    emit32le(cmp_r_imm(HW_SCR_ADDR, 0));
+    uint pos = uint(cursor());
+    emit32le(b_cond_imm(cond, 0));
+    record_branch(b, pos);
 }
 
 
@@ -723,9 +778,32 @@ void arm::call_tok(tok_t t)
 // ----------------------------------------------------------------------------
 {
     record(arm, "call_tok(%llu)", t);
+    spill_frame();
+    size_t adr_at = cursor();
+    emit32le(add_imm(0, 15, 0));
+    rtcall("xlr8_push_value");
+    rtcall("xlr8_sync_args");
+    reload_shadows();
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
     uint pos = gjmp(head);
     record_tok_jump(t, pos);
+    int off = int(pos + 4) - int(adr_at + 8);
+    if (off < 0)
+        code().patch32(adr_at, sub_imm(0, 15, uint32_t(-off)));
+    else
+        code().patch32(adr_at, add_imm(0, 15, uint32_t(off)));
+}
+
+
+void arm::br_via_ip()
+// ----------------------------------------------------------------------------
+//   Branch to address in r12 without leaving a stale shadow in r0
+// ----------------------------------------------------------------------------
+{
+    record(arm, "br_via_ip()");
+    emit32le(mov_rr(HW_IP, 0));
+    reload_shadows();
+    emit32le(bx_reg(HW_IP));
 }
 
 
@@ -735,8 +813,10 @@ void arm::ijmp_local(byte s)
 // ----------------------------------------------------------------------------
 {
     record(arm, "ijmp_local(%u)", s);
-    load_local(s, HW_SCR_VAL);
-    emit32le(0xE12FFF10u | HW_SCR_VAL);
+    spill_frame();
+    load_local(s, 0);
+    rtcall("xlr8_jit_addr");
+    br_via_ip();
 }
 
 
@@ -746,8 +826,23 @@ void arm::icall_local(byte s)
 // ----------------------------------------------------------------------------
 {
     record(arm, "icall_local(%u)", s);
-    load_local(s, HW_SCR_VAL);
-    emit32le(blx(HW_SCR_VAL));
+    spill_frame();
+    size_t adr_at = cursor();
+    emit32le(add_imm(0, 15, 0));
+    rtcall("xlr8_push_value");
+    rtcall("xlr8_sync_args");
+    reload_shadows();
+    load_local(s, 0);
+    rtcall("xlr8_jit_addr");
+    emit32le(mov_rr(HW_IP, 0));
+    reload_shadows();
+    size_t blx_at = cursor();
+    emit32le(blx(HW_IP));
+    int off = int(blx_at + 4) - int(adr_at + 8);
+    if (off < 0)
+        code().patch32(adr_at, sub_imm(0, 15, uint32_t(-off)));
+    else
+        code().patch32(adr_at, add_imm(0, 15, uint32_t(off)));
 }
 
 

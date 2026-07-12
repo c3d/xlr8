@@ -82,6 +82,7 @@ struct arm : backend
     void gsym_addr(uint t, uint a) override;
     void finish_translation() override;
     void begin_translation() override;
+    void patch_branch_site(size_t insn_pos, size_t target_native) override;
 
 #define OP(op, sig) sig override;
 #include "opover.tbl"
@@ -265,6 +266,75 @@ protected:
         return 0xE12FFF10u | (rm & 0xFu);
     }
 
+    static inline uint b_imm(int offset)
+    // ------------------------------------------------------------------------
+    //   Encode b #offset  (ARM PC = insn_addr + 8)
+    // ------------------------------------------------------------------------
+    {
+        return 0xEA000000u | (uint32_t(offset) & 0x00FFFFFFu);
+    }
+
+    static inline uint b_cond_imm(byte cond, int offset)
+    // ------------------------------------------------------------------------
+    //   Encode b{cond} #offset
+    // ------------------------------------------------------------------------
+    {
+        return (uint32_t(cond) << 28) | 0x0A000000u
+             | (uint32_t(offset) & 0x00FFFFFFu);
+    }
+
+    static inline uint vmov_s_r(uint sn, uint rt)
+    // ------------------------------------------------------------------------
+    //   Encode vmov.f32 sn, rt
+    // ------------------------------------------------------------------------
+    {
+        return 0xEE000A10u | (rt << 12) | ((sn & 1u) << 22) | ((sn >> 1) << 16);
+    }
+
+    static inline uint vmov_r_s(uint rt, uint sn)
+    // ------------------------------------------------------------------------
+    //   Encode vmov.f32 rt, sn
+    // ------------------------------------------------------------------------
+    {
+        return 0xEE100A10u | (rt << 12) | ((sn & 1u) << 22) | ((sn >> 1) << 16);
+    }
+
+    static inline uint vadd_ss(uint sd, uint sn, uint sm)
+    // ------------------------------------------------------------------------
+    //   Encode vadd.f32 sd, sn, sm
+    // ------------------------------------------------------------------------
+    {
+        return 0xEE300A00u | (sd << 12) | (sn << 16) | (sm << 20)
+             | ((sd & 1u) << 6) | ((sn & 1u) << 7) | ((sm & 1u) << 5);
+    }
+
+    static inline uint vsub_ss(uint sd, uint sn, uint sm)
+    // ------------------------------------------------------------------------
+    //   Encode vsub.f32 sd, sn, sm
+    // ------------------------------------------------------------------------
+    {
+        return 0xEE300A40u | (sd << 12) | (sn << 16) | (sm << 20)
+             | ((sd & 1u) << 6) | ((sn & 1u) << 7) | ((sm & 1u) << 5);
+    }
+
+    static inline uint vmul_ss(uint sd, uint sn, uint sm)
+    // ------------------------------------------------------------------------
+    //   Encode vmul.f32 sd, sn, sm
+    // ------------------------------------------------------------------------
+    {
+        return 0xEE200A00u | (sd << 12) | (sn << 16) | (sm << 20)
+             | ((sd & 1u) << 6) | ((sn & 1u) << 7) | ((sm & 1u) << 5);
+    }
+
+    static inline uint vdiv_ss(uint sd, uint sn, uint sm)
+    // ------------------------------------------------------------------------
+    //   Encode vdiv.f32 sd, sn, sm
+    // ------------------------------------------------------------------------
+    {
+        return 0xEE800A00u | (sd << 12) | (sn << 16) | (sm << 20)
+             | ((sd & 1u) << 6) | ((sn & 1u) << 7) | ((sm & 1u) << 5);
+    }
+
     void emit32le(uint32_t insn);
     void load_local(byte n, uint r);
     void store_local(uint r, byte n);
@@ -300,10 +370,11 @@ protected:
     void load_signext(byte d, byte s, byte w);
     void load_signext_off(byte d, byte s, byte w, value_t o);
     void frame_addr(byte d, byte s);
+    void br_via_ip();
     void bra_offset(broff_t b);
     void bra_pred(byte p, broff_t b, bool sense);
     void bra_zero(byte s, broff_t b, bool eq);
-    void bra_signed(byte s, broff_t b);
+    void bra_signed(byte s, broff_t b, byte cond);
     void dbra_local(byte d, broff_t b);
     void jmp_tok(tok_t t);
     void call_tok(tok_t t);
