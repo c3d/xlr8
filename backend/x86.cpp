@@ -50,12 +50,29 @@ x86::x86(arch_t arch)
 }
 
 
+void x86::begin_translation()
+// ----------------------------------------------------------------------------
+//   Align stack for SysV calls (invoke enters via call, leaving RSP%16==8)
+// ----------------------------------------------------------------------------
+{
+    record(x86, "begin_translation()");
+    g(0x48);
+    g(0x83);
+    g(0xec);
+    g(0x08);
+}
+
+
 void x86::finish_translation()
 // ----------------------------------------------------------------------------
 //   Emit epilogue at end of translated code
 // ----------------------------------------------------------------------------
 {
     record(x86, "finish_translation()");
+    g(0x48);
+    g(0x83);
+    g(0xc4);
+    g(0x08);
     do_ret();
 }
 

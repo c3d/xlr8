@@ -85,6 +85,7 @@ struct x86 : backend
 
     x86(arch_t arch);
 
+    void begin_translation() override;
     void finish_translation() override;
     size_t emit_over_callees_branch() override;
     void patch_branch_site(size_t insn_pos, size_t target_native) override;
