@@ -306,7 +306,6 @@ void x86::emit_sys(tok_t t, byte_p args, byte_p next_pc)
     load_hw_imm(HW_RDI, uint64_t(t));
     load_hw_imm(HW_RSI, uint64_t(uintptr_t(args)));
     call_ptr((void *) xlr8_sys);
-    reload_frame_reg();
     load_hw_imm(HW_RDI, uint64_t(uintptr_t(next_pc)));
     call_ptr((void *) xlr8_after_sys);
     orex(1, HW_RAX, 0, 0x85);
