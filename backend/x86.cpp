@@ -178,6 +178,42 @@ void x86::load_hw_imm(uint r, uint64_t imm)
 }
 
 
+void x86::load_float_local(byte n, uint xmm)
+// ----------------------------------------------------------------------------
+//   Load a bytecode float local into an xmm register
+// ----------------------------------------------------------------------------
+{
+    record(x86, "load_float_local(%u, %u)", n, xmm);
+    int disp = local_disp(n);
+    g(0xf3);
+    g(0x49 | (rex_r(xmm) ? 4 : 0));
+    g(0x0f);
+    g(0x10);
+    g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
+    g(byte((reg_value(HW_RSP) << 3) | reg_value(HW_FRAME)));
+    if (disp)
+        emit32(uint32_t(disp));
+}
+
+
+void x86::store_float_local(byte n, uint xmm)
+// ----------------------------------------------------------------------------
+//   Store an xmm register into a bytecode float local
+// ----------------------------------------------------------------------------
+{
+    record(x86, "store_float_local(%u, %u)", n, xmm);
+    int disp = local_disp(n);
+    g(0xf3);
+    g(0x49 | (rex_r(xmm) ? 4 : 0));
+    g(0x0f);
+    g(0x11);
+    g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
+    g(byte((reg_value(HW_RSP) << 3) | reg_value(HW_FRAME)));
+    if (disp)
+        emit32(uint32_t(disp));
+}
+
+
 void x86::load_double_local(byte n, uint xmm)
 // ----------------------------------------------------------------------------
 //   Load a bytecode double local into an xmm register
@@ -185,8 +221,8 @@ void x86::load_double_local(byte n, uint xmm)
 {
     record(x86, "load_double_local(%u, %u)", n, xmm);
     int disp = local_disp(n);
-    g(0x49 | (rex_r(xmm) ? 4 : 0));
     g(0xf2);
+    g(0x49 | (rex_r(xmm) ? 4 : 0));
     g(0x0f);
     g(0x10);
     g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
@@ -203,8 +239,8 @@ void x86::store_double_local(byte n, uint xmm)
 {
     record(x86, "store_double_local(%u, %u)", n, xmm);
     int disp = local_disp(n);
-    g(0x49 | (rex_r(xmm) ? 4 : 0));
     g(0xf2);
+    g(0x49 | (rex_r(xmm) ? 4 : 0));
     g(0x0f);
     g(0x11);
     g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
@@ -440,16 +476,45 @@ else if (!strcmp(op, "div"))
     g(0xf1);
 }
 
+else if (!strcmp(op, "idiv_mod"))
+// ----------------------------------------------------------------------------
+//   If
+// ----------------------------------------------------------------------------
+{
+    g(0x48);
+    g(0x99);
+    g(0x48);
+    g(0xf7);
+    g(0xf9);
+    orex(1, HW_RDX, HW_RAX, 0x89);
+    g(modrm_rr(HW_RDX, HW_RAX));
+}
+
+else if (!strcmp(op, "div_mod"))
+// ----------------------------------------------------------------------------
+//   If
+// ----------------------------------------------------------------------------
+{
+    g(0x48);
+    g(0x31);
+    g(0xd2);
+    g(0x48);
+    g(0xf7);
+    g(0xf1);
+    orex(1, HW_RDX, HW_RAX, 0x89);
+    g(modrm_rr(HW_RDX, HW_RAX));
+}
+
 else if (!strcmp(op, "fadd"))
 // ----------------------------------------------------------------------------
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0xf3); g(0x0f); g(0x6e); g(0xc0);
-    load_local(s, HW_RCX);
-    g(0xf3); g(0x0f); g(0x6e); g(0xc9);
+    load_float_local(d, 0);
+    load_float_local(s, 1);
     g(0xf3); g(0x0f); g(0x58); g(0xc1);
-    g(0xf3); g(0x0f); g(0x7e); g(0xc0);
+    store_float_local(d, 0);
+    stored = true;
 }
 
 else if (!strcmp(op, "fsub"))
@@ -457,11 +522,11 @@ else if (!strcmp(op, "fsub"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0xf3); g(0x0f); g(0x6e); g(0xc0);
-    load_local(s, HW_RCX);
-    g(0xf3); g(0x0f); g(0x6e); g(0xc9);
+    load_float_local(d, 0);
+    load_float_local(s, 1);
     g(0xf3); g(0x0f); g(0x5c); g(0xc1);
-    g(0xf3); g(0x0f); g(0x7e); g(0xc0);
+    store_float_local(d, 0);
+    stored = true;
 }
 
 else if (!strcmp(op, "fmul"))
@@ -469,11 +534,11 @@ else if (!strcmp(op, "fmul"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0xf3); g(0x0f); g(0x6e); g(0xc0);
-    load_local(s, HW_RCX);
-    g(0xf3); g(0x0f); g(0x6e); g(0xc9);
+    load_float_local(d, 0);
+    load_float_local(s, 1);
     g(0xf3); g(0x0f); g(0x59); g(0xc1);
-    g(0xf3); g(0x0f); g(0x7e); g(0xc0);
+    store_float_local(d, 0);
+    stored = true;
 }
 
 else if (!strcmp(op, "fdiv"))
@@ -481,11 +546,11 @@ else if (!strcmp(op, "fdiv"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0xf3); g(0x0f); g(0x6e); g(0xc0);
-    load_local(s, HW_RCX);
-    g(0xf3); g(0x0f); g(0x6e); g(0xc9);
+    load_float_local(d, 0);
+    load_float_local(s, 1);
     g(0xf3); g(0x0f); g(0x5e); g(0xc1);
-    g(0xf3); g(0x0f); g(0x7e); g(0xc0);
+    store_float_local(d, 0);
+    stored = true;
 }
 
 else if (!strcmp(op, "dadd"))
@@ -620,7 +685,90 @@ else if (!strcmp(op, "shr_imm"))
     load_hw_imm(HW_RCX, uint64_t(v)); orex(1, HW_RCX, HW_RAX, 0xd3); g(0xe8|reg_value(HW_RAX));
 }
 
+else if (!strcmp(op, "idiv_imm"))
+// ----------------------------------------------------------------------------
+//   If
+// ----------------------------------------------------------------------------
+{
+    load_hw_imm(HW_RCX, uint64_t(v));
+    g(0x48);
+    g(0x99);
+    g(0x48);
+    g(0xf7);
+    g(0xf9);
+}
+
+else if (!strcmp(op, "div_imm"))
+// ----------------------------------------------------------------------------
+//   If
+// ----------------------------------------------------------------------------
+{
+    load_hw_imm(HW_RCX, uint64_t(v));
+    g(0x48);
+    g(0x31);
+    g(0xd2);
+    g(0x48);
+    g(0xf7);
+    g(0xf1);
+}
+
+else if (!strcmp(op, "idiv_mod_imm"))
+// ----------------------------------------------------------------------------
+//   If
+// ----------------------------------------------------------------------------
+{
+    load_hw_imm(HW_RCX, uint64_t(v));
+    g(0x48);
+    g(0x99);
+    g(0x48);
+    g(0xf7);
+    g(0xf9);
+    orex(1, HW_RDX, HW_RAX, 0x89);
+    g(modrm_rr(HW_RDX, HW_RAX));
+}
+
+else if (!strcmp(op, "div_mod_imm"))
+// ----------------------------------------------------------------------------
+//   If
+// ----------------------------------------------------------------------------
+{
+    load_hw_imm(HW_RCX, uint64_t(v));
+    g(0x48);
+    g(0x31);
+    g(0xd2);
+    g(0x48);
+    g(0xf7);
+    g(0xf1);
+    orex(1, HW_RDX, HW_RAX, 0x89);
+    g(modrm_rr(HW_RDX, HW_RAX));
+}
+
     store_local(HW_RAX, d);
+}
+
+
+void x86::set_pred_cmp(byte p, byte cc)
+// ----------------------------------------------------------------------------
+//   Set predicate bit p according to x86 SETcc condition
+// ----------------------------------------------------------------------------
+{
+    record(x86, "set_pred_cmp(%u, %u)", p, cc);
+    load_hw_imm(HW_RAX, ~(1ULL << p));
+    orex(1, HW_FLAGS, HW_RAX, 0x21);
+    g(modrm_rr(HW_FLAGS, HW_RAX));
+    g(0x0f);
+    g(cc);
+    g(0xc0 | reg_value(HW_RAX));
+    orex(1, HW_RAX, 0, 0x85);
+    g(modrm_rr(HW_RAX, HW_RAX));
+    g(0x0f);
+    g(0x84);
+    uint pos = uint(cursor());
+    emit32(0);
+    load_hw_imm(HW_RAX, 1ULL << p);
+    orex(1, HW_FLAGS, HW_RAX, 0x09);
+    g(modrm_rr(HW_FLAGS, HW_RAX));
+    patch_branch_site(pos, cursor());
 }
 
 
@@ -662,9 +810,7 @@ void x86::cmp_local(byte p, byte d, byte s, cstring rel)
     else if (!strcmp(rel, "le")) cc = 0x9e;
     else if (!strcmp(rel, "ltu")) cc = 0x92;
     else if (!strcmp(rel, "leu")) cc = 0x96;
-    g(0x0f); g(0x90 | (cc & 0x0f));
-    g(modrm_rr(HW_RAX, HW_RAX));
-    set_pred(p, true);
+    set_pred_cmp(p, cc);
 }
 
 
@@ -677,8 +823,14 @@ void x86::cmp_imm(byte p, byte d, value_t v, cstring rel)
     load_local(d, HW_RAX);
     orex(1, HW_RAX, 0, 0x3d);
     emit32(uint32_t(v));
-    (void) rel;
-    set_pred(p, true);
+    byte cc = 0x94;
+    if (!strcmp(rel, "eq")) cc = 0x94;
+    else if (!strcmp(rel, "ne")) cc = 0x95;
+    else if (!strcmp(rel, "lt")) cc = 0x9c;
+    else if (!strcmp(rel, "le")) cc = 0x9e;
+    else if (!strcmp(rel, "ltu")) cc = 0x92;
+    else if (!strcmp(rel, "leu")) cc = 0x96;
+    set_pred_cmp(p, cc);
 }
 
 
@@ -698,11 +850,8 @@ void x86::cond_mov_local(byte p, byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(x86, "cond_mov_local(%u, %u, %u)", p, d, s);
-    load_local(s, HW_RAX);
-    uint pos = gjmp(0);
-    store_local(HW_RAX, d);
-    gsym(pos);
     (void) p;
+    mov_local(d, s);
 }
 
 
@@ -712,12 +861,9 @@ void x86::select_local(byte p, byte d, byte s, byte x)
 // ----------------------------------------------------------------------------
 {
     record(x86, "select_local(%u, %u, %u, %u)", p, d, s, x);
-    load_local(s, HW_RAX);
-    uint pos = gjmp(0);
-    load_local(x, HW_RAX);
-    gsym(pos);
-    store_local(HW_RAX, d);
     (void) p;
+    (void) x;
+    mov_local(d, s);
 }
 
 
@@ -850,6 +996,7 @@ if (sz == 1)
 // ----------------------------------------------------------------------------
 {
     g(0x8a); g(0x00);
+    g(0x0f); g(0xb6); g(0xc0);
 }
 
 else if (sz == 2)
@@ -858,6 +1005,7 @@ else if (sz == 2)
 // ----------------------------------------------------------------------------
 {
     g(0x66); g(0x8b); g(0x00);
+    g(0x0f); g(0xb7); g(0xc0);
 }
 
 else if (sz == 4)
@@ -1213,7 +1361,9 @@ void x86::store_global(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(x86, "store_global(%u, %u)", d, s);
-    mov_local(d, s);
+    load_hw_imm(HW_RDI, uint64_t(d));
+    load_hw_imm(HW_RSI, uint64_t(s));
+    emit_runtime_call("xlr8_store_global");
 }
 
 
@@ -1223,7 +1373,9 @@ void x86::load_global(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(x86, "load_global(%u, %u)", d, s);
-    mov_local(d, s);
+    load_hw_imm(HW_RDI, uint64_t(d));
+    load_hw_imm(HW_RSI, uint64_t(s));
+    emit_runtime_call("xlr8_load_global");
 }
 
 
