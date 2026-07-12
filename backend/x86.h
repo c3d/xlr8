@@ -209,6 +209,7 @@ protected:
     void            store_global(byte d, byte s);
     void            load_global(byte d, byte s);
     void            reload_frame_reg();
+    void            reload_flags_reg();
     void            br_via_ip();
     void            do_ret();
     void            call_ptr(void *fn);

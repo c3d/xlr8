@@ -113,6 +113,18 @@ void x86::reload_frame_reg()
 }
 
 
+void x86::reload_flags_reg()
+// ----------------------------------------------------------------------------
+//   Reload r15 from runtime flags after xlr8_leave or popf
+// ----------------------------------------------------------------------------
+{
+    record(x86, "reload_flags_reg()");
+    emit_runtime_call("xlr8_get_flags");
+    orex(1, HW_FLAGS, HW_RAX, 0x89);
+    g(modrm_rr(HW_RAX, HW_FLAGS));
+}
+
+
 void x86::br_via_ip()
 // ----------------------------------------------------------------------------
 //   Branch to native address in rax
@@ -940,9 +952,12 @@ void x86::zext_local(byte d, byte w)
 {
     record(x86, "zext_local(%u, %u)", d, w);
     load_local(d, HW_RAX);
-    load_hw_imm(HW_RCX, w);
-    orex(1, HW_RCX, HW_RAX, 0xd3);
-    g(0xe0 | reg_value(HW_RAX));
+    if (w < 64)
+    {
+        load_hw_imm(HW_RCX, (1ULL << w) - 1);
+        orex(1, HW_RCX, HW_RAX, 0x23);
+        g(modrm_rr(HW_RCX, HW_RAX));
+    }
     store_local(HW_RAX, d);
 }
 
@@ -1161,7 +1176,7 @@ void x86::bra_pred(byte p, broff_t b, bool sense)
     record(x86, "bra_pred(%u, %lld, %d)", p, b, sense);
     load_hw_imm(HW_RAX, 1ULL << p);
     orex(1, HW_RAX, HW_FLAGS, 0x23);
-    g(modrm_rr(HW_FLAGS, HW_RAX));
+    g(modrm_rr(HW_RAX, HW_FLAGS));
     orex(1, HW_RAX, 0, 0x85);
     g(modrm_rr(HW_RAX, HW_RAX));
     g(0x0f);
@@ -1396,8 +1411,9 @@ void x86::push_flags()
 // ----------------------------------------------------------------------------
 {
     record(x86, "push_flags()");
-    orex(1, HW_FLAGS, 0, 0xff);
-    g(0x30 | reg_value(HW_RSP));
+    orex(1, HW_RDI, HW_FLAGS, 0x8b);
+    g(modrm_rr(HW_FLAGS, HW_RDI));
+    emit_runtime_call("xlr8_push_flags_val");
 }
 
 
@@ -1407,8 +1423,8 @@ void x86::pop_flags()
 // ----------------------------------------------------------------------------
 {
     record(x86, "pop_flags()");
-    orex(1, HW_RSP, 0, 0x8f);
-    g(0x00 | reg_value(HW_RSP));
+    emit_runtime_call("xlr8_pop_flags_val");
+    reload_flags_reg();
 }
 
 
