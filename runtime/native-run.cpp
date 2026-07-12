@@ -140,6 +140,8 @@ static void *map_executable(backend &be, byte_p data, size_t sz)
 #if defined(__APPLE__)
     pthread_jit_write_protect_np(1);
     sys_icache_invalidate(mem, sz);
+#elif defined(__linux__) && defined(__aarch64__)
+    __builtin___clear_cache((char *) mem, (char *) mem + sz);
 #endif
     if (mprotect(mem, alloc, PROT_READ | PROT_EXEC) != 0)
     {
