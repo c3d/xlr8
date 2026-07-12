@@ -776,7 +776,7 @@ void x86::set_pred_cmp(byte p, byte cc)
     load_hw_imm(HW_RAX, ~(1ULL << p));
     orex(1, HW_RAX, HW_FLAGS, 0x21);
     g(modrm_rr(HW_RAX, HW_FLAGS));
-    orex(1, HW_SCR, 0, 0x85);
+    orex(1, HW_SCR, HW_SCR, 0x85);
     g(modrm_rr(HW_SCR, HW_SCR));
     g(0x0f);
     g(0x84);
