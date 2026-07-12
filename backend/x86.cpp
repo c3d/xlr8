@@ -281,7 +281,7 @@ if (!strcmp(op, "add"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x01); g(modrm_rr(HW_RAX, HW_RCX));
+    orex(1, HW_RAX, HW_RCX, 0x01); g(modrm_rr(HW_RCX, HW_RAX));
 }
 
 else if (!strcmp(op, "sub"))
@@ -289,7 +289,7 @@ else if (!strcmp(op, "sub"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x29); g(modrm_rr(HW_RAX, HW_RCX));
+    orex(1, HW_RAX, HW_RCX, 0x29); g(modrm_rr(HW_RCX, HW_RAX));
 }
 
 else if (!strcmp(op, "imul"))
@@ -305,7 +305,7 @@ else if (!strcmp(op, "and"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x21); g(modrm_rr(HW_RAX, HW_RCX));
+    orex(1, HW_RAX, HW_RCX, 0x21); g(modrm_rr(HW_RCX, HW_RAX));
 }
 
 else if (!strcmp(op, "or"))
@@ -313,7 +313,7 @@ else if (!strcmp(op, "or"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x09); g(modrm_rr(HW_RAX, HW_RCX));
+    orex(1, HW_RAX, HW_RCX, 0x09); g(modrm_rr(HW_RCX, HW_RAX));
 }
 
 else if (!strcmp(op, "xor"))
@@ -321,7 +321,7 @@ else if (!strcmp(op, "xor"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x31); g(modrm_rr(HW_RAX, HW_RCX));
+    orex(1, HW_RAX, HW_RCX, 0x31); g(modrm_rr(HW_RCX, HW_RAX));
 }
 
 else if (!strcmp(op, "shl"))
@@ -545,7 +545,7 @@ void x86::cmp_local(byte p, byte d, byte s, cstring rel)
     load_local(d, HW_RAX);
     load_local(s, HW_RCX);
     orex(1, HW_RAX, HW_RCX, 0x39);
-    g(modrm_rr(HW_RAX, HW_RCX));
+    g(modrm_rr(HW_RCX, HW_RAX));
     byte cc = 0x94;
     if (!strcmp(rel, "eq")) cc = 0x94;
     else if (!strcmp(rel, "ne")) cc = 0x95;
