@@ -200,7 +200,8 @@ static void invoke_x86_64(runtime &rt, void *code)
 #if defined(__aarch64__)
 static void invoke_arm64(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
-//   Jump to generated AArch64 code; x19 = rt.frame, x22 = rt.flags
+//   Jump to generated AArch64 code; x19 = rt.frame, x22 = rt.flags,
+//   x28 = return link for ret at end of JIT epilogue
 // ----------------------------------------------------------------------------
 {
     stack_p frame = rt.frame;
@@ -208,11 +209,12 @@ static void invoke_arm64(runtime &rt, void *code)
     asm volatile(
         "mov x19, %0\n\t"
         "mov x22, %1\n\t"
+        "mov x28, x30\n\t"
         "mov x16, %2\n\t"
         "blr x16"
         :
         : "r"(frame), "r"(flags), "r"(code)
-        : "x16", "x19", "x22", "x30", "memory", "cc");
+        : "x16", "x19", "x22", "x28", "x30", "memory", "cc");
 }
 #endif
 
