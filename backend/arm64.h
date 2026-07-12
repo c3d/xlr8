@@ -530,7 +530,7 @@ protected:
     //   Encode stp rt, xzr, [sp, #-16]!
     // ----------------------------------------------------------------------------
     {
-        return 0xa9bf03e0u | rt;
+        return 0xa9bf7fe0u | rt;
     }
 
     static inline uint ldp_pop(uint rt)
@@ -538,7 +538,7 @@ protected:
     //   Encode ldp rt, xzr, [sp], #16
     // ----------------------------------------------------------------------------
     {
-        return 0xa8c103e0u | rt;
+        return 0xa8c17fe0u | rt;
     }
 
     static inline uint mov_lr_save()
