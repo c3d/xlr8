@@ -86,6 +86,8 @@ struct x86 : backend
     x86(arch_t arch);
 
     void finish_translation() override;
+    size_t emit_over_callees_branch() override;
+    void patch_branch_site(size_t insn_pos, size_t target_native) override;
 
     // All opcode emitters — implemented in x86-emit.cpp
 #define OP(op, sig) sig override;
@@ -200,7 +202,8 @@ protected:
     void            pop_flags();
     void            store_global(byte d, byte s);
     void            load_global(byte d, byte s);
-    void            do_ret();
+    void            reload_frame_reg();
+    void            br_via_ip();
     void            call_ptr(void *fn);
     void            emit_trap(cstring msg);
     void            emit_runtime_call(cstring fn);

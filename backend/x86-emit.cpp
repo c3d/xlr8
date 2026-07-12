@@ -30,11 +30,10 @@
 
 void x86::emit_null()
 // ----------------------------------------------------------------------------
-//   Emit bytecode for the null opcode
+//   Emit bytecode for the null opcode (inline data padding)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_null()");
-    emit_trap("null opcode");
 }
 
 
@@ -184,7 +183,8 @@ void x86::emit_ret()
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_ret()");
-    do_ret();
+    emit_runtime_call("xlr8_pop_value");
+    br_via_ip();
 }
 
 
@@ -284,10 +284,16 @@ void x86::emit_sys(tok_t t, byte_p args, byte_p next_pc)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_sys(%llu, %p, %p)", t, args, next_pc);
-    (void) next_pc;
     load_hw_imm(HW_RDI, uint64_t(t));
     load_hw_imm(HW_RSI, uint64_t(uintptr_t(args)));
     call_ptr((void *) xlr8_sys);
+    load_hw_imm(HW_RDI, uint64_t(uintptr_t(next_pc)));
+    call_ptr((void *) xlr8_after_sys);
+    orex(1, HW_RAX, 0, 0x85);
+    g(modrm_rr(HW_RAX, HW_RAX));
+    g(0x74);
+    g(0x02);
+    br_via_ip();
 }
 
 
@@ -427,8 +433,10 @@ void x86::emit_dispatch(byte s, byte_p table_pc)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_dispatch(%u, %p)", s, table_pc);
-    (void) table_pc;
-    emit_runtime_call("xlr8_dispatch", s);
+    load_hw_imm(HW_RDI, uint64_t(s));
+    load_hw_imm(HW_RSI, uint64_t(uintptr_t(table_pc)));
+    call_ptr((void *) xlr8_dispatch);
+    br_via_ip();
 }
 
 

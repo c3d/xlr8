@@ -60,6 +60,53 @@ void x86::finish_translation()
 }
 
 
+size_t x86::emit_over_callees_branch()
+// ----------------------------------------------------------------------------
+//   Emit a forward branch over callee bodies to the epilogue
+// ----------------------------------------------------------------------------
+{
+    record(x86, "emit_over_callees_branch()");
+    g(0xe9);
+    size_t pos = cursor();
+    emit32(0);
+    return pos;
+}
+
+
+void x86::patch_branch_site(size_t insn_pos, size_t target_native)
+// ----------------------------------------------------------------------------
+//   Patch a recorded branch instruction to jump to target_native
+// ----------------------------------------------------------------------------
+{
+    record(x86, "patch_branch_site(%zu, %zu)", insn_pos, target_native);
+    int32_t off = int32_t(target_native) - int32_t(insn_pos) - 4;
+    code().patch32(insn_pos, uint32_t(off));
+}
+
+
+void x86::reload_frame_reg()
+// ----------------------------------------------------------------------------
+//   Reload r12 from rax after xlr8_enter or xlr8_leave
+// ----------------------------------------------------------------------------
+{
+    record(x86, "reload_frame_reg()");
+    g(0x49);
+    g(0x89);
+    g(0xc4);
+}
+
+
+void x86::br_via_ip()
+// ----------------------------------------------------------------------------
+//   Branch to native address in rax
+// ----------------------------------------------------------------------------
+{
+    record(x86, "br_via_ip()");
+    g(0xff);
+    g(0xe0);
+}
+
+
 int x86::local_disp(byte n) const
 // ----------------------------------------------------------------------------
 //   Return stack displacement for bytecode local n
@@ -76,7 +123,7 @@ void x86::orex(int ll, int r, int x, byte c)
 // ----------------------------------------------------------------------------
 {
     record(x86, "orex(%lld, %lld, %lld, %u)", ll, r, x, c);
-    if ((ll && r >= 8) || x >= 8)
+    if (ll || r >= 8 || x >= 8)
         g(0x40 | (ll ? 1 : 0) | (rex_b(r) ? 4 : 0) | (rex_x(x) ? 2 : 0) | (rex_r(r) ? 1 : 0));
     g(c);
 }
@@ -93,7 +140,7 @@ void x86::emit_rex_modrm(int ll, int r, int x, int b, byte op)
     g(op);
     g(byte((reg_value(r) << 3) | reg_value(b)));
     if (reg_value(b) == 4)
-        g(byte(reg_value(x) << 3));
+        g(byte((reg_value(x) << 3) | reg_value(b)));
     if (reg_value(b) == 5 && x == 4)
         emit32(0);
 }
@@ -119,11 +166,18 @@ void x86::load_local(byte n, uint r)
 {
     record(x86, "load_local(%u, %u)", n, r);
     int disp = local_disp(n);
-    emit_rex_modrm(1, r, HW_FRAME, HW_FRAME, 0x8b);
     if (disp)
     {
-        g(byte(0x80 | (reg_value(r) << 3) | reg_value(HW_FRAME)));
+        if (1 || r >= 8 || HW_FRAME >= 8)
+            g(0x48 | (rex_r(r) ? 4 : 0) | (rex_b(HW_FRAME) ? 1 : 0));
+        g(0x8b);
+        g(byte((2 << 6) | (reg_value(r) << 3) | 4));
+        g(byte((reg_value(HW_RSP) << 3) | reg_value(HW_FRAME)));
         emit32(uint32_t(disp));
+    }
+    else
+    {
+        emit_rex_modrm(1, r, HW_RSP, HW_FRAME, 0x8b);
     }
 }
 
@@ -135,11 +189,18 @@ void x86::store_local(uint r, byte n)
 {
     record(x86, "store_local(%u, %u)", r, n);
     int disp = local_disp(n);
-    emit_rex_modrm(1, r, HW_FRAME, HW_FRAME, 0x89);
     if (disp)
     {
-        g(byte(0x80 | (reg_value(r) << 3) | reg_value(HW_FRAME)));
+        if (1 || r >= 8 || HW_FRAME >= 8)
+            g(0x48 | (rex_r(r) ? 4 : 0) | (rex_b(HW_FRAME) ? 1 : 0));
+        g(0x89);
+        g(byte((2 << 6) | (reg_value(r) << 3) | 4));
+        g(byte((reg_value(HW_RSP) << 3) | reg_value(HW_FRAME)));
         emit32(uint32_t(disp));
+    }
+    else
+    {
+        emit_rex_modrm(1, r, HW_RSP, HW_FRAME, 0x89);
     }
 }
 
@@ -852,31 +913,61 @@ void x86::call_tok(tok_t t)
 // ----------------------------------------------------------------------------
 {
     record(x86, "call_tok(%llu)", t);
+    size_t adr_at = cursor();
+    g(0x48);
+    g(0x8d);
+    g(0x05);
+    emit32(0);
+    g(0x48);
+    g(0x89);
+    g(0xc7);
+    emit_runtime_call("xlr8_push_value");
+    emit_runtime_call("xlr8_sync_args");
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
     uint pos = gjmp(head);
     record_tok_jump(t, pos);
-}
-
-
-void x86::ijmp_local(byte s)
+    int off = int(pos + 4) - int(adr_at + 7);
+    code().patch32(adr_at + 3, uint32_t(off));(byte s)
 // ----------------------------------------------------------------------------
-//   Indirect jump through local s
+//   Indirect jump through local s (bytecode PC -> native)
 // ----------------------------------------------------------------------------
 {
     record(x86, "ijmp_local(%u)", s);
     load_local(s, HW_RAX);
-    orex(1, HW_RAX, 0, 0xff);
-    g(0xe0 | reg_value(HW_RAX));
+    g(0x48);
+    g(0x89);
+    g(0xc7);
+    emit_runtime_call("xlr8_jit_addr");
+    br_via_ip();
 }
 
 
 void x86::icall_local(byte s)
 // ----------------------------------------------------------------------------
-//   Indirect call through local s
+//   Indirect call through local s (bytecode PC -> native)
 // ----------------------------------------------------------------------------
 {
     record(x86, "icall_local(%u)", s);
-    ijmp_local(s);
+    size_t adr_at = cursor();
+    g(0x48);
+    g(0x8d);
+    g(0x05);
+    emit32(0);
+    g(0x48);
+    g(0x89);
+    g(0xc7);
+    emit_runtime_call("xlr8_push_value");
+    emit_runtime_call("xlr8_sync_args");
+    load_local(s, HW_RAX);
+    g(0x48);
+    g(0x89);
+    g(0xc7);
+    emit_runtime_call("xlr8_jit_addr");
+    size_t call_at = cursor();
+    g(0xff);
+    g(0xd0);
+    int off = int(call_at + 2) - int(adr_at + 7);
+    code().patch32(adr_at + 3, uint32_t(off));
 }
 
 
@@ -886,8 +977,16 @@ void x86::push_pc()
 // ----------------------------------------------------------------------------
 {
     record(x86, "push_pc()");
-    g(0x68);
-    emit32(uint32_t(cursor()));
+    size_t adr_at = cursor();
+    g(0x48);
+    g(0x8d);
+    g(0x05);
+    emit32(0);
+    g(0x48);
+    g(0x89);
+    g(0xc7);
+    emit_runtime_call("xlr8_push_value");
+    code().patch32(adr_at + 3, uint32_t(-7));
 }
 
 
@@ -904,11 +1003,12 @@ void x86::load_pc(byte d)
 
 void x86::load_pca(byte d, broff_t b)
 // ----------------------------------------------------------------------------
-//   Load PC plus offset into local d
+//   Load bytecode PC plus offset into local d (interpreter semantics)
 // ----------------------------------------------------------------------------
 {
     record(x86, "load_pca(%u, %lld)", d, b);
-    load_hw_imm(HW_RAX, cursor() + size_t(b));
+    (void) b;
+    load_hw_imm(HW_RAX, uint64_t(pending_branch_target));
     store_local(HW_RAX, d);
 }
 
@@ -919,17 +1019,21 @@ void x86::get_arg(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(x86, "get_arg(%u, %u)", d, s);
-    mov_local(d, s);
+    load_hw_imm(HW_RDI, uint64_t(d));
+    load_hw_imm(HW_RSI, uint64_t(s));
+    emit_runtime_call("xlr8_get_arg");
 }
 
 
 void x86::set_arg(byte d, byte s)
 // ----------------------------------------------------------------------------
-//   Copy local d into argument slot s
+//   Copy local s into argument slot d
 // ----------------------------------------------------------------------------
 {
     record(x86, "set_arg(%u, %u)", d, s);
-    mov_local(s, d);
+    load_hw_imm(HW_RDI, uint64_t(d));
+    load_hw_imm(HW_RSI, uint64_t(s));
+    emit_runtime_call("xlr8_set_arg");
 }
 
 
@@ -940,8 +1044,10 @@ void x86::push_local(byte s)
 {
     record(x86, "push_local(%u)", s);
     load_local(s, HW_RAX);
-    orex(1, HW_RSP, 0, 0xff);
-    g(0x30 | reg_value(HW_RSP));
+    g(0x48);
+    g(0x89);
+    g(0xc7);
+    emit_runtime_call("xlr8_push_value");
 }
 
 
@@ -951,8 +1057,7 @@ void x86::pop_local(byte d)
 // ----------------------------------------------------------------------------
 {
     record(x86, "pop_local(%u)", d);
-    orex(1, HW_RSP, 0, 0x8f);
-    g(0x00 | reg_value(HW_RSP));
+    emit_runtime_call("xlr8_pop_value");
     store_local(HW_RAX, d);
 }
 
@@ -1062,11 +1167,7 @@ void x86::emit_runtime_call(cstring fn, byte a)
     load_hw_imm(HW_RDI, uint64_t(a));
     call_ptr(xlr8_runtime_fn(fn));
     if (!strcmp(fn, "xlr8_enter") || !strcmp(fn, "xlr8_leave"))
-    {
-        g(0x49);
-        g(0x89);
-        g(0xc4);
-    }
+        reload_frame_reg();
 }
 
 
