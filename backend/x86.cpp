@@ -56,10 +56,7 @@ void x86::begin_translation()
 // ----------------------------------------------------------------------------
 {
     record(x86, "begin_translation()");
-    g(0x48);
-    g(0x83);
-    g(0xec);
-    g(0x08);
+    emit_sub_rsp_imm8(0x08);
 }
 
 
@@ -69,10 +66,7 @@ void x86::finish_translation()
 // ----------------------------------------------------------------------------
 {
     record(x86, "finish_translation()");
-    g(0x48);
-    g(0x83);
-    g(0xc4);
-    g(0x08);
+    emit_add_rsp_imm8(0x08);
     do_ret();
 }
 
@@ -83,10 +77,9 @@ size_t x86::emit_over_callees_branch()
 // ----------------------------------------------------------------------------
 {
     record(x86, "emit_over_callees_branch()");
-    g(0xe9);
+    emit_near_jmp_rel32();
     size_t pos = cursor();
-    emit32(0);
-    return pos;
+    return pos - 4;
 }
 
 
@@ -107,9 +100,7 @@ void x86::reload_frame_reg()
 // ----------------------------------------------------------------------------
 {
     record(x86, "reload_frame_reg()");
-    g(0x49);
-    g(0x89);
-    g(0xc4);
+    emit_mov_r12_rax();
 }
 
 
@@ -120,8 +111,7 @@ void x86::reload_flags_reg()
 {
     record(x86, "reload_flags_reg()");
     emit_runtime_call("xlr8_get_flags");
-    orex(1, HW_RAX, HW_FLAGS, 0x89);
-    g(modrm_rr(HW_RAX, HW_FLAGS));
+    emit_mov_rr(HW_FLAGS, HW_RAX);
 }
 
 
@@ -131,8 +121,7 @@ void x86::br_via_ip()
 // ----------------------------------------------------------------------------
 {
     record(x86, "br_via_ip()");
-    g(0xff);
-    g(0xe0);
+    emit_jmp_rax();
 }
 
 
@@ -383,7 +372,7 @@ if (!strcmp(op, "add"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x01); g(modrm_rr(HW_RCX, HW_RAX));
+    emit_add_rr(HW_RAX, HW_RCX);
 }
 
 else if (!strcmp(op, "sub"))
@@ -391,7 +380,7 @@ else if (!strcmp(op, "sub"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x29); g(modrm_rr(HW_RCX, HW_RAX));
+    emit_sub_rr(HW_RAX, HW_RCX);
 }
 
 else if (!strcmp(op, "imul"))
@@ -399,7 +388,7 @@ else if (!strcmp(op, "imul"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x0f); g(0xaf); g(modrm_rr(HW_RAX, HW_RCX));
+    emit_imul_rax_rcx();
 }
 
 else if (!strcmp(op, "and"))
@@ -407,7 +396,7 @@ else if (!strcmp(op, "and"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x21); g(modrm_rr(HW_RCX, HW_RAX));
+    emit_and_rr(HW_RAX, HW_RCX);
 }
 
 else if (!strcmp(op, "or"))
@@ -415,7 +404,7 @@ else if (!strcmp(op, "or"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x09); g(modrm_rr(HW_RCX, HW_RAX));
+    emit_or_rr(HW_RAX, HW_RCX);
 }
 
 else if (!strcmp(op, "xor"))
@@ -423,7 +412,7 @@ else if (!strcmp(op, "xor"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, HW_RCX, 0x31); g(modrm_rr(HW_RCX, HW_RAX));
+    emit_xor_rr(HW_RAX, HW_RCX);
 }
 
 else if (!strcmp(op, "shl"))
@@ -431,7 +420,7 @@ else if (!strcmp(op, "shl"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RCX, HW_RAX, 0xd3); g(0xe0 | reg_value(HW_RAX));
+    emit_shift_cl(HW_RAX, 0xe0);
 }
 
 else if (!strcmp(op, "sar"))
@@ -439,7 +428,7 @@ else if (!strcmp(op, "sar"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RCX, HW_RAX, 0xd3); g(0xf8 | reg_value(HW_RAX));
+    emit_shift_cl(HW_RAX, 0xf8);
 }
 
 else if (!strcmp(op, "shr"))
@@ -447,7 +436,7 @@ else if (!strcmp(op, "shr"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RCX, HW_RAX, 0xd3); g(0xe8 | reg_value(HW_RAX));
+    emit_shift_cl(HW_RAX, 0xe8);
 }
 
 else if (!strcmp(op, "idiv"))
@@ -455,11 +444,8 @@ else if (!strcmp(op, "idiv"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0x48);
-    g(0x99);
-    g(0x48);
-    g(0xf7);
-    g(0xf9);
+    emit_cdq();
+    emit_idiv_rcx();
 }
 
 else if (!strcmp(op, "udiv"))
@@ -467,12 +453,8 @@ else if (!strcmp(op, "udiv"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0x48);
-    g(0x31);
-    g(0xd2);
-    g(0x48);
-    g(0xf7);
-    g(0xf1);
+    emit_xor_rdx_rdx();
+    emit_div_rcx();
 }
 
 else if (!strcmp(op, "div"))
@@ -480,12 +462,8 @@ else if (!strcmp(op, "div"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0x48);
-    g(0x31);
-    g(0xd2);
-    g(0x48);
-    g(0xf7);
-    g(0xf1);
+    emit_xor_rdx_rdx();
+    emit_div_rcx();
 }
 
 else if (!strcmp(op, "idiv_mod"))
@@ -493,13 +471,9 @@ else if (!strcmp(op, "idiv_mod"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0x48);
-    g(0x99);
-    g(0x48);
-    g(0xf7);
-    g(0xf9);
-    orex(1, HW_RDX, HW_RAX, 0x89);
-    g(modrm_rr(HW_RDX, HW_RAX));
+    emit_cdq();
+    emit_idiv_rcx();
+    emit_mov_rr(HW_RAX, HW_RDX);
 }
 
 else if (!strcmp(op, "div_mod"))
@@ -507,14 +481,9 @@ else if (!strcmp(op, "div_mod"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    g(0x48);
-    g(0x31);
-    g(0xd2);
-    g(0x48);
-    g(0xf7);
-    g(0xf1);
-    orex(1, HW_RDX, HW_RAX, 0x89);
-    g(modrm_rr(HW_RDX, HW_RAX));
+    emit_xor_rdx_rdx();
+    emit_div_rcx();
+    emit_mov_rr(HW_RAX, HW_RDX);
 }
 
 else if (!strcmp(op, "fadd"))
@@ -646,7 +615,9 @@ else if (!strcmp(op, "imul"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    orex(1, HW_RAX, 0, 0x69); g(modrm_rr(HW_RAX, HW_RAX)); emit32(uint32_t(v));
+    orex(1, HW_RAX, 0, 0x69);
+    g(modrm_rr(HW_RAX, HW_RAX));
+    emit32(uint32_t(v));
 }
 
 else if (!strcmp(op, "and"))
@@ -678,7 +649,8 @@ else if (!strcmp(op, "shl_imm"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    load_hw_imm(HW_RCX, uint64_t(v)); orex(1, HW_RCX, HW_RAX, 0xd3); g(0xe0|reg_value(HW_RAX));
+    load_hw_imm(HW_RCX, uint64_t(v));
+    emit_shift_cl(HW_RAX, 0xe0);
 }
 
 else if (!strcmp(op, "sar_imm"))
@@ -686,7 +658,8 @@ else if (!strcmp(op, "sar_imm"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    load_hw_imm(HW_RCX, uint64_t(v)); orex(1, HW_RCX, HW_RAX, 0xd3); g(0xf8|reg_value(HW_RAX));
+    load_hw_imm(HW_RCX, uint64_t(v));
+    emit_shift_cl(HW_RAX, 0xf8);
 }
 
 else if (!strcmp(op, "shr_imm"))
@@ -694,7 +667,8 @@ else if (!strcmp(op, "shr_imm"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    load_hw_imm(HW_RCX, uint64_t(v)); orex(1, HW_RCX, HW_RAX, 0xd3); g(0xe8|reg_value(HW_RAX));
+    load_hw_imm(HW_RCX, uint64_t(v));
+    emit_shift_cl(HW_RAX, 0xe8);
 }
 
 else if (!strcmp(op, "idiv_imm"))
@@ -703,11 +677,8 @@ else if (!strcmp(op, "idiv_imm"))
 // ----------------------------------------------------------------------------
 {
     load_hw_imm(HW_RCX, uint64_t(v));
-    g(0x48);
-    g(0x99);
-    g(0x48);
-    g(0xf7);
-    g(0xf9);
+    emit_cdq();
+    emit_idiv_rcx();
 }
 
 else if (!strcmp(op, "div_imm"))
@@ -716,12 +687,8 @@ else if (!strcmp(op, "div_imm"))
 // ----------------------------------------------------------------------------
 {
     load_hw_imm(HW_RCX, uint64_t(v));
-    g(0x48);
-    g(0x31);
-    g(0xd2);
-    g(0x48);
-    g(0xf7);
-    g(0xf1);
+    emit_xor_rdx_rdx();
+    emit_div_rcx();
 }
 
 else if (!strcmp(op, "idiv_mod_imm"))
@@ -730,13 +697,9 @@ else if (!strcmp(op, "idiv_mod_imm"))
 // ----------------------------------------------------------------------------
 {
     load_hw_imm(HW_RCX, uint64_t(v));
-    g(0x48);
-    g(0x99);
-    g(0x48);
-    g(0xf7);
-    g(0xf9);
-    orex(1, HW_RDX, HW_RAX, 0x89);
-    g(modrm_rr(HW_RDX, HW_RAX));
+    emit_cdq();
+    emit_idiv_rcx();
+    emit_mov_rr(HW_RAX, HW_RDX);
 }
 
 else if (!strcmp(op, "div_mod_imm"))
@@ -745,14 +708,9 @@ else if (!strcmp(op, "div_mod_imm"))
 // ----------------------------------------------------------------------------
 {
     load_hw_imm(HW_RCX, uint64_t(v));
-    g(0x48);
-    g(0x31);
-    g(0xd2);
-    g(0x48);
-    g(0xf7);
-    g(0xf1);
-    orex(1, HW_RDX, HW_RAX, 0x89);
-    g(modrm_rr(HW_RDX, HW_RAX));
+    emit_xor_rdx_rdx();
+    emit_div_rcx();
+    emit_mov_rr(HW_RAX, HW_RDX);
 }
 
     store_local(HW_RAX, d);
@@ -765,26 +723,13 @@ void x86::set_pred_cmp(byte p, byte cc)
 // ----------------------------------------------------------------------------
 {
     record(x86, "set_pred_cmp(%u, %u)", p, cc);
-    g(0x0f);
-    g(cc);
-    g(0xc0 | reg_value(HW_RAX));
-    g(0x0f);
-    g(0xb6);
-    g(0xc0 | reg_value(HW_RAX));
-    orex(1, HW_RAX, HW_SCR, 0x89);
-    g(modrm_rr(HW_RAX, HW_SCR));
-    load_hw_imm(HW_RAX, ~(1ULL << p));
-    orex(1, HW_RAX, HW_FLAGS, 0x21);
-    g(modrm_rr(HW_RAX, HW_FLAGS));
-    orex(1, HW_SCR, HW_SCR, 0x85);
-    g(modrm_rr(HW_SCR, HW_SCR));
-    g(0x0f);
-    g(0x84);
-    uint pos = uint(cursor());
-    emit32(0);
-    load_hw_imm(HW_RAX, 1ULL << p);
-    orex(1, HW_RAX, HW_FLAGS, 0x09);
-    g(modrm_rr(HW_RAX, HW_FLAGS));
+    emit_setcc_al(cc);
+    emit_movzx_eax_al();
+    emit_mov_rr(HW_SCR, HW_RAX);
+    emit_pred_clear_bit(p);
+    emit_test_rr(HW_SCR, HW_SCR);
+    size_t pos = emit_jcc_rel32(JCC_JZ);
+    emit_pred_set_bit(p);
     patch_branch_site(pos, cursor());
 }
 
@@ -796,17 +741,9 @@ void x86::set_pred(byte p, bool on)
 {
     record(x86, "set_pred(%u, %d)", p, on);
     if (on)
-    {
-        load_hw_imm(HW_RAX, 1ULL << p);
-        orex(1, HW_RAX, HW_FLAGS, 0x09);
-        g(modrm_rr(HW_RAX, HW_FLAGS));
-    }
+        emit_pred_set_bit(p);
     else
-    {
-        load_hw_imm(HW_RAX, ~(1ULL << p));
-        orex(1, HW_RAX, HW_FLAGS, 0x21);
-        g(modrm_rr(HW_RAX, HW_FLAGS));
-    }
+        emit_pred_clear_bit(p);
 }
 
 
@@ -818,16 +755,8 @@ void x86::cmp_local(byte p, byte d, byte s, cstring rel)
     record(x86, "cmp_local(%u, %u, %u, %s)", p, d, s, rel);
     load_local(d, HW_RAX);
     load_local(s, HW_RCX);
-    orex(1, HW_RAX, HW_RCX, 0x39);
-    g(modrm_rr(HW_RCX, HW_RAX));
-    byte cc = 0x94;
-    if (!strcmp(rel, "eq")) cc = 0x94;
-    else if (!strcmp(rel, "ne")) cc = 0x95;
-    else if (!strcmp(rel, "lt")) cc = 0x9c;
-    else if (!strcmp(rel, "le")) cc = 0x9e;
-    else if (!strcmp(rel, "ltu")) cc = 0x92;
-    else if (!strcmp(rel, "leu")) cc = 0x96;
-    set_pred_cmp(p, cc);
+    emit_cmp_rr(HW_RAX, HW_RCX);
+    set_pred_cmp(p, setcc_from_rel(rel));
 }
 
 
@@ -840,14 +769,7 @@ void x86::cmp_imm(byte p, byte d, value_t v, cstring rel)
     load_local(d, HW_RAX);
     orex(1, HW_RAX, 0, 0x3d);
     emit32(uint32_t(v));
-    byte cc = 0x94;
-    if (!strcmp(rel, "eq")) cc = 0x94;
-    else if (!strcmp(rel, "ne")) cc = 0x95;
-    else if (!strcmp(rel, "lt")) cc = 0x9c;
-    else if (!strcmp(rel, "le")) cc = 0x9e;
-    else if (!strcmp(rel, "ltu")) cc = 0x92;
-    else if (!strcmp(rel, "leu")) cc = 0x96;
-    set_pred_cmp(p, cc);
+    set_pred_cmp(p, setcc_from_rel(rel));
 }
 
 
@@ -891,8 +813,7 @@ void x86::neg_local(byte d)
 {
     record(x86, "neg_local(%u)", d);
     load_local(d, HW_RAX);
-    orex(1, HW_RAX, 0, 0xf7);
-    g(0xd8 | reg_value(HW_RAX));
+    emit_grp3_f7(HW_RAX, 0xd8);
     store_local(HW_RAX, d);
 }
 
@@ -904,8 +825,7 @@ void x86::not_local(byte d)
 {
     record(x86, "not_local(%u)", d);
     load_local(d, HW_RAX);
-    orex(1, HW_RAX, 0, 0xf7);
-    g(0xd0 | reg_value(HW_RAX));
+    emit_grp3_f7(HW_RAX, 0xd0);
     store_local(HW_RAX, d);
 }
 
@@ -917,8 +837,7 @@ void x86::incr_local(byte d)
 {
     record(x86, "incr_local(%u)", d);
     load_local(d, HW_RAX);
-    orex(1, HW_RAX, 0, 0xff);
-    g(0xc0 | reg_value(HW_RAX));
+    emit_grp5_ff(HW_RAX, 0xc0);
     store_local(HW_RAX, d);
 }
 
@@ -930,8 +849,7 @@ void x86::decr_local(byte d)
 {
     record(x86, "decr_local(%u)", d);
     load_local(d, HW_RAX);
-    orex(1, HW_RAX, 0, 0xff);
-    g(0xc8 | reg_value(HW_RAX));
+    emit_grp5_ff(HW_RAX, 0xc8);
     store_local(HW_RAX, d);
 }
 
@@ -946,10 +864,8 @@ void x86::sext_local(byte d, byte w)
     if (w < 64)
     {
         load_hw_imm(HW_RCX, 64 - w);
-        orex(1, HW_RCX, HW_RAX, 0xd3);
-        g(0xe0 | reg_value(HW_RAX));
-        orex(1, HW_RCX, HW_RAX, 0xd3);
-        g(0xf8 | reg_value(HW_RAX));
+        emit_shift_cl(HW_RAX, 0xe0);
+        emit_shift_cl(HW_RAX, 0xf8);
     }
     store_local(HW_RAX, d);
 }
@@ -1161,8 +1077,7 @@ void x86::frame_addr(byte d, byte s)
 {
     record(x86, "frame_addr(%u, %u)", d, s);
     load_hw_imm(HW_RAX, uint64_t(local_disp(s)));
-    orex(1, HW_RAX, HW_FRAME, 0x03);
-    g(modrm_rr(HW_RAX, HW_FRAME));
+    emit_add_rr(HW_FRAME, HW_RAX);
     store_local(HW_RAX, d);
 }
 
@@ -1184,14 +1099,9 @@ void x86::bra_pred(byte p, broff_t b, bool sense)
 // ----------------------------------------------------------------------------
 {
     record(x86, "bra_pred(%u, %lld, %d)", p, b, sense);
-    load_hw_imm(HW_RAX, 1ULL << p);
-    orex(1, HW_RAX, HW_FLAGS, 0x85);
-    g(modrm_rr(HW_RAX, HW_FLAGS));
-    g(0x0f);
-    g(sense ? 0x85 : 0x84);
-    uint pos = uint(cursor());
-    emit32(0);
-    record_branch(b, pos);
+    emit_pred_test_bit(p);
+    size_t pos = emit_jcc_rel32(sense ? JCC_JNZ : JCC_JZ);
+    record_branch(b, uint(pos));
 }
 
 
@@ -1202,13 +1112,9 @@ void x86::bra_zero(byte s, broff_t b, bool eq)
 {
     record(x86, "bra_zero(%u, %lld, %d)", s, b, eq);
     load_local(s, HW_RAX);
-    orex(1, HW_RAX, 0, 0x85);
-    g(modrm_rr(HW_RAX, HW_RAX));
-    g(0x0f);
-    g(eq ? 0x84 : 0x85);
-    uint pos = uint(cursor());
-    emit32(0);
-    record_branch(b, pos);
+    emit_test_rr(HW_RAX, HW_RAX);
+    size_t pos = emit_jcc_rel32(eq ? JCC_JZ : JCC_JNZ);
+    record_branch(b, uint(pos));
 }
 
 
@@ -1219,12 +1125,9 @@ void x86::bra_signed(byte s, broff_t b, byte cc)
 {
     record(x86, "bra_signed(%u, %lld, %u)", s, b, cc);
     load_local(s, HW_RAX);
-    orex(1, HW_RAX, 0, 0x85);
-    g(modrm_rr(HW_RAX, HW_RAX));
-    g(0x0f); g(cc);
-    uint pos = uint(cursor());
-    emit32(0);
-    record_branch(b, pos);
+    emit_test_rr(HW_RAX, HW_RAX);
+    size_t pos = emit_jcc_rel32(cc);
+    record_branch(b, uint(pos));
 }
 
 
@@ -1235,8 +1138,7 @@ void x86::dbra_local(byte d, broff_t b)
 {
     record(x86, "dbra_local(%u, %lld)", d, b);
     load_local(d, HW_RAX);
-    orex(1, HW_RAX, 0, 0xff);
-    g(0xc8 | reg_value(HW_RAX));
+    emit_grp5_ff(HW_RAX, 0xc8);
     store_local(HW_RAX, d);
     bra_zero(d, b, false);
 }
@@ -1260,21 +1162,15 @@ void x86::call_tok(tok_t t)
 // ----------------------------------------------------------------------------
 {
     record(x86, "call_tok(%llu)", t);
-    size_t adr_at = cursor();
-    g(0x48);
-    g(0x8d);
-    g(0x05);
-    emit32(0);
-    g(0x48);
-    g(0x89);
-    g(0xc7);
+    size_t adr_at = emit_lea_rax_rip_rel32();
+    emit_mov_rdi_rax();
     emit_runtime_call("xlr8_push_value");
     emit_runtime_call("xlr8_sync_args");
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
     uint pos = gjmp(head);
     record_tok_jump(t, pos);
-    int off = int(pos + 4) - int(adr_at + 7);
-    code().patch32(adr_at + 3, uint32_t(off));
+    int off = int(pos + 4) - int(adr_at + 4);
+    code().patch32(adr_at, uint32_t(off));
 }
 
 
@@ -1285,9 +1181,7 @@ void x86::ijmp_local(byte s)
 {
     record(x86, "ijmp_local(%u)", s);
     load_local(s, HW_RAX);
-    g(0x48);
-    g(0x89);
-    g(0xc7);
+    emit_mov_rdi_rax();
     emit_runtime_call("xlr8_jit_addr");
     br_via_ip();
 }
@@ -1299,24 +1193,16 @@ void x86::icall_local(byte s)
 // ----------------------------------------------------------------------------
 {
     record(x86, "icall_local(%u)", s);
-    size_t adr_at = cursor();
-    g(0x48);
-    g(0x8d);
-    g(0x05);
-    emit32(0);
-    g(0x48);
-    g(0x89);
-    g(0xc7);
+    size_t adr_at = emit_lea_rax_rip_rel32();
+    emit_mov_rdi_rax();
     emit_runtime_call("xlr8_push_value");
     emit_runtime_call("xlr8_sync_args");
     load_local(s, HW_RAX);
-    g(0x48);
-    g(0x89);
-    g(0xc7);
+    emit_mov_rdi_rax();
     emit_runtime_call("xlr8_jit_addr");
     br_via_ip();
-    int off = int(cursor()) - int(adr_at + 7);
-    code().patch32(adr_at + 3, uint32_t(off));
+    int off = int(cursor()) - int(adr_at + 4);
+    code().patch32(adr_at, uint32_t(off));
 }
 
 
@@ -1326,16 +1212,10 @@ void x86::push_pc()
 // ----------------------------------------------------------------------------
 {
     record(x86, "push_pc()");
-    size_t adr_at = cursor();
-    g(0x48);
-    g(0x8d);
-    g(0x05);
-    emit32(0);
-    g(0x48);
-    g(0x89);
-    g(0xc7);
+    size_t adr_at = emit_lea_rax_rip_rel32();
+    emit_mov_rdi_rax();
     emit_runtime_call("xlr8_push_value");
-    code().patch32(adr_at + 3, uint32_t(-7));
+    code().patch32(adr_at, uint32_t(-7));
 }
 
 
@@ -1393,9 +1273,7 @@ void x86::push_local(byte s)
 {
     record(x86, "push_local(%u)", s);
     load_local(s, HW_RAX);
-    g(0x48);
-    g(0x89);
-    g(0xc7);
+    emit_mov_rdi_rax();
     emit_runtime_call("xlr8_push_value");
 }
 
@@ -1417,8 +1295,7 @@ void x86::push_flags()
 // ----------------------------------------------------------------------------
 {
     record(x86, "push_flags()");
-    orex(1, HW_RDI, HW_FLAGS, 0x8b);
-    g(modrm_rr(HW_RDI, HW_FLAGS));
+    emit_mov_rr(HW_RDI, HW_FLAGS);
     emit_runtime_call("xlr8_push_flags_val");
 }
 
@@ -1464,7 +1341,7 @@ void x86::do_ret()
 // ----------------------------------------------------------------------------
 {
     record(x86, "do_ret()");
-    g(0xc3);
+    emit_insn_ret();
 }
 
 

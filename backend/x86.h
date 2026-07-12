@@ -54,6 +54,8 @@
 #include "regmap.h"
 #include "recorder.h"
 
+#include <cstring>
+
 
 struct x86 : backend
 // ----------------------------------------------------------------------------
@@ -152,6 +154,276 @@ protected:
     // ----------------------------------------------------------------------------
     {
         return byte(0x00 | (reg_value(r) << 3) | reg_value(b));
+    }
+
+    // =========================================================================
+    //  Instruction emitters
+    //
+    //  Helper names use Intel operand order (dest, src).  ModR/M encodes the
+    //  source in the reg field and the destination in r/m, so every rr helper
+    //  ends up calling modrm_rr(src, dest).
+    // =========================================================================
+
+    static constexpr byte JCC_JZ  = 0x84;   // je / jz
+    static constexpr byte JCC_JNZ = 0x85;   // jne / jnz
+    static constexpr byte JCC_JL  = 0x8c;   // jl / jnge
+    static constexpr byte JCC_JLE = 0x8e;   // jle / jng
+    static constexpr byte JCC_JGE = 0x8d;   // jge / jnl
+    static constexpr byte JCC_JG  = 0x8f;   // jg / jnle
+
+    static constexpr byte SETCC_EQ  = 0x94; // sete / setz
+    static constexpr byte SETCC_NE  = 0x95; // setne / setnz
+    static constexpr byte SETCC_LT  = 0x9c; // setl / setnge
+    static constexpr byte SETCC_LE  = 0x9e; // setle / setng
+    static constexpr byte SETCC_LTU = 0x92; // setb / setnae
+    static constexpr byte SETCC_LEU = 0x96; // setbe / setna
+
+    void emit_op_rr(byte op, uint dest, uint src, int ll = 1)
+    // ----------------------------------------------------------------------------
+    //   Emit a two-register ALU opcode: op dest, src
+    // ----------------------------------------------------------------------------
+    {
+        orex(ll, src, dest, op);
+        g(modrm_rr(src, dest));
+    }
+
+    void emit_mov_rr(uint dest, uint src)    { emit_op_rr(0x89, dest, src); }
+    void emit_add_rr(uint dest, uint src)    { emit_op_rr(0x01, dest, src); }
+    void emit_sub_rr(uint dest, uint src)    { emit_op_rr(0x29, dest, src); }
+    void emit_and_rr(uint dest, uint src)    { emit_op_rr(0x21, dest, src); }
+    void emit_or_rr(uint dest, uint src)     { emit_op_rr(0x09, dest, src); }
+    void emit_xor_rr(uint dest, uint src)    { emit_op_rr(0x31, dest, src); }
+    void emit_cmp_rr(uint dest, uint src)    { emit_op_rr(0x39, dest, src); }
+    void emit_test_rr(uint dest, uint src)   { emit_op_rr(0x85, dest, src); }
+
+    void emit_setcc_al(byte cc)
+    // ----------------------------------------------------------------------------
+    //   Emit SETcc al (low byte of rax must hold the value being tested)
+    // ----------------------------------------------------------------------------
+    {
+        g(0x0f);
+        g(cc);
+        g(0xc0 | reg_value(HW_RAX));
+    }
+
+    void emit_movzx_eax_al()
+    // ----------------------------------------------------------------------------
+    //   Emit movzx eax, al
+    // ----------------------------------------------------------------------------
+    {
+        g(0x0f);
+        g(0xb6);
+        g(0xc0 | reg_value(HW_RAX));
+    }
+
+    void emit_grp3_f7(uint r, byte ext)
+    // ----------------------------------------------------------------------------
+    //   Emit Group 3 F7 /ext on 64-bit register r (neg/not)
+    // ----------------------------------------------------------------------------
+    {
+        orex(1, r, 0, 0xf7);
+        g(ext | reg_value(r));
+    }
+
+    void emit_grp5_ff(uint r, byte ext)
+    // ----------------------------------------------------------------------------
+    //   Emit Group 5 FF /ext on 64-bit register r (inc/dec)
+    // ----------------------------------------------------------------------------
+    {
+        orex(1, r, 0, 0xff);
+        g(ext | reg_value(r));
+    }
+
+    void emit_shift_cl(uint dest, byte ext)
+    // ----------------------------------------------------------------------------
+    //   Emit d3 /ext dest, cl (shl/sar/shr by rcx)
+    // ----------------------------------------------------------------------------
+    {
+        orex(1, HW_RCX, dest, 0xd3);
+        g(ext | reg_value(dest));
+    }
+
+    size_t emit_jcc_rel32(byte cc)
+    // ----------------------------------------------------------------------------
+    //   Emit 0f cc rel32 and return the offset patch site
+    // ----------------------------------------------------------------------------
+    {
+        g(0x0f);
+        g(cc);
+        size_t pos = cursor();
+        emit32(0);
+        return pos;
+    }
+
+    void emit_near_jmp_rel32()
+    // ----------------------------------------------------------------------------
+    //   Emit e9 rel32 (unconditional near jump)
+    // ----------------------------------------------------------------------------
+    {
+        g(0xe9);
+        emit32(0);
+    }
+
+    void emit_sub_rsp_imm8(byte imm)
+    // ----------------------------------------------------------------------------
+    //   Emit sub rsp, imm8
+    // ----------------------------------------------------------------------------
+    {
+        g(0x48);
+        g(0x83);
+        g(0xec);
+        g(imm);
+    }
+
+    void emit_add_rsp_imm8(byte imm)
+    // ----------------------------------------------------------------------------
+    //   Emit add rsp, imm8
+    // ----------------------------------------------------------------------------
+    {
+        g(0x48);
+        g(0x83);
+        g(0xc4);
+        g(imm);
+    }
+
+    void emit_insn_ret()
+    // ----------------------------------------------------------------------------
+    //   Emit near return (c3)
+    // ----------------------------------------------------------------------------
+    {
+        g(0xc3);
+    }
+
+    void emit_jmp_rax()
+    // ----------------------------------------------------------------------------
+    //   Emit jmp rax
+    // ----------------------------------------------------------------------------
+    {
+        g(0xff);
+        g(0xe0);
+    }
+
+    void emit_cdq()
+    // ----------------------------------------------------------------------------
+    //   Emit cdq (sign-extend eax into edx:eax)
+    // ----------------------------------------------------------------------------
+    {
+        g(0x48);
+        g(0x99);
+    }
+
+    void emit_xor_rdx_rdx()
+    // ----------------------------------------------------------------------------
+    //   Emit xor rdx, rdx
+    // ----------------------------------------------------------------------------
+    {
+        g(0x48);
+        g(0x31);
+        g(0xd2);
+    }
+
+    void emit_idiv_rcx()
+    // ----------------------------------------------------------------------------
+    //   Emit idiv rcx (rax = quotient, rdx = remainder)
+    // ----------------------------------------------------------------------------
+    {
+        g(0x48);
+        g(0xf7);
+        g(0xf9);
+    }
+
+    void emit_div_rcx()
+    // ----------------------------------------------------------------------------
+    //   Emit div rcx (unsigned)
+    // ----------------------------------------------------------------------------
+    {
+        g(0x48);
+        g(0xf7);
+        g(0xf1);
+    }
+
+    void emit_imul_rax_rcx()
+    // ----------------------------------------------------------------------------
+    //   Emit imul rax, rcx
+    // ----------------------------------------------------------------------------
+    {
+        orex(1, HW_RAX, HW_RCX, 0x0f);
+        g(0xaf);
+        g(modrm_rr(HW_RAX, HW_RCX));
+    }
+
+    void emit_mov_r12_rax()
+    // ----------------------------------------------------------------------------
+    //   Emit mov r12, rax (reload frame pointer)
+    // ----------------------------------------------------------------------------
+    {
+        g(0x49);
+        g(0x89);
+        g(0xc4);
+    }
+
+    void emit_mov_rdi_rax()
+    // ----------------------------------------------------------------------------
+    //   Emit mov rdi, rax (first integer argument for SysV calls)
+    // ----------------------------------------------------------------------------
+    {
+        g(0x48);
+        g(0x89);
+        g(0xc7);
+    }
+
+    size_t emit_lea_rax_rip_rel32()
+    // ----------------------------------------------------------------------------
+    //   Emit lea rax, [rip+disp32] and return the disp32 patch site
+    // ----------------------------------------------------------------------------
+    {
+        g(0x48);
+        g(0x8d);
+        g(0x05);
+        size_t pos = cursor();
+        emit32(0);
+        return pos;
+    }
+
+    void emit_pred_clear_bit(byte p)
+    // ----------------------------------------------------------------------------
+    //   Clear predicate bit p in HW_FLAGS (r15)
+    // ----------------------------------------------------------------------------
+    {
+        load_hw_imm(HW_RAX, ~(1ULL << p));
+        emit_and_rr(HW_FLAGS, HW_RAX);
+    }
+
+    void emit_pred_set_bit(byte p)
+    // ----------------------------------------------------------------------------
+    //   Set predicate bit p in HW_FLAGS (r15)
+    // ----------------------------------------------------------------------------
+    {
+        load_hw_imm(HW_RAX, 1ULL << p);
+        emit_or_rr(HW_FLAGS, HW_RAX);
+    }
+
+    void emit_pred_test_bit(byte p)
+    // ----------------------------------------------------------------------------
+    //   Test predicate bit p in HW_FLAGS (r15) without modifying r15
+    // ----------------------------------------------------------------------------
+    {
+        load_hw_imm(HW_RAX, 1ULL << p);
+        emit_test_rr(HW_FLAGS, HW_RAX);
+    }
+
+    byte setcc_from_rel(cstring rel)
+    // ----------------------------------------------------------------------------
+    //   Map a comparison name to a SETcc opcode byte
+    // ----------------------------------------------------------------------------
+    {
+        if (!strcmp(rel, "eq"))  return SETCC_EQ;
+        if (!strcmp(rel, "ne"))  return SETCC_NE;
+        if (!strcmp(rel, "lt"))  return SETCC_LT;
+        if (!strcmp(rel, "le"))  return SETCC_LE;
+        if (!strcmp(rel, "ltu")) return SETCC_LTU;
+        if (!strcmp(rel, "leu")) return SETCC_LEU;
+        return SETCC_EQ;
     }
 
     void            orex(int ll, int r, int x, byte c);
