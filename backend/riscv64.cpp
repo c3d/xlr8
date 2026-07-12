@@ -138,18 +138,50 @@ void riscv64::emit32le(uint32_t insn)
 }
 
 
+void riscv64::load_uimm32(uint r, uint32_t v)
+// ----------------------------------------------------------------------------
+//   Load a 32-bit unsigned value into r with upper bits cleared
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "load_uimm32(%u, %u)", r, v);
+    if (v < 0x800u)
+    {
+        emit32le(addi(r, 0, int(v)));
+        return;
+    }
+    int32_t hi = int32_t((int64_t(int32_t(v)) + 0x800) >> 12);
+    int32_t lo = int32_t(int32_t(v) - (hi << 12));
+    emit32le(lui(r, uint32_t(hi) & 0xfffffu));
+    if (lo)
+        emit32le(addi(r, r, lo));
+    if (v & 0x80000000u)
+    {
+        emit32le(slli(r, r, 32));
+        emit32le(srli(r, r, 32));
+    }
+}
+
+
 void riscv64::load_imm64(uint r, uint64_t v)
 // ----------------------------------------------------------------------------
 //   Load a 64-bit constant into RISC-V register r
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "load_imm64(%u, %lld)", r, v);
-    int64_t sv = int64_t(v);
-    int32_t hi = int32_t((sv + 0x800) >> 12);
-    int32_t lo = int32_t(sv - (int64_t(hi) << 12));
-    emit32le(lui(r, uint32_t(hi) & 0xfffffu));
-    if (lo)
-        emit32le(addi(r, r, lo));
+    int64_t s32 = int64_t(int32_t(uint32_t(v)));
+    if (v == uint64_t(s32) && s32 >= -2048 && s32 < 2048)
+    {
+        emit32le(addi(r, 0, int(s32)));
+        return;
+    }
+    uint32_t lo = uint32_t(v);
+    uint32_t hi = uint32_t(v >> 32);
+    load_uimm32(r, lo);
+    if (!hi)
+        return;
+    load_uimm32(HW_SCR_VAL, hi);
+    emit32le(slli(HW_SCR_VAL, HW_SCR_VAL, 32));
+    emit32le(or_rr(r, r, HW_SCR_VAL));
 }
 
 
