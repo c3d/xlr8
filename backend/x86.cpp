@@ -120,7 +120,7 @@ void x86::reload_flags_reg()
 {
     record(x86, "reload_flags_reg()");
     emit_runtime_call("xlr8_get_flags");
-    orex(1, HW_FLAGS, HW_RAX, 0x89);
+    orex(1, HW_RAX, HW_FLAGS, 0x89);
     g(modrm_rr(HW_RAX, HW_FLAGS));
 }
 
@@ -766,8 +766,8 @@ void x86::set_pred_cmp(byte p, byte cc)
 {
     record(x86, "set_pred_cmp(%u, %u)", p, cc);
     load_hw_imm(HW_RAX, ~(1ULL << p));
-    orex(1, HW_FLAGS, HW_RAX, 0x21);
-    g(modrm_rr(HW_FLAGS, HW_RAX));
+    orex(1, HW_RAX, HW_FLAGS, 0x21);
+    g(modrm_rr(HW_RAX, HW_FLAGS));
     g(0x0f);
     g(cc);
     g(0xc0 | reg_value(HW_RAX));
@@ -778,8 +778,8 @@ void x86::set_pred_cmp(byte p, byte cc)
     uint pos = uint(cursor());
     emit32(0);
     load_hw_imm(HW_RAX, 1ULL << p);
-    orex(1, HW_FLAGS, HW_RAX, 0x09);
-    g(modrm_rr(HW_FLAGS, HW_RAX));
+    orex(1, HW_RAX, HW_FLAGS, 0x09);
+    g(modrm_rr(HW_RAX, HW_FLAGS));
     patch_branch_site(pos, cursor());
 }
 
@@ -793,14 +793,14 @@ void x86::set_pred(byte p, bool on)
     if (on)
     {
         load_hw_imm(HW_RAX, 1ULL << p);
-        orex(1, HW_FLAGS, HW_RAX, 0x09);
-        g(modrm_rr(HW_FLAGS, HW_RAX));
+        orex(1, HW_RAX, HW_FLAGS, 0x09);
+        g(modrm_rr(HW_RAX, HW_FLAGS));
     }
     else
     {
         load_hw_imm(HW_RAX, ~(1ULL << p));
-        orex(1, HW_FLAGS, HW_RAX, 0x21);
-        g(modrm_rr(HW_FLAGS, HW_RAX));
+        orex(1, HW_RAX, HW_FLAGS, 0x21);
+        g(modrm_rr(HW_RAX, HW_FLAGS));
     }
 }
 
@@ -955,8 +955,8 @@ void x86::zext_local(byte d, byte w)
     if (w < 64)
     {
         load_hw_imm(HW_RCX, (1ULL << w) - 1);
-        orex(1, HW_RCX, HW_RAX, 0x23);
-        g(modrm_rr(HW_RCX, HW_RAX));
+        orex(1, HW_RAX, HW_RCX, 0x23);
+        g(modrm_rr(HW_RAX, HW_RCX));
     }
     store_local(HW_RAX, d);
 }
@@ -1412,7 +1412,7 @@ void x86::push_flags()
 {
     record(x86, "push_flags()");
     orex(1, HW_RDI, HW_FLAGS, 0x8b);
-    g(modrm_rr(HW_FLAGS, HW_RDI));
+    g(modrm_rr(HW_RDI, HW_FLAGS));
     emit_runtime_call("xlr8_push_flags_val");
 }
 
