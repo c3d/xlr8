@@ -949,7 +949,7 @@ void x86::zext_local(byte d, byte w)
 
 void x86::store_mem(byte d, byte s, uint sz)
 // ----------------------------------------------------------------------------
-//   Store local d at address in local s
+//   Store value from local s at address in local d
 // ----------------------------------------------------------------------------
 {
     record(x86, "store_mem(%u, %u, %u)", d, s, sz);
@@ -1023,30 +1023,87 @@ else if (sz == 4)
 
 void x86::store_mem_off(byte d, byte s, value_t o, uint sz)
 // ----------------------------------------------------------------------------
-//   Store local d at address s plus offset
+//   Store value from local s at address in local d plus offset
 // ----------------------------------------------------------------------------
 {
     record(x86, "store_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
     load_local(d, HW_RAX);
+    if (o)
+    {
+        load_hw_imm(HW_RDX, uint64_t(o));
+        orex(1, HW_RDX, HW_RAX, 0x01);
+        g(modrm_rr(HW_RDX, HW_RAX));
+    }
     load_local(s, HW_RCX);
-    load_hw_imm(HW_RDX, uint64_t(o));
-    orex(1, HW_RDX, HW_RAX, 0x01);
-    g(modrm_rr(HW_RDX, HW_RAX));
-    store_mem(d, s, sz);
+if (sz == 1)
+// ----------------------------------------------------------------------------
+//   If
+// ----------------------------------------------------------------------------
+{
+    g(0x88); g(0x08);
+}
+
+else if (sz == 2)
+// ----------------------------------------------------------------------------
+//   If
+// ----------------------------------------------------------------------------
+{
+    g(0x66); g(0x89); g(0x08);
+}
+
+else if (sz == 4)
+// ----------------------------------------------------------------------------
+//   If
+// ----------------------------------------------------------------------------
+{
+    g(0x89); g(0x08);
+}
+
+    else { emit_rex_modrm(1, HW_RCX, HW_RAX, HW_RAX, 0x89); }
 }
 
 
 void x86::load_mem_off(byte d, byte s, value_t o, uint sz)
 // ----------------------------------------------------------------------------
-//   Load from address s plus offset into local d
+//   Load from address in local s plus offset into local d
 // ----------------------------------------------------------------------------
 {
     record(x86, "load_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
     load_local(s, HW_RAX);
-    load_hw_imm(HW_RCX, uint64_t(o));
-    orex(1, HW_RCX, HW_RAX, 0x01);
-    g(modrm_rr(HW_RCX, HW_RAX));
-    load_mem(d, s, sz);
+    if (o)
+    {
+        load_hw_imm(HW_RCX, uint64_t(o));
+        orex(1, HW_RCX, HW_RAX, 0x01);
+        g(modrm_rr(HW_RCX, HW_RAX));
+    }
+if (sz == 1)
+// ----------------------------------------------------------------------------
+//   If
+// ----------------------------------------------------------------------------
+{
+    g(0x8a); g(0x00);
+    g(0x0f); g(0xb6); g(0xc0);
+}
+
+else if (sz == 2)
+// ----------------------------------------------------------------------------
+//   If
+// ----------------------------------------------------------------------------
+{
+    g(0x66); g(0x8b); g(0x00);
+    g(0x0f); g(0xb7); g(0xc0);
+}
+
+else if (sz == 4)
+// ----------------------------------------------------------------------------
+//   If
+// ----------------------------------------------------------------------------
+{
+    g(0x8b); g(0x00);
+}
+
+    else { emit_rex_modrm(1, HW_RAX, HW_RAX, HW_RAX, 0x8b); }
+    store_local(HW_RAX, d);
 }
 
 
@@ -1103,10 +1160,10 @@ void x86::bra_pred(byte p, broff_t b, bool sense)
 {
     record(x86, "bra_pred(%u, %lld, %d)", p, b, sense);
     load_hw_imm(HW_RAX, 1ULL << p);
-    orex(1, HW_RAX, HW_FLAGS, 0x21);
-    g(modrm_rr(HW_RAX, HW_FLAGS));
-    orex(1, HW_FLAGS, 0, 0x85);
-    g(modrm_rr(HW_FLAGS, HW_FLAGS));
+    orex(1, HW_RAX, HW_FLAGS, 0x23);
+    g(modrm_rr(HW_FLAGS, HW_RAX));
+    orex(1, HW_RAX, 0, 0x85);
+    g(modrm_rr(HW_RAX, HW_RAX));
     g(0x0f);
     g(sense ? 0x85 : 0x84);
     uint pos = uint(cursor());
