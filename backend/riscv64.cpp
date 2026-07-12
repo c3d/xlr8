@@ -1209,7 +1209,7 @@ void riscv64::call_tok(tok_t t)
     emit32le(nop_insn());
     emit32le(nop_insn());
     emit32le(mv_rr(10, HW_SCR_VAL));
-    call_abs((void *) xlr8_save_jit_link);
+    rtcall("xlr8_push_value");
     rtcall("xlr8_sync_args");
     reload_shadows();
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
@@ -1238,7 +1238,10 @@ void riscv64::ijmp_local(byte s)
 {
     record(riscv64, "ijmp_local(%u)", s);
     spill_frame();
-    load_local(s, 10);
+    if (s < LOC_SHADOW_COUNT)
+        emit32le(mv_rr(10, xreg(s)));
+    else
+        load_local(s, 10);
     rtcall("xlr8_jit_addr");
     br_via_ip();
 }
@@ -1255,10 +1258,13 @@ void riscv64::icall_local(byte s)
     emit32le(nop_insn());
     emit32le(nop_insn());
     emit32le(mv_rr(10, HW_SCR_VAL));
-    call_abs((void *) xlr8_save_jit_link);
+    rtcall("xlr8_push_value");
     rtcall("xlr8_sync_args");
     reload_shadows();
-    load_local(s, 10);
+    if (s < LOC_SHADOW_COUNT)
+        emit32le(mv_rr(10, xreg(s)));
+    else
+        load_local(s, 10);
     rtcall("xlr8_jit_addr");
     emit32le(mv_rr(HW_IP, 10));
     reload_shadows();

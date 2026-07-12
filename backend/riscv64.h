@@ -637,7 +637,7 @@ protected:
     //   Encode fmv.x.w rd, fs
     // ----------------------------------------------------------------------------
     {
-        return 0xe0001053u | (fs << 15) | (rd << 7);
+        return 0xf0001053u | (fs << 15) | (rd << 7);
     }
 
     static inline uint fadd_s(uint fd, uint fs1, uint fs2)
