@@ -77,9 +77,10 @@ size_t x86::emit_over_callees_branch()
 // ----------------------------------------------------------------------------
 {
     record(x86, "emit_over_callees_branch()");
-    emit_near_jmp_rel32();
+    g(0xe9);
     size_t pos = cursor();
-    return pos - 4;
+    emit32(0);
+    return pos;
 }
 
 
@@ -1077,7 +1078,7 @@ void x86::frame_addr(byte d, byte s)
 {
     record(x86, "frame_addr(%u, %u)", d, s);
     load_hw_imm(HW_RAX, uint64_t(local_disp(s)));
-    emit_add_rr(HW_FRAME, HW_RAX);
+    emit_add_rr(HW_RAX, HW_FRAME);
     store_local(HW_RAX, d);
 }
 
