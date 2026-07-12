@@ -845,8 +845,16 @@ void x86::bra_pred(byte p, broff_t b, bool sense)
 // ----------------------------------------------------------------------------
 {
     record(x86, "bra_pred(%u, %lld, %d)", p, b, sense);
-    (void) p; (void) sense;
-    bra_offset(b);
+    load_hw_imm(HW_RAX, 1ULL << p);
+    orex(1, HW_RAX, HW_FLAGS, 0x21);
+    g(modrm_rr(HW_RAX, HW_FLAGS));
+    orex(1, HW_FLAGS, 0, 0x85);
+    g(modrm_rr(HW_FLAGS, HW_FLAGS));
+    g(0x0f);
+    g(sense ? 0x85 : 0x84);
+    uint pos = uint(cursor());
+    emit32(0);
+    record_branch(b, pos);
 }
 
 
@@ -859,7 +867,8 @@ void x86::bra_zero(byte s, broff_t b, bool eq)
     load_local(s, HW_RAX);
     orex(1, HW_RAX, 0, 0x85);
     g(modrm_rr(HW_RAX, HW_RAX));
-    g(eq ? 0x74 : 0x75);
+    g(0x0f);
+    g(eq ? 0x84 : 0x85);
     uint pos = uint(cursor());
     emit32(0);
     record_branch(b, pos);

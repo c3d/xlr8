@@ -383,7 +383,7 @@ void x86::emit_blt(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_blt(%u, %lld)", s, b);
-    bra_signed(s, b, 0x7c);
+    bra_signed(s, b, 0x8c);
 }
 
 
@@ -393,7 +393,7 @@ void x86::emit_bgt(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_bgt(%u, %lld)", s, b);
-    bra_signed(s, b, 0x7f);
+    bra_signed(s, b, 0x8f);
 }
 
 
@@ -403,7 +403,7 @@ void x86::emit_ble(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_ble(%u, %lld)", s, b);
-    bra_signed(s, b, 0x7e);
+    bra_signed(s, b, 0x8e);
 }
 
 
@@ -413,7 +413,7 @@ void x86::emit_bge(byte s, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_bge(%u, %lld)", s, b);
-    bra_signed(s, b, 0x7d);
+    bra_signed(s, b, 0x8d);
 }
 
 
