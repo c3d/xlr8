@@ -223,8 +223,7 @@ static void invoke_i386(runtime &rt, void *code)
 #if defined(__aarch64__)
 static void invoke_arm64(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
-//   Jump to generated AArch64 code; x19 = rt.frame, x22 = rt.flags.
-//   Save x30 on the C stack so JIT may use ret (x30) after call_abs saves.
+//   Jump to generated AArch64 code; x19 = rt.frame, x22 = rt.flags
 // ----------------------------------------------------------------------------
 {
     stack_p frame = rt.frame;
@@ -232,10 +231,8 @@ static void invoke_arm64(runtime &rt, void *code)
     asm volatile(
         "mov x19, %0\n\t"
         "mov x22, %1\n\t"
-        "stp x30, xzr, [sp, #-16]!\n\t"
         "mov x16, %2\n\t"
-        "blr x16\n\t"
-        "ldp x30, xzr, [sp], #16"
+        "blr x16"
         :
         : "r"(frame), "r"(flags), "r"(code)
         : "x16", "x19", "x22", "x30", "memory", "cc");

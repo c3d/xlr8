@@ -156,10 +156,8 @@ void arm64::call_abs(void *fn)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "call_abs(%p)", fn);
-    emit32le(stp_push(30));
     load_imm64(HW_IP, uint64_t(fn));
     emit32le(blr(HW_IP));
-    emit32le(ldp_pop(30));
 }
 
 
@@ -289,11 +287,12 @@ void arm64::gsym_addr(uint t, uint a)
 
 void arm64::begin_translation()
 // ----------------------------------------------------------------------------
-//   Reload shadow registers; invoke return address lives in x30 (LR)
+//   Save link register for return to native runner
 // ----------------------------------------------------------------------------
 {
     record(arm64, "begin_translation()");
     frame_memory_touched = false;
+    emit32le(stp_push(30));
     reload_shadows();
 }
 
@@ -1280,6 +1279,7 @@ void arm64::do_ret()
 // ----------------------------------------------------------------------------
 {
     record(arm64, "do_ret()");
+    emit32le(ldp_pop(30));
     emit32le(ret_insn());
 }
 
