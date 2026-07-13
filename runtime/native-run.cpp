@@ -199,6 +199,27 @@ static void invoke_x86_64(runtime &rt, void *code)
 #endif
 
 
+#if defined(__i386__) || defined(__i386)
+static void invoke_i386(runtime &rt, void *code)
+// ----------------------------------------------------------------------------
+//   Jump to generated i386 code with ebx = rt.frame, esi = rt.flags
+// ----------------------------------------------------------------------------
+{
+    typedef void (*entry_fn)(void);
+    entry_fn entry = (entry_fn) code;
+    uintptr_t framep = uintptr_t(rt.frame);
+    uint32_t flags = uint32_t(rt.flags);
+    asm volatile(
+        "movl %0, %%ebx\n\t"
+        "movl %1, %%esi\n\t"
+        "call *%2"
+        :
+        : "r"(framep), "r"(flags), "r"(entry)
+        : "eax", "ecx", "edx", "memory", "cc");
+}
+#endif
+
+
 #if defined(__aarch64__)
 static void invoke_arm64(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
@@ -295,6 +316,8 @@ static bool native_run_impl(runtime &rt, backend &be, byte_p entry)
 
 #if defined(__x86_64__) || defined(__amd64__)
     invoke_x86_64(rt, mem);
+#elif defined(__i386__) || defined(__i386)
+    invoke_i386(rt, mem);
 #elif defined(__aarch64__)
     invoke_arm64(rt, mem);
 #elif defined(__arm__)

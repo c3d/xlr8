@@ -44,9 +44,11 @@ void x86::emit_user(op_t op, byte_p &pc)
 {
     record(x86_ops, "emit_user(%lld, %p)", op, &pc);
     byte_p args = pc;
-    load_hw_imm(HW_RDI, uint64_t(op));
-    load_hw_imm(HW_RSI, uint64_t(uintptr_t(args)));
-    emit_runtime_call("xlr8_user_op");
+    emit_set_arg1_imm(uint64_t(uintptr_t(args)));
+    emit_set_arg0_imm(uint64_t(op));
+    call_ptr(xlr8_runtime_fn("xlr8_user_op"));
+    emit_cleanup_call_args(2);
+    reload_rt_regs();
     xlr8_skip_user_args(op, pc);
 }
 
@@ -198,6 +200,9 @@ void x86::emit_ret()
 {
     record(x86_ops, "emit_ret()");
     emit_runtime_call("xlr8_pop_value");
+    emit_mov_rr(hw_scr(), HW_RAX);
+    reload_rt_regs();
+    emit_mov_rr(HW_RAX, hw_scr());
     br_via_ip();
 }
 
@@ -238,9 +243,10 @@ void x86::emit_enter(byte d)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_enter(%u)", d);
-    orex(1, HW_RDI, HW_FLAGS, 0x8b);
-    g(modrm_rr(HW_RDI, HW_FLAGS));
-    emit_runtime_call("xlr8_set_flags");
+    emit_set_arg0_r(hw_flags());
+    call_ptr(xlr8_runtime_fn("xlr8_set_flags"));
+    emit_cleanup_call_args(1);
+    reload_rt_regs();
     emit_runtime_call("xlr8_enter", d);
 }
 
@@ -303,11 +309,15 @@ void x86::emit_sys(tok_t t, byte_p args, byte_p next_pc)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_sys(%llu, %p, %p)", t, args, next_pc);
-    load_hw_imm(HW_RDI, uint64_t(t));
-    load_hw_imm(HW_RSI, uint64_t(uintptr_t(args)));
+    emit_set_arg1_imm(uint64_t(uintptr_t(args)));
+    emit_set_arg0_imm(uint64_t(t));
     call_ptr((void *) xlr8_sys);
-    load_hw_imm(HW_RDI, uint64_t(uintptr_t(next_pc)));
+    emit_cleanup_call_args(2);
+    reload_rt_regs();
+    emit_set_arg0_imm(uint64_t(uintptr_t(next_pc)));
     call_ptr((void *) xlr8_after_sys);
+    emit_cleanup_call_args(1);
+    reload_rt_regs();
     orex(1, HW_RAX, 0, 0x85);
     g(modrm_rr(HW_RAX, HW_RAX));
     g(0x74);
@@ -452,9 +462,11 @@ void x86::emit_dispatch(byte s, byte_p table_pc)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_dispatch(%u, %p)", s, table_pc);
-    load_hw_imm(HW_RDI, uint64_t(s));
-    load_hw_imm(HW_RSI, uint64_t(uintptr_t(table_pc)));
+    emit_set_arg1_imm(uint64_t(uintptr_t(table_pc)));
+    emit_set_arg0_imm(uint64_t(s));
     call_ptr((void *) xlr8_dispatch);
+    emit_cleanup_call_args(2);
+    reload_rt_regs();
     br_via_ip();
 }
 

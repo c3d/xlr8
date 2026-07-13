@@ -32,14 +32,14 @@
 #include "x86.h"
 
 
-struct i386 : x86
+struct i386_be : x86
 // ----------------------------------------------------------------------------
-//   32-bit x86 code generator
+//   32-bit x86 code generator (named i386_be: "i386" is a cpp macro on i686)
 // ----------------------------------------------------------------------------
 {
-    static backend *make()              { return new i386; }
+    static backend *make()              { return new i386_be; }
 
-    i386(): x86(ARCH_I386) { }
+    i386_be(): x86(ARCH_I386) { }
 
     cstring machine_defs() const override
     {

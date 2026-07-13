@@ -44,6 +44,9 @@
 //    Stack pointer     rsp              native stack
 //
 //  i386 variant: same model, 32-bit slots (ptr_size == 4), nb_regs == 8.
+//    Frame pointer     ebx (HW_RBX)     rt.frame, callee-saved
+//    Flags/predicates  esi (HW_RSI)     rt.flags, callee-saved
+//    Scratch           ecx (HW_RCX)     general temp
 //
 //  Bytecode PC is the translator cursor, not a fixed HW register.  Runtime is
 //  reached via xlr8_get_runtime() in spill/sys paths.
@@ -86,6 +89,10 @@ struct x86 : backend
     };
 
     x86(arch_t arch);
+
+    uint hw_frame() const { return arch() == ARCH_I386 ? HW_RBX : HW_R12; }
+    uint hw_flags() const { return arch() == ARCH_I386 ? HW_RSI : HW_R15; }
+    uint hw_scr() const   { return arch() == ARCH_I386 ? HW_RCX : HW_R11; }
 
     void begin_translation() override;
     void finish_translation() override;
@@ -387,27 +394,9 @@ protected:
         g(modrm);
     }
 
-    void emit_sub_rsp_imm8(byte imm)
-    // ----------------------------------------------------------------------------
-    //   Emit sub rsp, imm8
-    // ----------------------------------------------------------------------------
-    {
-        g(0x48);
-        g(0x83);
-        g(0xec);
-        g(imm);
-    }
-
-    void emit_add_rsp_imm8(byte imm)
-    // ----------------------------------------------------------------------------
-    //   Emit add rsp, imm8
-    // ----------------------------------------------------------------------------
-    {
-        g(0x48);
-        g(0x83);
-        g(0xc4);
-        g(imm);
-    }
+    void emit_sub_rsp_imm8(byte imm);
+    void emit_add_rsp_imm8(byte imm);
+    void emit_add_esp_imm(byte imm);
 
     void emit_insn_ret()
     // ----------------------------------------------------------------------------
@@ -426,44 +415,10 @@ protected:
         g(0xe0);
     }
 
-    void emit_cdq()
-    // ----------------------------------------------------------------------------
-    //   Emit cdq (sign-extend eax into edx:eax)
-    // ----------------------------------------------------------------------------
-    {
-        g(0x48);
-        g(0x99);
-    }
-
-    void emit_xor_rdx_rdx()
-    // ----------------------------------------------------------------------------
-    //   Emit xor rdx, rdx
-    // ----------------------------------------------------------------------------
-    {
-        g(0x48);
-        g(0x31);
-        g(0xd2);
-    }
-
-    void emit_idiv_rcx()
-    // ----------------------------------------------------------------------------
-    //   Emit idiv rcx (rax = quotient, rdx = remainder)
-    // ----------------------------------------------------------------------------
-    {
-        g(0x48);
-        g(0xf7);
-        g(0xf9);
-    }
-
-    void emit_div_rcx()
-    // ----------------------------------------------------------------------------
-    //   Emit div rcx (unsigned)
-    // ----------------------------------------------------------------------------
-    {
-        g(0x48);
-        g(0xf7);
-        g(0xf1);
-    }
+    void emit_cdq();
+    void emit_xor_rdx_rdx();
+    void emit_idiv_rcx();
+    void emit_div_rcx();
 
     void emit_imul_rax_rcx()
     // ----------------------------------------------------------------------------
@@ -475,38 +430,15 @@ protected:
         g(modrm_rr(HW_RAX, HW_RCX));
     }
 
-    void emit_mov_r12_rax()
-    // ----------------------------------------------------------------------------
-    //   Emit mov r12, rax (reload frame pointer)
-    // ----------------------------------------------------------------------------
-    {
-        g(0x49);
-        g(0x89);
-        g(0xc4);
-    }
-
-    void emit_mov_rdi_rax()
-    // ----------------------------------------------------------------------------
-    //   Emit mov rdi, rax (first integer argument for SysV calls)
-    // ----------------------------------------------------------------------------
-    {
-        g(0x48);
-        g(0x89);
-        g(0xc7);
-    }
-
-    size_t emit_lea_rax_rip_rel32()
-    // ----------------------------------------------------------------------------
-    //   Emit lea rax, [rip+disp32] and return the disp32 patch site
-    // ----------------------------------------------------------------------------
-    {
-        g(0x48);
-        g(0x8d);
-        g(0x05);
-        size_t pos = cursor();
-        emit32(0);
-        return pos;
-    }
+    void emit_mov_frame_rax();
+    void emit_set_arg0_rax();
+    void emit_push_reg(uint r);
+    void emit_set_arg0_r(uint r);
+    void emit_set_arg0_imm(uint64_t imm);
+    void emit_set_arg1_imm(uint64_t imm);
+    void emit_cleanup_call_args(uint argc);
+    size_t reserve_pc_in_rax();
+    void patch_pc_rel(size_t disp_at, uintptr_t target);
 
     void emit_pred_clear_bit(byte p)
     // ----------------------------------------------------------------------------
@@ -514,7 +446,7 @@ protected:
     // ----------------------------------------------------------------------------
     {
         load_hw_imm(HW_RAX, ~(1ULL << p));
-        emit_and_rr(HW_FLAGS, HW_RAX);
+        emit_and_rr(hw_flags(), HW_RAX);
     }
 
     void emit_pred_set_bit(byte p)
@@ -523,7 +455,7 @@ protected:
     // ----------------------------------------------------------------------------
     {
         load_hw_imm(HW_RAX, 1ULL << p);
-        emit_or_rr(HW_FLAGS, HW_RAX);
+        emit_or_rr(hw_flags(), HW_RAX);
     }
 
     void emit_pred_test_bit(byte p)
@@ -532,7 +464,7 @@ protected:
     // ----------------------------------------------------------------------------
     {
         load_hw_imm(HW_RAX, 1ULL << p);
-        emit_test_rr(HW_FLAGS, HW_RAX);
+        emit_test_rr(hw_flags(), HW_RAX);
     }
 
     byte setcc_from_rel(cstring rel)
@@ -607,6 +539,7 @@ protected:
     void            load_global(byte d, byte s);
     void            reload_frame_reg();
     void            reload_flags_reg();
+    void            reload_rt_regs();
     void            br_via_ip();
     void            do_ret();
     void            call_ptr(void *fn);

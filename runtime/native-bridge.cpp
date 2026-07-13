@@ -29,9 +29,13 @@
 #include "native-bridge.h"
 #include "runtime.h"
 #include "leb128.h"
+#include "recorder.h"
 
 #include <cstring>
 #include <functional>
+
+
+RECORDER(native_bridge, 16, "Native bridge helpers");
 
 
 static runtime *xlr8_current_rt = nullptr;
@@ -414,6 +418,9 @@ void *xlr8_runtime_fn(cstring name)
         { "xlr8_store_float_local", (void *) xlr8_store_float_local },
         { "xlr8_push_value",      (void *) xlr8_push_value },
         { "xlr8_pop_value",       (void *) xlr8_pop_value },
+#if defined(__riscv)
+        { "xlr8_note_return",     (void *) xlr8_note_return },
+#endif
         { "xlr8_push_flags_val",  (void *) xlr8_push_flags_val },
         { "xlr8_pop_flags_val",   (void *) xlr8_pop_flags_val },
         { "xlr8_save_jit_link",   (void *) xlr8_save_jit_link },
@@ -422,6 +429,9 @@ void *xlr8_runtime_fn(cstring name)
         { "xlr8_load_global",     (void *) xlr8_load_global },
         { "xlr8_set_flags",       (void *) xlr8_set_flags },
         { "xlr8_get_flags",       (void *) xlr8_get_flags },
+        { "xlr8_get_frame",       (void *) xlr8_get_frame },
+        { "xlr8_store_local",     (void *) xlr8_store_local },
+        { "xlr8_load_local",      (void *) xlr8_load_local },
     };
     for (entry &e : table)
         if (!strcmp(e.name, name))
@@ -580,7 +590,12 @@ void xlr8_push_value(uintptr_t v)
 // ----------------------------------------------------------------------------
 {
     if (xlr8_current_rt)
+    {
+        record(native_bridge, "push_value %p stack %p histack %p",
+               (void *) v, (void *) xlr8_current_rt->stack,
+               (void *) xlr8_current_rt->histack);
         xlr8_current_rt->push(v);
+    }
 }
 
 
@@ -590,9 +605,29 @@ uintptr_t xlr8_pop_value()
 // ----------------------------------------------------------------------------
 {
     if (xlr8_current_rt)
-        return xlr8_current_rt->pop();
+    {
+        runtime &rt = *xlr8_current_rt;
+        uintptr_t v = rt.pop();
+        record(native_bridge, "pop_value %p stack %p histack %p err %s",
+               (void *) v, (void *) rt.stack, (void *) rt.histack,
+               rt.error() ? rt.error() : "");
+        return v;
+    }
     return 0;
 }
+
+
+#if defined(__riscv)
+void xlr8_note_return()
+// ----------------------------------------------------------------------------
+//   Log the return link in s11 after mv (RISC-V JIT ret path)
+// ----------------------------------------------------------------------------
+{
+    uintptr_t v;
+    asm volatile("mv %0, s11" : "=r"(v));
+    record(native_bridge, "ret_link s11=%p", (void *) v);
+}
+#endif
 
 
 void xlr8_store_global(byte g, byte s)
@@ -637,6 +672,34 @@ uint64_t xlr8_get_flags()
 // ----------------------------------------------------------------------------
 {
     return xlr8_current_rt ? xlr8_current_rt->flags : 0;
+}
+
+
+stack_p xlr8_get_frame()
+// ----------------------------------------------------------------------------
+//   Return runtime frame pointer for reloading the JIT frame register
+// ----------------------------------------------------------------------------
+{
+    return xlr8_current_rt ? xlr8_current_rt->frame : nullptr;
+}
+
+
+void xlr8_store_local(byte n, uintptr_t v)
+// ----------------------------------------------------------------------------
+//   Store a value into a bytecode local via the runtime frame
+// ----------------------------------------------------------------------------
+{
+    if (xlr8_current_rt)
+        xlr8_current_rt->frame[n] = ularge_t(v);
+}
+
+
+uintptr_t xlr8_load_local(byte n)
+// ----------------------------------------------------------------------------
+//   Load a bytecode local from the runtime frame
+// ----------------------------------------------------------------------------
+{
+    return xlr8_current_rt ? uintptr_t(xlr8_current_rt->frame[n]) : 0;
 }
 
 
@@ -717,17 +780,26 @@ static uintptr_t xlr8_jit_addr_impl(uintptr_t addr)
         if (entry.second > code_top)
             code_top = entry.second;
     if (addr >= base && addr < base + code_top + 4096u)
+    {
+        record(native_bridge, "jit_addr %p already native", (void *) addr);
         return addr;
+    }
 
     auto it = rt.jit_pc_off.find(addr);
     if (it == rt.jit_pc_off.end())
     {
         auto next = rt.jit_pc_off.lower_bound(addr);
         if (next == rt.jit_pc_off.end())
+        {
+            record(native_bridge, "jit_addr %p -> (nil)", (void *) addr);
             return 0;
+        }
         it = next;
     }
-    return base + it->second;
+    uintptr_t result = base + it->second;
+    record(native_bridge, "jit_addr %p -> %p (bc %p off %zu)",
+           (void *) addr, (void *) result, (void *) it->first, it->second);
+    return result;
 }
 
 

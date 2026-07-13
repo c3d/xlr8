@@ -187,7 +187,7 @@ backend *backend_new(arch_t arch)
 {
     switch (arch)
     {
-    case ARCH_I386:     return i386::make();
+    case ARCH_I386:     return i386_be::make();
     case ARCH_X86_64:   return x86_64::make();
     case ARCH_ARM:      return arm::make();
     case ARCH_ARM64:    return arm64::make();
