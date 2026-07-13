@@ -43,7 +43,7 @@
 //    Value temps       rax, rcx, rdx    used by opcode helpers
 //    Stack pointer     rsp              native stack
 //
-//  i386 variant: same model, 32-bit slots (ptr_size == 4), nb_regs == 8.
+//  i386 variant: same model, ularge_t slots (8 bytes), nb_regs == 8.
 //    Frame pointer     edi (HW_RDI)     rt.frame, callee-saved (avoid ebx PIC/GOT)
 //    Flags/predicates  esi (HW_RSI)     rt.flags, callee-saved
 //    Scratch           ecx (HW_RCX)     general temp

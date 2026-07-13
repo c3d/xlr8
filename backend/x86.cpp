@@ -266,7 +266,7 @@ void x86::emit_cleanup_call_args(uint argc)
 
 size_t x86::reserve_pc_in_rax()
 // ----------------------------------------------------------------------------
-//   Materialize a patchable PC value in rax (lea rip on x86-64, call/pop i386)
+//   Materialize a patchable PC value in rax (lea rip on x86-64, mov imm i386)
 // ----------------------------------------------------------------------------
 {
     if (ptr_size() == 8)
@@ -278,10 +278,9 @@ size_t x86::reserve_pc_in_rax()
         emit32(0);
         return pos;
     }
-    g(0xe8);
+    g(0xb8);
     size_t pos = cursor();
     emit32(0);
-    g(0x58);
     return pos;
 }
 
@@ -291,9 +290,16 @@ void x86::patch_pc_rel(size_t disp_at, uintptr_t target)
 //   Patch reserve_pc_in_rax so rax/eax holds target after the sequence
 // ----------------------------------------------------------------------------
 {
-    uintptr_t base = disp_at + (ptr_size() == 8 ? 4 : 5);
-    int32_t off = int32_t(target) - int32_t(base);
-    code().patch32(disp_at, uint32_t(off));
+    if (ptr_size() == 8)
+    {
+        uintptr_t base = disp_at + 4;
+        int32_t off = int32_t(target) - int32_t(base);
+        code().patch32(disp_at, uint32_t(off));
+    }
+    else
+    {
+        code().patch32(disp_at, uint32_t(target));
+    }
 }
 
 
@@ -481,21 +487,11 @@ void x86::load_local(byte n, uint r)
 // ----------------------------------------------------------------------------
 {
     record(x86, "load_local(%u, %u)", n, r);
-    if (ptr_size() == 4)
-    {
-        emit_set_arg0_imm(uint64_t(n));
-        call_ptr(xlr8_runtime_fn("xlr8_load_local"));
-        emit_cleanup_call_args(1);
-        if (r != HW_RAX)
-            emit_mov_rr(r, HW_RAX);
-        reload_rt_regs();
-        return;
-    }
     int disp = local_disp(n);
     uint frame = hw_frame();
     if (disp)
     {
-        int w = ptr_size() == 8 ? 8 : 0;
+        int w = (ptr_size() == 8) ? 8 : 0;
         if (w || r >= 8 || frame >= 8)
             g(0x40 | w | (rex_r(r) ? 4 : 0) | (rex_b(frame) ? 1 : 0));
         g(0x8b);
@@ -516,22 +512,11 @@ void x86::store_local(uint r, byte n)
 // ----------------------------------------------------------------------------
 {
     record(x86, "store_local(%u, %u)", r, n);
-    if (ptr_size() == 4)
-    {
-        if (r != HW_RAX)
-            emit_mov_rr(HW_RAX, r);
-        emit_push_reg(HW_RAX);
-        emit_set_arg0_imm(uint64_t(n));
-        call_ptr(xlr8_runtime_fn("xlr8_store_local"));
-        emit_cleanup_call_args(2);
-        reload_rt_regs();
-        return;
-    }
     int disp = local_disp(n);
     uint frame = hw_frame();
     if (disp)
     {
-        int w = ptr_size() == 8 ? 8 : 0;
+        int w = (ptr_size() == 8) ? 8 : 0;
         if (w || r >= 8 || frame >= 8)
             g(0x40 | w | (rex_r(r) ? 4 : 0) | (rex_b(frame) ? 1 : 0));
         g(0x89);
