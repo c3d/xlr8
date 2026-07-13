@@ -408,8 +408,7 @@ void x86::load_float_local(byte n, uint xmm)
     int disp = local_disp(n);
     uint frame = hw_frame();
     g(0xf3);
-    if (ptr_size() == 8 && rex_r(xmm))
-        g(0x40 | (rex_r(xmm) ? 4 : 0));
+    emit_sse_rex_r(xmm);
     g(0x0f);
     g(0x10);
     g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
@@ -428,8 +427,7 @@ void x86::store_float_local(byte n, uint xmm)
     int disp = local_disp(n);
     uint frame = hw_frame();
     g(0xf3);
-    if (ptr_size() == 8 && rex_r(xmm))
-        g(0x40 | (rex_r(xmm) ? 4 : 0));
+    emit_sse_rex_r(xmm);
     g(0x0f);
     g(0x11);
     g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
@@ -448,8 +446,7 @@ void x86::load_double_local(byte n, uint xmm)
     int disp = local_disp(n);
     uint frame = hw_frame();
     g(0xf2);
-    if (ptr_size() == 8 && rex_r(xmm))
-        g(0x40 | (rex_r(xmm) ? 4 : 0));
+    emit_sse_rex_r(xmm);
     g(0x0f);
     g(0x10);
     g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
@@ -468,8 +465,7 @@ void x86::store_double_local(byte n, uint xmm)
     int disp = local_disp(n);
     uint frame = hw_frame();
     g(0xf2);
-    if (ptr_size() == 8 && rex_r(xmm))
-        g(0x40 | (rex_r(xmm) ? 4 : 0));
+    emit_sse_rex_r(xmm);
     g(0x0f);
     g(0x11);
     g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));

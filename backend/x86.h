@@ -383,6 +383,17 @@ protected:
         g(0x00);
     }
 
+    void emit_sse_rex_r(uint xmm)
+    // ----------------------------------------------------------------------------
+    //   REX prefix for SSE xmm load/store with [rsp+frame+disp] addressing
+    // ----------------------------------------------------------------------------
+    {
+        if (ptr_size() == 8)
+            g(0x49 | (rex_r(xmm) ? 4 : 0));
+        else if (rex_r(xmm))
+            g(0x40 | 4);
+    }
+
     void emit_sse_scalar_op(byte prefix, byte op, byte modrm)
     // ----------------------------------------------------------------------------
     //   Emit SSE scalar op xmm0, xmm1 (prefix 0xf3=float, 0xf2=double)
