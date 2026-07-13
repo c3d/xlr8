@@ -156,8 +156,14 @@ void arm64::call_abs(void *fn)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "call_abs(%p)", fn);
+#if defined(__linux__)
+    emit32le(stp_push(30));
+#endif
     load_imm64(HW_IP, uint64_t(fn));
     emit32le(blr(HW_IP));
+#if defined(__linux__)
+    emit32le(ldp_pop(30));
+#endif
 }
 
 
@@ -287,12 +293,14 @@ void arm64::gsym_addr(uint t, uint a)
 
 void arm64::begin_translation()
 // ----------------------------------------------------------------------------
-//   Save link register for return to native runner
+//   Prepare JIT entry: reload shadows; on macOS also save invoke LR on stack
 // ----------------------------------------------------------------------------
 {
     record(arm64, "begin_translation()");
     frame_memory_touched = false;
+#if defined(__APPLE__)
     emit32le(stp_push(30));
+#endif
     reload_shadows();
 }
 
@@ -1275,11 +1283,13 @@ void arm64::load_global(byte d, byte s)
 
 void arm64::do_ret()
 // ----------------------------------------------------------------------------
-//   Emit return instruction
+//   Return from generated code to the native runner
 // ----------------------------------------------------------------------------
 {
     record(arm64, "do_ret()");
+#if defined(__APPLE__)
     emit32le(ldp_pop(30));
+#endif
     emit32le(ret_insn());
 }
 
