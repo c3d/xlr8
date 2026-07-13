@@ -44,7 +44,7 @@
 //    Stack pointer     rsp              native stack
 //
 //  i386 variant: same model, 32-bit slots (ptr_size == 4), nb_regs == 8.
-//    Frame pointer     ebx (HW_RBX)     rt.frame, callee-saved
+//    Frame pointer     edi (HW_RDI)     rt.frame, callee-saved (avoid ebx PIC/GOT)
 //    Flags/predicates  esi (HW_RSI)     rt.flags, callee-saved
 //    Scratch           ecx (HW_RCX)     general temp
 //
@@ -90,7 +90,7 @@ struct x86 : backend
 
     x86(arch_t arch);
 
-    uint hw_frame() const { return arch() == ARCH_I386 ? HW_RBX : HW_R12; }
+    uint hw_frame() const { return arch() == ARCH_I386 ? HW_RDI : HW_R12; }
     uint hw_flags() const { return arch() == ARCH_I386 ? HW_RSI : HW_R15; }
     uint hw_scr() const   { return arch() == ARCH_I386 ? HW_RCX : HW_R11; }
 

@@ -202,7 +202,7 @@ static void invoke_x86_64(runtime &rt, void *code)
 #if defined(__i386__) || defined(__i386)
 static void invoke_i386(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
-//   Jump to generated i386 code with ebx = rt.frame, esi = rt.flags
+//   Jump to generated i386 code with edi = rt.frame, esi = rt.flags
 // ----------------------------------------------------------------------------
 {
     typedef void (*entry_fn)(void);
@@ -210,12 +210,12 @@ static void invoke_i386(runtime &rt, void *code)
     uintptr_t framep = uintptr_t(rt.frame);
     uint32_t flags = uint32_t(rt.flags);
     asm volatile(
-        "movl %0, %%ebx\n\t"
+        "movl %0, %%edi\n\t"
         "movl %1, %%esi\n\t"
         "call *%2"
         :
         : "r"(framep), "r"(flags), "r"(entry)
-        : "eax", "ecx", "edx", "memory", "cc");
+        : "eax", "ecx", "edx", "edi", "esi", "memory", "cc");
 }
 #endif
 
