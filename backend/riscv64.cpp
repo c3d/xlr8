@@ -356,6 +356,29 @@ void riscv64::patch_pc_rel(size_t auipc_at, uint rd, size_t target)
 }
 
 
+size_t riscv64::emit_return_addr_load(uint rd)
+// ----------------------------------------------------------------------------
+//   Emit a 16-byte load_imm64 slot for a return address patched at relocate
+// ----------------------------------------------------------------------------
+{
+    size_t at = cursor();
+    emit32le(lui(rd, 0));
+    emit32le(addi(rd, rd, 0));
+    emit32le(nop_insn());
+    emit32le(nop_insn());
+    return at;
+}
+
+
+void riscv64::fix_return_addr(size_t imm_at, uint rd, size_t target)
+// ----------------------------------------------------------------------------
+//   Record a return-address slot to patch once JIT code is relocated
+// ----------------------------------------------------------------------------
+{
+    return_link_fixups.push_back({ imm_at, rd, target });
+}
+
+
 void riscv64::mov_local(byte d, byte s)
 // ----------------------------------------------------------------------------
 //   Copy value between bytecode locals
@@ -514,7 +537,14 @@ void riscv64::binop_local(byte d, byte s, cstring op)
             emit32le(fmul_s(0, 0, 1));
         else
             emit32le(fdiv_s(0, 0, 1));
-        emit32le(fmv_x_w(rd, 0));
+        uint dst = d < LOC_SHADOW_COUNT ? xreg(d) : HW_SCR_VAL;
+        emit32le(fmv_x_w(dst, 0));
+        if (d >= LOC_SHADOW_COUNT)
+            store_local(dst, d);
+        else
+            emit32le(sd_off(dst, HW_FRAME, int(d) * int(ptr_size())));
+        touch_local(d);
+        return;
     }
     else if (!strcmp(op, "dadd") || !strcmp(op, "dsub")
           || !strcmp(op, "dmul") || !strcmp(op, "ddiv"))
@@ -1175,6 +1205,11 @@ void riscv64::relocate(void *base)
             memcpy((void *) ((byte_p) base + fx.at + 4), &patched, sizeof(patched));
         }
     }
+    for (return_link_fixup &fx : return_link_fixups)
+    {
+        uint64_t addr = uint64_t(byte_p(base) + fx.target);
+        patch_imm64_at(base, fx.imm_at, fx.rd, addr);
+    }
     for (abs_fixup &fx : abs_fixups)
     {
         auto it = bc_positions.find(fx.offset);
@@ -1221,16 +1256,14 @@ void riscv64::call_tok(tok_t t)
 {
     record(riscv64, "call_tok(%llu)", t);
     spill_frame();
-    size_t auipc_at = cursor();
-    emit32le(nop_insn());
-    emit32le(nop_insn());
+    size_t ret_at = emit_return_addr_load(10);
     rtcall("xlr8_push_value");
     rtcall("xlr8_sync_args");
     reload_shadows();
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
     uint pos = gjmp(head);
     record_tok_jump(t, pos);
-    patch_pc_rel(auipc_at, 10, pos + 4);
+    fix_return_addr(ret_at, 10, pos + 4);
 }
 
 
@@ -1269,9 +1302,7 @@ void riscv64::icall_local(byte s)
 {
     record(riscv64, "icall_local(%u)", s);
     spill_frame();
-    size_t auipc_at = cursor();
-    emit32le(nop_insn());
-    emit32le(nop_insn());
+    size_t ret_at = emit_return_addr_load(10);
     rtcall("xlr8_push_value");
     rtcall("xlr8_sync_args");
     reload_shadows();
@@ -1284,7 +1315,7 @@ void riscv64::icall_local(byte s)
     reload_shadows();
     size_t jalr_at = cursor();
     emit32le(jalr_ra(HW_IP));
-    patch_pc_rel(auipc_at, 10, jalr_at + 4);
+    fix_return_addr(ret_at, 10, jalr_at + 4);
 }
 
 

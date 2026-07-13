@@ -786,9 +786,13 @@ protected:
     void rtcall(cstring fn, byte a);
     void br_via_ip();
     void patch_pc_rel(size_t auipc_at, uint rd, size_t target);
+    size_t emit_return_addr_load(uint rd);
+    void fix_return_addr(size_t imm_at, uint rd, size_t target);
 
     struct pc_rel_fixup { size_t at; uint rd; size_t target; };
     std::vector<pc_rel_fixup> pc_rel_fixups;
+    struct return_link_fixup { size_t imm_at; uint rd; size_t target; };
+    std::vector<return_link_fixup> return_link_fixups;
 
     bool spill_arg_regs = true;
     bool frame_memory_touched = false;
