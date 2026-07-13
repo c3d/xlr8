@@ -29,13 +29,9 @@
 #include "native-bridge.h"
 #include "runtime.h"
 #include "leb128.h"
-#include "recorder.h"
 
 #include <cstring>
 #include <functional>
-
-
-RECORDER(native_bridge, 16, "Native bridge helpers");
 
 
 static runtime *xlr8_current_rt = nullptr;
@@ -590,12 +586,7 @@ void xlr8_push_value(uintptr_t v)
 // ----------------------------------------------------------------------------
 {
     if (xlr8_current_rt)
-    {
-        record(native_bridge, "push_value %p stack %p histack %p",
-               (void *) v, (void *) xlr8_current_rt->stack,
-               (void *) xlr8_current_rt->histack);
         xlr8_current_rt->push(v);
-    }
 }
 
 
@@ -605,14 +596,7 @@ uintptr_t xlr8_pop_value()
 // ----------------------------------------------------------------------------
 {
     if (xlr8_current_rt)
-    {
-        runtime &rt = *xlr8_current_rt;
-        uintptr_t v = rt.pop();
-        record(native_bridge, "pop_value %p stack %p histack %p err %s",
-               (void *) v, (void *) rt.stack, (void *) rt.histack,
-               rt.error() ? rt.error() : "");
-        return v;
-    }
+        return xlr8_current_rt->pop();
     return 0;
 }
 
@@ -620,12 +604,9 @@ uintptr_t xlr8_pop_value()
 #if defined(__riscv)
 void xlr8_note_return()
 // ----------------------------------------------------------------------------
-//   Log the return link in s11 after mv (RISC-V JIT ret path)
+//   No-op hook after mv to s11 (RISC-V JIT ret path debugging)
 // ----------------------------------------------------------------------------
 {
-    uintptr_t v;
-    asm volatile("mv %0, s11" : "=r"(v));
-    record(native_bridge, "ret_link s11=%p", (void *) v);
 }
 #endif
 
@@ -780,26 +761,17 @@ static uintptr_t xlr8_jit_addr_impl(uintptr_t addr)
         if (entry.second > code_top)
             code_top = entry.second;
     if (addr >= base && addr < base + code_top + 4096u)
-    {
-        record(native_bridge, "jit_addr %p already native", (void *) addr);
         return addr;
-    }
 
     auto it = rt.jit_pc_off.find(addr);
     if (it == rt.jit_pc_off.end())
     {
         auto next = rt.jit_pc_off.lower_bound(addr);
         if (next == rt.jit_pc_off.end())
-        {
-            record(native_bridge, "jit_addr %p -> (nil)", (void *) addr);
             return 0;
-        }
         it = next;
     }
-    uintptr_t result = base + it->second;
-    record(native_bridge, "jit_addr %p -> %p (bc %p off %zu)",
-           (void *) addr, (void *) result, (void *) it->first, it->second);
-    return result;
+    return base + it->second;
 }
 
 
