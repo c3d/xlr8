@@ -228,18 +228,6 @@ static void invoke_arm64(runtime &rt, void *code)
 {
     stack_p frame = rt.frame;
     uint64_t flags = rt.flags;
-#if defined(__linux__)
-    asm volatile(
-        "mov x19, %0\n\t"
-        "mov x22, %1\n\t"
-        "stp x30, xzr, [sp, #-16]!\n\t"
-        "mov x16, %2\n\t"
-        "blr x16\n\t"
-        "ldp x30, xzr, [sp], #16"
-        :
-        : "r"(frame), "r"(flags), "r"(code)
-        : "x16", "x19", "x22", "x30", "memory", "cc");
-#else
     asm volatile(
         "mov x19, %0\n\t"
         "mov x22, %1\n\t"
@@ -248,7 +236,6 @@ static void invoke_arm64(runtime &rt, void *code)
         :
         : "r"(frame), "r"(flags), "r"(code)
         : "x16", "x19", "x22", "x30", "memory", "cc");
-#endif
 }
 #endif
 

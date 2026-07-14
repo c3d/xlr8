@@ -314,6 +314,8 @@ void arm64::emit_sys(tok_t t, byte_p args, byte_p next_pc)
     load_imm64(0, uint64_t(t));
     load_imm64(1, uint64_t(uintptr_t(args)));
     call_abs((void *) xlr8_sys);
+    rtcall("xlr8_get_frame");
+    reload_frame_reg();
     reload_shadows();
     load_imm64(HW_SCR_VAL, uint64_t(uintptr_t(next_pc)));
     emit32le(mov_rr(0, HW_SCR_VAL));
