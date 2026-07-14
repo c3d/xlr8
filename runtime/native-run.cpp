@@ -247,11 +247,12 @@ static void invoke_arm64(runtime &rt, void *code)
     asm volatile(
         "mov x19, %0\n\t"
         "mov x22, %1\n\t"
+        "mov x27, %0\n\t"
         "mov x16, %2\n\t"
         "blr x16"
         :
         : "r"(frame), "r"(flags), "r"(code)
-        : "x16", "x19", "x22", "x30", "memory", "cc");
+        : "x16", "x19", "x22", "x27", "x30", "memory", "cc");
 }
 #endif
 

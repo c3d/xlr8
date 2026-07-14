@@ -1263,6 +1263,18 @@ void arm64::pop_local(byte d)
     record(arm64, "pop_local(%u)", d);
     rtcall("xlr8_pop_value");
     emit32le(mov_rr(HW_SCR_VAL, 0));
+    restore_frame_ptr();
+    runtime *rt = xlr8_get_runtime();
+    if (rt && rt->frame)
+    {
+        byte locals = byte(rt->frame[-1]);
+        if (!locals)
+            locals = byte(rt->CALL_CLOBBERED_REGS);
+        if (locals > LOC_SHADOW_COUNT)
+            locals = LOC_SHADOW_COUNT;
+        for (uint r = 1; r < locals; r++)
+            emit32le(ldr_off(xreg(byte(r)), HW_FRAME, r));
+    }
     if (d != 0)
         emit32le(ldr_off(xreg(0), HW_FRAME, 0));
     store_local(HW_SCR_VAL, d);

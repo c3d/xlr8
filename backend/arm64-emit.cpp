@@ -241,6 +241,7 @@ void arm64::emit_enter(byte d)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_enter(%u)", d);
+    spill_arg_regs = true;
     spill_frame();
     emit32le(mov_rr(0, HW_FLAGS));
     rtcall("xlr8_set_flags");
