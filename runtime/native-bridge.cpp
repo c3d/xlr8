@@ -393,6 +393,31 @@ void xlr8_store_float_local(byte d, uint32_t bits)
 }
 
 
+void xlr8_float_binop(unsigned op, byte d, byte s)
+// ----------------------------------------------------------------------------
+//   Apply a float binop in C (Linux JIT avoids inline FP before sys)
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt)
+        return;
+    runtime &rt = *xlr8_current_rt;
+    float a = 0;
+    float b = 0;
+    float r = 0;
+    memcpy(&a, (float *) &rt.frame[d], sizeof(a));
+    memcpy(&b, (float *) &rt.frame[s], sizeof(b));
+    switch (op)
+    {
+    case 0: r = a + b; break;
+    case 1: r = a - b; break;
+    case 2: r = a * b; break;
+    case 3: r = a / b; break;
+    default: return;
+    }
+    memcpy((float *) &rt.frame[d], &r, sizeof(r));
+}
+
+
 void *xlr8_runtime_fn(cstring name)
 // ----------------------------------------------------------------------------
 //   Resolve a native helper name to a function pointer
@@ -412,6 +437,7 @@ void *xlr8_runtime_fn(cstring name)
         { "xlr8_dispatch", (void *) xlr8_dispatch },
         { "xlr8_user_op", (void *) xlr8_user_op },
         { "xlr8_store_float_local", (void *) xlr8_store_float_local },
+        { "xlr8_float_binop",       (void *) xlr8_float_binop },
         { "xlr8_push_value",      (void *) xlr8_push_value },
         { "xlr8_pop_value",       (void *) xlr8_pop_value },
 #if defined(__riscv)

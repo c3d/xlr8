@@ -45,6 +45,7 @@ void     xlr8_skip_sys_args(tok_t t, byte_p &pc);
 size_t   xlr8_sys_branch_targets(tok_t t, byte_p args,
                                  uintptr_t *out, size_t max);
 void     xlr8_store_float_local(byte d, uint32_t bits);
+void     xlr8_float_binop(unsigned op, byte d, byte s);
 void    *xlr8_runtime_fn(cstring name);
 
 stack_p    xlr8_enter(byte locals);

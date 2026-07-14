@@ -99,6 +99,7 @@ protected:
         HW_LOC15 = 15,
         HW_IP    = 16,      // intra-procedure call scratch (AAPCS IP0)
         HW_FRAME = 19,      // callee-saved, rt.frame base for spill
+        HW_ANCHOR = 27,     // callee-saved, stable copy of frame across sys
         HW_RT    = 21,      // reserved: &runtime
         HW_LINK  = 28,      // callee-saved, saved link (not a bytecode local)
         HW_FLAGS = 22,      // callee-saved, rt.flags (64-bit predicates)
@@ -137,6 +138,22 @@ protected:
     // ----------------------------------------------------------------------------
     {
         return 0xf9000000u | (off << 10) | (rn << 5) | rd;
+    }
+
+    static inline uint ldr_sp(uint rd)
+    // ----------------------------------------------------------------------------
+    //   Encode ldr rd, [sp]
+    // ----------------------------------------------------------------------------
+    {
+        return ldr_off(rd, 31, 0);
+    }
+
+    static inline uint str_sp(uint rt)
+    // ----------------------------------------------------------------------------
+    //   Encode str rt, [sp]
+    // ----------------------------------------------------------------------------
+    {
+        return str_off(rt, 31, 0);
     }
 
     static inline uint str_w_off(uint wt, uint rn, uint slot)
@@ -636,6 +653,7 @@ protected:
     void load_imm64(uint r, uint64_t v);
     void call_abs(void *fn);
     void spill_frame();
+    void restore_frame_ptr();
     void reload_frame_reg();
     void reload_shadows();
     void reload_flags_reg();
@@ -647,6 +665,7 @@ protected:
     void store_uimm(byte d, uvalue_t v);
     void store_float(byte d, float v);
     void store_double(byte d, double v);
+    void store_float_local(byte d, uint wn);
     void binop_local(byte d, byte s, cstring op);
     void binop_imm(byte d, value_t v, cstring op);
     void cmp_local(byte p, byte d, byte s, cstring op);

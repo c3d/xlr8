@@ -178,6 +178,7 @@ void arm64::spill_frame(void)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "spill_frame()");
+    restore_frame_ptr();
     runtime *rt = xlr8_get_runtime();
     if (!rt || !rt->frame)
         return;
@@ -209,13 +210,24 @@ void arm64::spill_frame(void)
 }
 
 
+void arm64::restore_frame_ptr()
+// ----------------------------------------------------------------------------
+//   Reload x19 from the callee-saved frame anchor in x20
+// ----------------------------------------------------------------------------
+{
+    record(arm64, "restore_frame_ptr()");
+    emit32le(mov_rr(HW_FRAME, HW_ANCHOR));
+}
+
+
 void arm64::reload_frame_reg()
 // ----------------------------------------------------------------------------
-//   Reload x19 from x0 after xlr8_enter or xlr8_leave
+//   Reload x19 from x0 after xlr8_enter or xlr8_leave, then refresh x20
 // ----------------------------------------------------------------------------
 {
     record(arm64, "reload_frame_reg()");
     emit32le(reload_frame());
+    emit32le(mov_rr(HW_ANCHOR, HW_FRAME));
 }
 
 
@@ -225,6 +237,7 @@ void arm64::reload_shadows(void)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "reload_shadows()");
+    restore_frame_ptr();
     runtime *rt = xlr8_get_runtime();
     if (!rt || !rt->frame)
         return;
@@ -293,6 +306,7 @@ void arm64::begin_translation()
     record(arm64, "begin_translation()");
     frame_memory_touched = false;
     emit32le(stp_push(30));
+    emit32le(mov_rr(HW_ANCHOR, HW_FRAME));
     reload_shadows();
 }
 
@@ -391,6 +405,20 @@ void arm64::store_float(byte d, float v)
     touch_local(d);
 }
 
+void arm64::store_float_local(byte d, uint wn)
+// ----------------------------------------------------------------------------
+//   Store a 32-bit float from Wn into bytecode local d and its shadow
+// ----------------------------------------------------------------------------
+{
+    record(arm64, "store_float_local(%u, %u)", d, wn);
+    emit32le(str_w_off(wn, HW_FRAME, d));
+    if (d < LOC_SHADOW_COUNT)
+    {
+        emit32le(uxtw_x(xreg(d), wn));
+        touch_local(d);
+    }
+}
+
 void arm64::store_double(byte d, double v)
 // ----------------------------------------------------------------------------
 //   Store double immediate into bytecode local
@@ -449,6 +477,20 @@ void arm64::binop_local(byte d, byte s, cstring op)
     else if (!strcmp(op, "fadd") || !strcmp(op, "fsub")
           || !strcmp(op, "fmul") || !strcmp(op, "fdiv"))
     {
+#if defined(__linux__) && !defined(__ANDROID__)
+        unsigned opc = 0;
+        if (!strcmp(op, "fsub")) opc = 1;
+        else if (!strcmp(op, "fmul")) opc = 2;
+        else if (!strcmp(op, "fdiv")) opc = 3;
+        spill_frame();
+        load_imm64(0, uint64_t(opc));
+        load_imm64(1, uint64_t(d));
+        load_imm64(2, uint64_t(s));
+        call_abs(xlr8_runtime_fn("xlr8_float_binop"));
+        reload_shadows();
+        touch_local(d);
+        return;
+#else
         uint fop = 0x2800;
         if (!strcmp(op, "fsub")) fop = 0x3800;
         else if (!strcmp(op, "fmul")) fop = 0x0800;
@@ -457,7 +499,9 @@ void arm64::binop_local(byte d, byte s, cstring op)
         emit32le(fmov_s_w(1, rs));
         emit32le(fop_ss(fop, 0, 0, 1));
         emit32le(fmov_w_s(rd, 0));
-        emit32le(uxtw_x(rd, rd));
+        store_float_local(d, rd);
+        return;
+#endif
     }
     else if (!strcmp(op, "dadd") || !strcmp(op, "dsub")
           || !strcmp(op, "dmul") || !strcmp(op, "ddiv"))

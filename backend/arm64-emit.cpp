@@ -309,25 +309,33 @@ void arm64::emit_sys(tok_t t, byte_p args, byte_p next_pc)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_sys(%llu, %p, %p)", t, args, next_pc);
+    restore_frame_ptr();
     spill_arg_regs = true;
     spill_frame();
     load_imm64(0, uint64_t(t));
     load_imm64(1, uint64_t(uintptr_t(args)));
+#if defined(__linux__) && !defined(__ANDROID__)
+    emit32le(stp_push(HW_ANCHOR));
+#endif
     call_abs((void *) xlr8_sys);
-    rtcall("xlr8_get_frame");
-    reload_frame_reg();
+#if defined(__linux__) && !defined(__ANDROID__)
+    emit32le(ldp_pop(HW_ANCHOR));
+#endif
+    restore_frame_ptr();
     reload_shadows();
     load_imm64(HW_SCR_VAL, uint64_t(uintptr_t(next_pc)));
     emit32le(mov_rr(0, HW_SCR_VAL));
     rtcall("xlr8_after_sys");
     uint cbnz_at = uint(cursor());
     emit32le(cbnz_imm(0, 0));
+    restore_frame_ptr();
     reload_shadows();
     spill_arg_regs = false;
     uint skip_at = uint(cursor());
     emit32le(b_imm(0));
     uint br_at = uint(cursor());
     emit32le(mov_rr(HW_IP, 0));
+    restore_frame_ptr();
     reload_shadows();
     emit32le(br(HW_IP));
     code().patch32(cbnz_at, cbnz_imm(0, (int(br_at) - int(cbnz_at)) / 4));
