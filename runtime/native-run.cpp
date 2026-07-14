@@ -49,7 +49,8 @@
 #include <libkern/OSCacheControl.h>
 #endif
 
-RECORDER(native_run, 16, "Native JIT execution");
+RECORDER(native_run,            16, "Native JIT execution");
+RECORDER(native_run_error,      16, "Native JIT errors");
 
 
 static void dump_jit_code(void *mem, size_t sz, backend &be, cstring path)
@@ -63,7 +64,8 @@ static void dump_jit_code(void *mem, size_t sz, backend &be, cstring path)
     FILE *out = fopen(path, "wb");
     if (!out)
     {
-        record(native_run, "JIT dump: cannot open %s", path);
+        record(native_run_error,
+               "JIT dump cannot open %s: %s", path, strerror(errno));
         return;
     }
     fwrite(mem, 1, sz, out);
@@ -89,20 +91,34 @@ static void dump_jit_code(void *mem, size_t sz, backend &be, cstring path)
     if (!arch)
         return;
 
-    char cmd[640];
-    char asm_path[256];
-    char obj_path[256];
-    snprintf(asm_path, sizeof(asm_path), "%s.s", path);
-    snprintf(obj_path, sizeof(obj_path), "%s.o", path);
-    snprintf(cmd, sizeof(cmd),
-             "sh -c 'printf \".text\\n.globl _jit\\n_jit:\\n\" >\"%s\" && "
-             "od -An -tx1 -v \"%s\" | awk \"{for (i=1;i<=NF;i++) "
-             "printf \\\" .byte 0x%%s\\\\n\\\", \\$i}\" >>\"%s\" && "
-             "llvm-mc -filetype=obj -arch=%s \"%s\" -o \"%s\" && "
-             "llvm-objdump -d --no-show-raw-insn \"%s\"' 2>&1",
-             asm_path, path, asm_path, arch, asm_path, obj_path, obj_path);
+    const char *cmd_fmt =
+        "sh -c 'printf \".text\\n.globl _jit\\n_jit:\\n\" >\"%s.s\" && "
+        "od -An -tx1 -v \"%s\" | "
+        "awk \"{for (i=1;i<=NF;i++) printf \\\" .byte 0x%%s\\\\n\\\", \\$i}\" "
+        "  >>\"%s.s\" && "
+        "llvm-mc -filetype=obj -arch=%s \"%s.s\" -o \"%s.o\" && "
+        "llvm-objdump -d --no-show-raw-insn \"%s.o\"' 2>&1";
+
+    char *cmd     = nullptr;
+    int   cmd_len = snprintf(nullptr, 0, cmd_fmt,
+                             path, path, path, arch, path, path, path);
+    if (cmd_len < 0)
+    {
+        record(native_run_error,
+                   "JIT disasm command format error: %s",
+               strerror(errno));
+        if (cmd)
+            free(cmd);
+        return;
+    }
+    cmd = (char *) malloc(cmd_len+1);
+    cmd_len = snprintf(cmd, cmd_len, cmd_fmt,
+                       path, path, path, arch, path, path, path);
+
+
     record(native_run, "JIT disasm: %s", cmd);
     FILE *pipe = popen(cmd, "r");
+    free(cmd);
     if (!pipe)
         return;
     char line[256];
