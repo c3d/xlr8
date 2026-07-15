@@ -486,11 +486,13 @@ void arm64::binop_local(byte d, byte s, cstring op)
         if (!strcmp(op, "fsub")) fop = 0x3800;
         else if (!strcmp(op, "fmul")) fop = 0x0800;
         else if (!strcmp(op, "fdiv")) fop = 0x1800;
-        emit32le(fmov_s_w(0, rd));
-        emit32le(fmov_s_w(1, rs));
+        uint wd = (d < LOC_SHADOW_COUNT) ? uint(d) : rd;
+        uint ws = (s < LOC_SHADOW_COUNT) ? uint(s) : rs;
+        emit32le(fmov_s_w(0, wd));
+        emit32le(fmov_s_w(1, ws));
         emit32le(fop_ss(fop, 0, 0, 1));
-        emit32le(fmov_w_s(rd, 0));
-        store_float_local(d, rd);
+        emit32le(fmov_w_s(wd, 0));
+        store_float_local(d, wd);
         return;
     }
     else if (!strcmp(op, "dadd") || !strcmp(op, "dsub")
