@@ -9,15 +9,15 @@ select 0 4 2 3
 
 int 5 10
 int 6 20
-int 7 +333
-int 8 +444
+int 2 +333
+int 3 +444
 cmpeq 0 5 6
-select 0 9 7 8
+select 0 6 2 3
 
 [STDOUT 1]
 
 sys write_integer STDOUT 4
 sys write_newline STDOUT
-sys write_integer STDOUT 9
+sys write_integer STDOUT 6
 sys write_newline STDOUT
 end
