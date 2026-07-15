@@ -411,11 +411,16 @@ void arm64::store_float_local(byte d, uint wn)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "store_float_local(%u, %u)", d, wn);
-    emit32le(str_w_off(wn, HW_FRAME, d));
     if (d < LOC_SHADOW_COUNT)
     {
         emit32le(uxtw_x(xreg(d), wn));
+        emit32le(str_off(xreg(d), HW_FRAME, d));
         touch_local(d);
+    }
+    else
+    {
+        emit32le(uxtw_x(HW_SCR_VAL, wn));
+        store_local(HW_SCR_VAL, d);
     }
 }
 
