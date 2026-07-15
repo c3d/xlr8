@@ -414,7 +414,9 @@ void xlr8_float_binop(unsigned op, byte d, byte s)
     case 3: r = a / b; break;
     default: return;
     }
-    memcpy((float *) &rt.frame[d], &r, sizeof(r));
+    uint32_t bits = 0;
+    memcpy(&bits, &r, sizeof(bits));
+    rt.frame[d] = value_t(uint64_t(bits));
 }
 
 
