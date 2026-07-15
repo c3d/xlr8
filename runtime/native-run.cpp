@@ -321,6 +321,7 @@ static bool native_run_impl(runtime &rt, backend &be, byte_p entry)
         return false;
 
     rt.jit_code = mem;
+    rt.jit_map_size = sz;
     rt.jit_pc_off = be.bytecode_positions();
 
     if (cstring dump = getenv("XLR8_DUMP_JIT"))
@@ -342,7 +343,9 @@ static bool native_run_impl(runtime &rt, backend &be, byte_p entry)
     return false;
 #endif
 
-    unmap_executable(mem, sz);
+    unmap_executable(rt.jit_code, rt.jit_map_size);
+    rt.jit_code = nullptr;
+    rt.jit_map_size = 0;
     return rt.error() == nullptr;
 }
 

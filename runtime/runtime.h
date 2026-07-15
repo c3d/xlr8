@@ -652,6 +652,7 @@ public:
     uint64_t            flags;          // Conditional flags (predicates)
     uintptr_t           jit_link;       // Saved native return address for -O
     void               *jit_code;       // Base of mmap'd JIT code (-O)
+    size_t              jit_map_size;   // Mapped size for safe unmap after JIT
     std::map<uintptr_t, size_t> jit_pc_off; // Bytecode PC -> native offset
     byte_p              pc;             // Current PC
     byte_p              memory;         // Memory allocated for that runtime

@@ -212,11 +212,17 @@ void arm64::spill_frame(void)
 
 void arm64::restore_frame_ptr()
 // ----------------------------------------------------------------------------
-//   Reload x19 from the callee-saved frame anchor in x20
+//   Reload x19 from the runtime frame pointer (and refresh x27)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "restore_frame_ptr()");
+#if defined(__linux__) && !defined(__ANDROID__)
+    rtcall("xlr8_get_frame");
+    emit32le(mov_rr(HW_FRAME, 0));
+    emit32le(mov_rr(HW_ANCHOR, 0));
+#else
     emit32le(mov_rr(HW_FRAME, HW_ANCHOR));
+#endif
 }
 
 
