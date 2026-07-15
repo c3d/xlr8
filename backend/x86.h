@@ -33,14 +33,16 @@
 //  REGISTER ALLOCATION CONVENTIONS (x86 / x86-64 / i386)
 //  ===========================================================================
 //
-//  Bytecode locals live in frame memory; there are no shadow registers on
-//  x86.  Every access is load/store at [r12 + local*ptr_size].  See regmap.h.
+//  Bytecode locals 0..3 (x86-64 only) shadow frame[0..3] in r8,r9,r10,rbx.
+//  Locals >= 4 and all locals on i386 use [r12 + local*8] as today.
 //
 //  Register map (x86-64):
+//    Shadow locals     r8,r9,r10,rbx  frame[0] .. frame[3] when valid
 //    Frame pointer     r12 (HW_FRAME)   rt.frame, primed at JIT entry
 //    Flags/predicates  r15 (HW_FLAGS)   rt.flags (64-bit), primed at entry
 //    Scratch           r11 (HW_SCR)     general temp (swap, etc.)
 //    Value temps       rax, rcx, rdx    used by opcode helpers
+//    Callee-saved      rbx, rbp         rbx shadows local 3; rbp in prologue
 //    Stack pointer     rsp              native stack
 //
 //  i386 variant: same model, ularge_t slots (8 bytes), nb_regs == 8.
@@ -87,6 +89,26 @@ struct x86 : backend
         HW_FLAGS = HW_R15,  // rt.flags (64-bit predicates)
         HW_SCR   = HW_R11,  // general scratch (swap, etc.)
     };
+
+    static const uint X86_SHADOW_COUNT = 4;
+
+    uint shadow_reg(byte n) const
+    // ------------------------------------------------------------------------
+    //   Map bytecode local n to its shadow hardware register (x86-64 only)
+    // ------------------------------------------------------------------------
+    {
+        static const uint regs[X86_SHADOW_COUNT] =
+            { HW_R8, HW_R9, HW_R10, HW_RBX };
+        return regs[n];
+    }
+
+    bool has_shadow(byte n) const
+    // ------------------------------------------------------------------------
+    //   True when local n is kept in a dedicated shadow register
+    // ------------------------------------------------------------------------
+    {
+        return ptr_size() == 8 && n < X86_SHADOW_COUNT;
+    }
 
     x86(arch_t arch);
 
@@ -487,6 +509,7 @@ protected:
     void emit_mov_frame_rax();
     void emit_set_arg0_rax();
     void emit_push_reg(uint r);
+    void emit_pop_reg(uint r);
     void emit_set_arg0_r(uint r);
     void emit_set_arg0_imm(uint64_t imm);
     void emit_set_arg1_imm(uint64_t imm);
@@ -538,6 +561,8 @@ protected:
     void            orex(int ll, int r, int x, byte c);
     void            emit_rex_modrm(int ll, int r, int x, int b, byte op);
     void            load_hw_imm(uint r, uint64_t imm);
+    void            load_local_frame(byte n, uint r);
+    void            store_local_frame(uint r, byte n);
     void            load_local(byte n, uint r);
     void            load_float_local(byte n, uint xmm);
     void            store_float_local(byte n, uint xmm);
@@ -595,6 +620,7 @@ protected:
     void            load_global(byte d, byte s);
     void            reload_frame_reg();
     void            reload_flags_reg();
+    void            reload_shadows();
     void            reload_rt_regs();
     void            br_via_ip();
     void            do_ret();

@@ -318,11 +318,16 @@ void x86::emit_sys(tok_t t, byte_p args, byte_p next_pc)
     emit_cleanup_call_args(2);
     reload_rt_regs();
     if (ptr_size() == 8)
+    {
         reload_flags_reg();
+        reload_shadows();
+    }
     emit_set_arg0_imm(uint64_t(uintptr_t(next_pc)));
     call_ptr((void *) xlr8_after_sys);
     emit_cleanup_call_args(1);
     reload_rt_regs();
+    if (ptr_size() == 8)
+        reload_shadows();
     orex(1, HW_RAX, 0, 0x85);
     g(modrm_rr(HW_RAX, HW_RAX));
     g(0x74);

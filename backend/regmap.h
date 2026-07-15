@@ -75,13 +75,14 @@
 //  x86-64 (x86_64)
 //  ---------------------------------------------------------------------------
 //
-//     All bytecode locals live in frame memory at [r12 + local*8].
-//     There are no shadow registers on x86: every access is load/store.
+//     Shadow locals     r8,r9,r10,rbx  frame[0] .. frame[3] when valid (x86-64)
+//     Locals >= 4: load/store at [r12 + local*8] as before.
 //
 //     Frame pointer     r12           rt.frame, primed at entry
 //     Flags/predicates  r15           rt.flags (64-bit), primed at entry
 //     Scratch           r11           general temp (swap, etc.)
 //     Value temps       rax, rcx, rdx used by opcode helpers
+//     Callee-saved      rbx, rbp      saved in JIT prologue
 //     Stack pointer     rsp           native stack
 //
 //

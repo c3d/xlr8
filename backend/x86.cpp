@@ -52,7 +52,7 @@ x86::x86(arch_t arch)
 
 void x86::begin_translation()
 // ----------------------------------------------------------------------------
-//   Prime callee-saved frame/flags registers; align stack on x86-64 SysV calls
+//   Save callee-saved regs, prime frame/flags, load shadow locals (x86-64)
 // ----------------------------------------------------------------------------
 {
     record(x86, "begin_translation()");
@@ -64,18 +64,31 @@ void x86::begin_translation()
         emit_mov_rr(hw_flags(), HW_RAX);
     }
     else
+    {
+        emit_push_reg(HW_RBX);
+        emit_push_reg(HW_RBP);
         emit_sub_rsp_imm8(0x08);
+        call_ptr(xlr8_runtime_fn("xlr8_get_frame"));
+        emit_mov_rr(hw_frame(), HW_RAX);
+        call_ptr(xlr8_runtime_fn("xlr8_get_flags"));
+        emit_mov_rr(hw_flags(), HW_RAX);
+        reload_shadows();
+    }
 }
 
 
 void x86::finish_translation()
 // ----------------------------------------------------------------------------
-//   Emit epilogue at end of translated code
+//   Restore stack and callee-saved registers, then return
 // ----------------------------------------------------------------------------
 {
     record(x86, "finish_translation()");
     if (ptr_size() == 8)
+    {
         emit_add_rsp_imm8(0x08);
+        emit_pop_reg(HW_RBP);
+        emit_pop_reg(HW_RBX);
+    }
     do_ret();
 }
 
@@ -189,10 +202,23 @@ void x86::emit_mov_frame_rax()
 
 void x86::emit_push_reg(uint r)
 // ----------------------------------------------------------------------------
-//   Push a general-purpose register (cdecl argument)
+//   Push a general-purpose register (cdecl / SysV argument)
 // ----------------------------------------------------------------------------
 {
+    if (ptr_size() == 8 && rex_b(r))
+        g(0x41);
     g(byte(0x50 + reg_value(r)));
+}
+
+
+void x86::emit_pop_reg(uint r)
+// ----------------------------------------------------------------------------
+//   Pop into a general-purpose register
+// ----------------------------------------------------------------------------
+{
+    if (ptr_size() == 8 && rex_b(r))
+        g(0x41);
+    g(byte(0x58 + reg_value(r)));
 }
 
 
@@ -321,6 +347,19 @@ void x86::reload_flags_reg()
     record(x86, "reload_flags_reg()");
     emit_runtime_call("xlr8_get_flags");
     emit_mov_rr(hw_flags(), HW_RAX);
+}
+
+
+void x86::reload_shadows()
+// ----------------------------------------------------------------------------
+//   Reload shadow locals 0..3 from frame memory after a native call
+// ----------------------------------------------------------------------------
+{
+    if (ptr_size() != 8)
+        return;
+    record(x86, "reload_shadows()");
+    for (byte n = 0; n < X86_SHADOW_COUNT; n++)
+        load_local_frame(n, shadow_reg(n));
 }
 
 
@@ -481,12 +520,12 @@ void x86::store_double_local(byte n, uint xmm)
 }
 
 
-void x86::load_local(byte n, uint r)
+void x86::load_local_frame(byte n, uint r)
 // ----------------------------------------------------------------------------
-//   Load bytecode local into a hardware register
+//   Load bytecode local n from frame memory into hardware register r
 // ----------------------------------------------------------------------------
 {
-    record(x86, "load_local(%u, %u)", n, r);
+    record(x86, "load_local_frame(%u, %u)", n, r);
     int disp = local_disp(n);
     uint frame = hw_frame();
     if (disp)
@@ -506,12 +545,12 @@ void x86::load_local(byte n, uint r)
 }
 
 
-void x86::store_local(uint r, byte n)
+void x86::store_local_frame(uint r, byte n)
 // ----------------------------------------------------------------------------
-//   Store hardware register into bytecode local
+//   Store hardware register r into bytecode local frame slot n
 // ----------------------------------------------------------------------------
 {
-    record(x86, "store_local(%u, %u)", r, n);
+    record(x86, "store_local_frame(%u, %u)", r, n);
     int disp = local_disp(n);
     uint frame = hw_frame();
     if (disp)
@@ -531,12 +570,51 @@ void x86::store_local(uint r, byte n)
 }
 
 
+void x86::load_local(byte n, uint r)
+// ----------------------------------------------------------------------------
+//   Load bytecode local into a hardware register
+// ----------------------------------------------------------------------------
+{
+    record(x86, "load_local(%u, %u)", n, r);
+    if (has_shadow(n))
+    {
+        uint s = shadow_reg(n);
+        if (r != s)
+            emit_mov_rr(r, s);
+        return;
+    }
+    load_local_frame(n, r);
+}
+
+
+void x86::store_local(uint r, byte n)
+// ----------------------------------------------------------------------------
+//   Store hardware register into bytecode local
+// ----------------------------------------------------------------------------
+{
+    record(x86, "store_local(%u, %u)", r, n);
+    if (has_shadow(n))
+    {
+        uint s = shadow_reg(n);
+        if (r != s)
+            emit_mov_rr(s, r);
+    }
+    store_local_frame(has_shadow(n) ? shadow_reg(n) : r, n);
+}
+
+
 void x86::mov_local(byte d, byte s)
 // ----------------------------------------------------------------------------
 //   Copy value between bytecode locals
 // ----------------------------------------------------------------------------
 {
     record(x86, "mov_local(%u, %u)", d, s);
+    if (has_shadow(d) && has_shadow(s))
+    {
+        emit_mov_rr(shadow_reg(d), shadow_reg(s));
+        store_local_frame(shadow_reg(d), d);
+        return;
+    }
     load_local(s, HW_RAX);
     store_local(HW_RAX, d);
 }
@@ -1073,6 +1151,13 @@ void x86::incr_local(byte d)
 // ----------------------------------------------------------------------------
 {
     record(x86, "incr_local(%u)", d);
+    if (has_shadow(d))
+    {
+        uint s = shadow_reg(d);
+        emit_grp5_ff(s, 0xc0);
+        store_local_frame(s, d);
+        return;
+    }
     load_local(d, HW_RAX);
     emit_grp5_ff(HW_RAX, 0xc0);
     store_local(HW_RAX, d);
@@ -1085,6 +1170,13 @@ void x86::decr_local(byte d)
 // ----------------------------------------------------------------------------
 {
     record(x86, "decr_local(%u)", d);
+    if (has_shadow(d))
+    {
+        uint s = shadow_reg(d);
+        emit_grp5_ff(s, 0xc8);
+        store_local_frame(s, d);
+        return;
+    }
     load_local(d, HW_RAX);
     emit_grp5_ff(HW_RAX, 0xc8);
     store_local(HW_RAX, d);
@@ -1685,6 +1777,8 @@ void x86::emit_runtime_call(cstring fn)
     record(x86, "emit_runtime_call(%s)", fn);
     call_ptr(xlr8_runtime_fn(fn));
     reload_rt_regs();
+    if (ptr_size() == 8)
+        reload_shadows();
 }
 
 
@@ -1698,6 +1792,8 @@ void x86::emit_runtime_call(cstring fn, tok_t a)
     call_ptr(xlr8_runtime_fn(fn));
     emit_cleanup_call_args(1);
     reload_rt_regs();
+    if (ptr_size() == 8)
+        reload_shadows();
 }
 
 
@@ -1714,6 +1810,8 @@ void x86::emit_runtime_call(cstring fn, byte a)
         reload_frame_reg();
     else
         reload_rt_regs();
+    if (ptr_size() == 8)
+        reload_shadows();
 }
 
 
