@@ -1085,6 +1085,46 @@ void x86::decr_local(byte d)
 }
 
 
+void x86::sext_reg(uint r, byte w)
+// ----------------------------------------------------------------------------
+//   Sign-extend register r to w bits (shared by sext and load paths)
+// ----------------------------------------------------------------------------
+{
+    record(x86, "sext_reg(%u, %u)", r, w);
+    if (w >= 64)
+        return;
+    if (w == 8)
+    {
+        if (ptr_size() == 8)
+            g(0x48);
+        g(0x0f);
+        g(0xbe);
+        g(byte(0xc0 | (r & 7)));
+    }
+    else if (w == 16)
+    {
+        g(0x66);
+        if (ptr_size() == 8)
+            g(0x48);
+        g(0x0f);
+        g(0xbf);
+        g(byte(0xc0 | (r & 7)));
+    }
+    else if (w == 32 && ptr_size() == 8)
+    {
+        g(0x48);
+        g(0x63);
+        g(byte(0xc0 | ((r & 7) << 3) | (r & 7)));
+    }
+    else
+    {
+        load_hw_imm(HW_RCX, 64 - w);
+        emit_shift_cl(r, 0xe0);
+        emit_shift_cl(r, 0xf8);
+    }
+}
+
+
 void x86::sext_local(byte d, byte w)
 // ----------------------------------------------------------------------------
 //   Sign-extend local d to w bits
@@ -1092,12 +1132,7 @@ void x86::sext_local(byte d, byte w)
 {
     record(x86, "sext_local(%u, %u)", d, w);
     load_local(d, HW_RAX);
-    if (w < 64)
-    {
-        load_hw_imm(HW_RCX, 64 - w);
-        emit_shift_cl(HW_RAX, 0xe0);
-        emit_shift_cl(HW_RAX, 0xf8);
-    }
+    sext_reg(HW_RAX, w);
     store_local(HW_RAX, d);
 }
 
@@ -1272,16 +1307,46 @@ else if (sz == 4)
 }
 
 
+void x86::load_signext_mem(byte w)
+// ----------------------------------------------------------------------------
+//   Load from [rax] and sign-extend to w bits into rax
+// ----------------------------------------------------------------------------
+{
+    record(x86, "load_signext_mem(%u)", w);
+    if (w == 8)
+        emit_load_s8_sext_rax();
+    else if (w == 16)
+        emit_load_s16_sext_rax();
+    else if (w == 32)
+        emit_load_s32_sext_rax();
+    else if (w >= 64)
+        emit_rex_modrm(1, HW_RAX, HW_RAX, HW_RAX, 0x8b);
+    else
+    {
+        uint sz = (w + 7) / 8;
+        if (sz == 1)
+            emit_load_u8_zext_rax();
+        else if (sz == 2)
+            emit_load_u16_zext_rax();
+        else if (sz == 4)
+            emit_load_u32_rax();
+        else
+            emit_rex_modrm(1, HW_RAX, HW_RAX, HW_RAX, 0x8b);
+        sext_reg(HW_RAX, w);
+    }
+}
+
+
 void x86::load_signext(byte d, byte s, byte w)
 // ----------------------------------------------------------------------------
 //   Load from memory with sign extension
 // ----------------------------------------------------------------------------
 {
     record(x86, "load_signext(%u, %u, %u)", d, s, w);
-    load_mem(d, s, (w + 7) / 8);
-    sext_local(d, w);
+    load_local(s, HW_RAX);
+    load_signext_mem(w);
+    store_local(HW_RAX, d);
 }
-
 
 void x86::load_signext_off(byte d, byte s, byte w, value_t o)
 // ----------------------------------------------------------------------------
@@ -1289,8 +1354,14 @@ void x86::load_signext_off(byte d, byte s, byte w, value_t o)
 // ----------------------------------------------------------------------------
 {
     record(x86, "load_signext_off(%u, %u, %u, %lld)", d, s, w, o);
-    load_mem_off(d, s, o, (w + 7) / 8);
-    sext_local(d, w);
+    load_local(s, HW_RAX);
+    if (o)
+    {
+        load_hw_imm(HW_RCX, uint64_t(o));
+        emit_add_rr(HW_RAX, HW_RCX);
+    }
+    load_signext_mem(w);
+    store_local(HW_RAX, d);
 }
 
 

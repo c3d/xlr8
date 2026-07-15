@@ -1185,9 +1185,7 @@ void arm64::emit_lds(byte d, byte s, byte w)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_lds(%u, %u, %u)", d, s, w);
-    if (d != s)
-        mov_local(d, s);
-    sext_local(d, w);
+    load_signext(d, s, w);
 }
 
 

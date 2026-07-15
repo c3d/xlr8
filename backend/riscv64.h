@@ -752,6 +752,8 @@ protected:
     void decr_local(byte d);
     void sext_local(byte d, byte w);
     void zext_local(byte d, byte w);
+    void sext_reg(uint rd, uint rn, byte w);
+    void load_signext_mem(uint rd, uint addr_rn, byte w);
     void store_mem(byte d, byte s, uint sz);
     void load_mem(byte d, byte s, uint sz);
     void store_mem_off(byte d, byte s, value_t o, uint sz);

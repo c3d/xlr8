@@ -212,6 +212,30 @@ protected:
         return 0x39400000u | (rn << 5) | rd;
     }
 
+    static inline uint ldrsb_idx(uint rd, uint rn)
+    // ------------------------------------------------------------------------
+    //   Encode ldrsb x, [rn]  (sign-extend byte to 64 bits)
+    // ------------------------------------------------------------------------
+    {
+        return 0x39800000u | (rn << 5) | rd;
+    }
+
+    static inline uint ldrsh_idx(uint rd, uint rn)
+    // ------------------------------------------------------------------------
+    //   Encode ldrsh x, [rn]  (sign-extend halfword to 64 bits)
+    // ------------------------------------------------------------------------
+    {
+        return 0x79800000u | (rn << 5) | rd;
+    }
+
+    static inline uint ldrsw_idx(uint rd, uint rn)
+    // ------------------------------------------------------------------------
+    //   Encode ldrsw x, [rn]  (sign-extend word to 64 bits)
+    // ------------------------------------------------------------------------
+    {
+        return 0xb9800000u | (rn << 5) | rd;
+    }
+
     static inline uint str_idx(uint rd, uint rn)
     // ------------------------------------------------------------------------
     //   Encode str rd, [rn]
@@ -680,6 +704,8 @@ protected:
     void decr_local(byte d);
     void sext_local(byte d, byte w);
     void zext_local(byte d, byte w);
+    void sext_reg(uint rd, uint rn, byte w);
+    void load_signext_mem(uint rd, uint addr_rn, byte w);
     void store_mem(byte d, byte s, uint sz);
     void load_mem(byte d, byte s, uint sz);
     void store_mem_off(byte d, byte s, value_t o, uint sz);

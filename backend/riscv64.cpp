@@ -852,6 +852,21 @@ void riscv64::decr_local(byte d)
 }
 
 
+void riscv64::sext_reg(uint rd, uint rn, byte w)
+// ----------------------------------------------------------------------------
+//   Sign-extend register rn to w bits into rd (shared by sext and load paths)
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "sext_reg(%u, %u, %u)", rd, rn, w);
+    if (w < 64)
+    {
+        uint sh = 64 - w;
+        emit32le(slli(rd, rn, sh));
+        emit32le(srai(rd, rd, sh));
+    }
+}
+
+
 void riscv64::sext_local(byte d, byte w)
 // ----------------------------------------------------------------------------
 //   Sign-extend local d to w bits
@@ -859,12 +874,7 @@ void riscv64::sext_local(byte d, byte w)
 {
     record(riscv64, "sext_local(%u, %u)", d, w);
     load_local(d, HW_SCR_ADDR);
-    if (w < 64)
-    {
-        uint sh = 64 - w;
-        emit32le(slli(HW_SCR_ADDR, HW_SCR_ADDR, sh));
-        emit32le(srai(HW_SCR_ADDR, HW_SCR_ADDR, sh));
-    }
+    sext_reg(HW_SCR_ADDR, HW_SCR_ADDR, w);
     store_local(HW_SCR_ADDR, d);
     touch_local(d);
 }
@@ -1021,16 +1031,55 @@ void riscv64::load_mem_off(byte d, byte s, value_t o, uint sz)
 }
 
 
+void riscv64::load_signext_mem(uint rd, uint addr_rn, byte w)
+// ----------------------------------------------------------------------------
+//   Load from [addr_rn] and sign-extend to w bits into rd
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "load_signext_mem(%u, %u, %u)", rd, addr_rn, w);
+    if (w == 8)
+        emit32le(lb_idx(rd, addr_rn));
+    else if (w == 16)
+        emit32le(lh_idx(rd, addr_rn));
+    else if (w == 32)
+        emit32le(lw_idx(rd, addr_rn));
+    else if (w >= 64)
+        emit32le(ld_idx(rd, addr_rn));
+    else
+    {
+        uint sz = (w + 7) / 8;
+        switch (sz)
+        {
+        case 1: emit32le(lb_idx(rd, addr_rn)); break;
+        case 2: emit32le(lh_idx(rd, addr_rn)); break;
+        case 4: emit32le(lw_idx(rd, addr_rn)); break;
+        default: emit32le(ld_idx(rd, addr_rn)); break;
+        }
+        sext_reg(rd, rd, w);
+    }
+}
+
+
 void riscv64::load_signext(byte d, byte s, byte w)
 // ----------------------------------------------------------------------------
 //   Load from memory with sign extension
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "load_signext(%u, %u, %u)", d, s, w);
-    load_mem(d, s, (w + 7) / 8);
-    sext_local(d, w);
+    load_local(s, HW_SCR_ADDR);
+    if (d < LOC_SHADOW_COUNT)
+    {
+        load_signext_mem(xreg(d), HW_SCR_ADDR, w);
+        emit32le(sd_off(xreg(d), HW_FRAME, int(d) * int(ptr_size())));
+    }
+    else
+    {
+        load_signext_mem(HW_SCR_VAL, HW_SCR_ADDR, w);
+        store_local(HW_SCR_VAL, d);
+    }
+    touch_local(d);
+    frame_memory_touched = true;
 }
-
 
 void riscv64::load_signext_off(byte d, byte s, byte w, value_t o)
 // ----------------------------------------------------------------------------
@@ -1038,8 +1087,24 @@ void riscv64::load_signext_off(byte d, byte s, byte w, value_t o)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "load_signext_off(%u, %u, %u, %lld)", d, s, w, o);
-    load_mem_off(d, s, o, (w + 7) / 8);
-    sext_local(d, w);
+    load_local(s, HW_SCR_ADDR);
+    if (o)
+    {
+        load_imm64(HW_SCR_OFF, uint64_t(o));
+        emit32le(add_rr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_OFF));
+    }
+    if (d < LOC_SHADOW_COUNT)
+    {
+        load_signext_mem(xreg(d), HW_SCR_ADDR, w);
+        emit32le(sd_off(xreg(d), HW_FRAME, int(d) * int(ptr_size())));
+    }
+    else
+    {
+        load_signext_mem(HW_SCR_VAL, HW_SCR_ADDR, w);
+        store_local(HW_SCR_VAL, d);
+    }
+    touch_local(d);
+    frame_memory_touched = true;
 }
 
 

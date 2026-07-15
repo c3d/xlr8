@@ -383,6 +383,49 @@ protected:
         g(0x00);
     }
 
+    void emit_load_s8_sext_rax()
+    // ------------------------------------------------------------------------
+    //   Emit movsx rax/eax, byte ptr [rax]
+    // ------------------------------------------------------------------------
+    {
+        if (ptr_size() == 8)
+            g(0x48);
+        g(0x0f);
+        g(0xbe);
+        g(0x00);
+    }
+
+    void emit_load_s16_sext_rax()
+    // ------------------------------------------------------------------------
+    //   Emit movsx rax/eax, word ptr [rax]
+    // ------------------------------------------------------------------------
+    {
+        g(0x66);
+        if (ptr_size() == 8)
+            g(0x48);
+        g(0x0f);
+        g(0xbf);
+        g(0x00);
+    }
+
+    void emit_load_s32_sext_rax()
+    // ------------------------------------------------------------------------
+    //   Emit movsxd rax, dword ptr [rax] (64-bit) or mov eax, [rax] (32-bit)
+    // ------------------------------------------------------------------------
+    {
+        if (ptr_size() == 8)
+        {
+            g(0x48);
+            g(0x63);
+            g(0x00);
+        }
+        else
+        {
+            g(0x8b);
+            g(0x00);
+        }
+    }
+
     void emit_sse_rex_r(uint xmm)
     // ------------------------------------------------------------------------
     //   REX prefix for SSE xmm load/store with [rsp+frame+disp] addressing
@@ -521,6 +564,8 @@ protected:
     void            decr_local(byte d);
     void            sext_local(byte d, byte w);
     void            zext_local(byte d, byte w);
+    void            sext_reg(uint r, byte w);
+    void            load_signext_mem(byte w);
     void            store_mem(byte d, byte s, uint sz);
     void            load_mem(byte d, byte s, uint sz);
     void            store_mem_off(byte d, byte s, value_t o, uint sz);
