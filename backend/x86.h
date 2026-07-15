@@ -250,7 +250,8 @@ protected:
     //   Emit Group 3 F7 /ext on 64-bit register r (neg/not)
     // ------------------------------------------------------------------------
     {
-        orex(1, r, 0, 0xf7);
+        // /ext targets r/m; high registers need REX.B (orex x), not REX.R
+        orex(1, 0, r, 0xf7);
         g(ext | reg_value(r));
     }
 
@@ -259,7 +260,8 @@ protected:
     //   Emit Group 5 FF /ext on 64-bit register r (inc/dec)
     // ------------------------------------------------------------------------
     {
-        orex(1, r, 0, 0xff);
+        // /ext targets r/m; high registers need REX.B (orex x), not REX.R
+        orex(1, 0, r, 0xff);
         g(ext | reg_value(r));
     }
 
