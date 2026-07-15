@@ -226,12 +226,10 @@ static void invoke_i386(runtime &rt, void *code)
     uintptr_t framep = uintptr_t(rt.frame);
     uint32_t flags = uint32_t(rt.flags);
     asm volatile(
-        "movl %0, %%edi\n\t"
-        "movl %1, %%esi\n\t"
-        "call *%2"
+        "call *%0"
         :
-        : "r"(framep), "r"(flags), "r"(entry)
-        : "eax", "ecx", "edx", "edi", "esi", "memory", "cc");
+        : "r"(entry), "D"(framep), "S"(flags)
+        : "eax", "ecx", "edx", "memory", "cc");
 }
 #endif
 
