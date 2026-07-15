@@ -316,7 +316,7 @@ static bool native_run_impl(runtime &rt, backend &be, byte_p entry)
     if (!sz)
         return true;
 
-    void *mem = map_executable(be, code.data, sz);
+    void *mem = map_executable(be, code.data(), sz);
     if (!mem)
         return false;
 

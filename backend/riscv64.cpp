@@ -1127,10 +1127,10 @@ void riscv64::patch_branch_site(size_t insn_pos, size_t target_native)
 {
     record(riscv64, "patch_branch_site(%zu, %zu)", insn_pos, target_native);
     int32_t off = int32_t(target_native) - int32_t(insn_pos);
-    uint32_t insn = uint32_t(code().data[insn_pos])
-                  | (uint32_t(code().data[insn_pos + 1]) << 8)
-                  | (uint32_t(code().data[insn_pos + 2]) << 16)
-                  | (uint32_t(code().data[insn_pos + 3]) << 24);
+    uint32_t insn = uint32_t(code()[insn_pos])
+                  | (uint32_t(code()[insn_pos + 1]) << 8)
+                  | (uint32_t(code()[insn_pos + 2]) << 16)
+                  | (uint32_t(code()[insn_pos + 3]) << 24);
     uint opcode = insn & 0x7fu;
     if (opcode == 0x6fu)
         insn = j_imm(off);

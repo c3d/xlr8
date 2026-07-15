@@ -65,11 +65,10 @@ void backend::g(byte c)
 {
     if (nocode_wanted)
         return;
-    if (ind + 1 > text_section.allocated())
-        text_section.realloc(ind + 1);
-    text_section.data[ind] = c;
+    if (ind >= text_section.size())
+        text_section.resize(ind + 1);
+    text_section[ind] = c;
     ind++;
-    text_section.data_offset = ind;
 }
 
 

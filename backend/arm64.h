@@ -62,6 +62,7 @@
 #include "regmap.h"
 #include "recorder.h"
 
+#include <cstring>
 
 struct arm64 : backend
 // ----------------------------------------------------------------------------

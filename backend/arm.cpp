@@ -683,10 +683,10 @@ void arm::patch_branch_site(size_t insn_pos, size_t target_native)
 {
     record(arm, "patch_branch_site(%zu, %zu)", insn_pos, target_native);
     int32_t off = int32_t(target_native - insn_pos - 8) / 4;
-    uint32_t insn = uint32_t(code().data[insn_pos])
-                  | (uint32_t(code().data[insn_pos + 1]) << 8)
-                  | (uint32_t(code().data[insn_pos + 2]) << 16)
-                  | (uint32_t(code().data[insn_pos + 3]) << 24);
+    uint32_t insn = uint32_t(code()[insn_pos])
+                  | (uint32_t(code()[insn_pos + 1]) << 8)
+                  | (uint32_t(code()[insn_pos + 2]) << 16)
+                  | (uint32_t(code()[insn_pos + 3]) << 24);
     if ((insn & 0xFF000000u) == 0xEA000000u)
         insn = b_imm(off);
     else

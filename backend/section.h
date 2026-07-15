@@ -32,34 +32,54 @@
 
 #include "types.h"
 
-#include <cstdlib>
-#include <cstring>
+#include <cstdint>
+#include <vector>
 
 
-struct section
+struct section : std::vector<byte>
 // ----------------------------------------------------------------------------
 //   A growable buffer for emitted code or data
 // ----------------------------------------------------------------------------
 {
-    section(): data(), data_offset(), data_allocated() { }
-
-    ~section()
+    void append(byte c)
+    // ------------------------------------------------------------------------
+    //   Append one byte at the end of the section
+    // ------------------------------------------------------------------------
     {
-        std::free(data);
+        push_back(c);
     }
 
-    byte   *data;
-    size_t  data_offset;
-    size_t  data_allocated;
+    void append32(uint32_t c)
+    // ------------------------------------------------------------------------
+    //   Append a 32-bit little-endian value
+    // ------------------------------------------------------------------------
+    {
+        push_back(byte(c));
+        push_back(byte(c >> 8));
+        push_back(byte(c >> 16));
+        push_back(byte(c >> 24));
+    }
 
-    size_t  allocated() const   { return data_allocated; }
-    size_t  size() const        { return data_offset; }
-    byte    operator[](size_t i) const { return data[i]; }
+    void patch32(size_t at, uint32_t c)
+    // ------------------------------------------------------------------------
+    //   Patch a 32-bit little-endian value at a given offset
+    // ------------------------------------------------------------------------
+    {
+        if (at + 4 > size())
+            return;
+        (*this)[at]     = byte(c);
+        (*this)[at + 1] = byte(c >> 8);
+        (*this)[at + 2] = byte(c >> 16);
+        (*this)[at + 3] = byte(c >> 24);
+    }
 
-    void    realloc(size_t need);
-    void    append(byte c);
-    void    append32(uint32_t c);
-    void    patch32(size_t at, uint32_t c);
+    size_t allocated() const
+    // ------------------------------------------------------------------------
+    //   Return reserved capacity (TinyCC-compatible name)
+    // ------------------------------------------------------------------------
+    {
+        return capacity();
+    }
 };
 
 #endif // SECTION_H

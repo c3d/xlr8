@@ -1016,10 +1016,10 @@ void arm64::patch_branch_site(size_t insn_pos, size_t target_native)
 {
     record(arm64, "patch_branch_site(%zu, %zu)", insn_pos, target_native);
     int32_t off = int32_t(target_native - insn_pos) / 4;
-    uint32_t insn = uint32_t(code().data[insn_pos])
-                  | (uint32_t(code().data[insn_pos + 1]) << 8)
-                  | (uint32_t(code().data[insn_pos + 2]) << 16)
-                  | (uint32_t(code().data[insn_pos + 3]) << 24);
+    uint32_t insn = uint32_t(code()[insn_pos])
+                  | (uint32_t(code()[insn_pos + 1]) << 8)
+                  | (uint32_t(code()[insn_pos + 2]) << 16)
+                  | (uint32_t(code()[insn_pos + 3]) << 24);
     uint32_t op = insn & 0xff000000u;
     if (op == 0x14000000u)
         insn = b_imm(off);

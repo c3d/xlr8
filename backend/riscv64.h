@@ -57,6 +57,7 @@
 #include "regmap.h"
 #include "recorder.h"
 
+#include <cstring>
 
 struct riscv64 : backend
 // ----------------------------------------------------------------------------
