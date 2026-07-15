@@ -312,10 +312,13 @@ void riscv64::emit_sys(tok_t t, byte_p args, byte_p next_pc)
     record(riscv64_ops, "emit_sys(%llu, %p, %p)", t, args, next_pc);
     spill_arg_regs = true;
     spill_frame();
+    emit32le(mv_rr(10, HW_FLAGS));
+    rtcall("xlr8_set_flags");
     load_imm64(10, uint64_t(t));
     load_imm64(11, uint64_t(uintptr_t(args)));
     call_abs((void *) xlr8_sys);
     reload_shadows();
+    reload_flags_reg();
     load_imm64(HW_SCR_VAL, uint64_t(uintptr_t(next_pc)));
     emit32le(mv_rr(10, HW_SCR_VAL));
     rtcall("xlr8_after_sys");

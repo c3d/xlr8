@@ -313,6 +313,8 @@ void arm64::emit_sys(tok_t t, byte_p args, byte_p next_pc)
     restore_frame_ptr();
     spill_arg_regs = true;
     spill_frame();
+    emit32le(mov_rr(0, HW_FLAGS));
+    rtcall("xlr8_set_flags");
     load_imm64(0, uint64_t(t));
     load_imm64(1, uint64_t(uintptr_t(args)));
     call_abs((void *) xlr8_sys);
@@ -325,6 +327,7 @@ void arm64::emit_sys(tok_t t, byte_p args, byte_p next_pc)
     restore_frame_ptr();
 #endif
     reload_shadows();
+    reload_flags_reg();
     load_imm64(HW_SCR_VAL, uint64_t(uintptr_t(next_pc)));
     emit32le(mov_rr(0, HW_SCR_VAL));
     rtcall("xlr8_after_sys");

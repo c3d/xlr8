@@ -288,10 +288,13 @@ void arm::emit_sys(tok_t t, byte_p args, byte_p next_pc)
     record(arm_ops, "emit_sys(%llu, %p, %p)", t, args, next_pc);
     spill_arg_regs = true;
     spill_frame();
+    emit32le(mov_rr(0, HW_FLAGS));
+    rtcall("xlr8_set_flags");
     load_imm32(0, uint32_t(t));
     load_imm32(1, uint32_t(uintptr_t(args)));
     call_abs((void *) xlr8_sys);
     reload_shadows();
+    reload_flags_reg();
     load_imm32(0, uint32_t(uintptr_t(next_pc)));
     rtcall("xlr8_after_sys");
     uint cbnz_at = uint(cursor());

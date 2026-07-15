@@ -769,24 +769,35 @@ void riscv64::cmp_uimm(byte p, byte d, uvalue_t v, cstring op)
 
 void riscv64::cond_mov_local(byte p, byte d, byte s)
 // ----------------------------------------------------------------------------
-//   Conditionally move local s into d
+//   Conditionally move local s into d when predicate p is set
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "cond_mov_local(%u, %u, %u)", p, d, s);
-    (void)p;
+    load_imm64(HW_SCR_VAL, uint64_t(1) << p);
+    emit32le(and_rr(HW_SCR_VAL, HW_FLAGS, HW_SCR_VAL));
+    size_t beq_pos = cursor();
+    emit32le(beq_imm(HW_SCR_VAL, 0, 0));
     mov_local(d, s);
+    patch_branch_site(beq_pos, cursor());
 }
 
 
 void riscv64::select_local(byte p, byte d, byte s, byte x)
 // ----------------------------------------------------------------------------
-//   Select between locals s and x into d
+//   Select between locals s and x into d based on predicate p
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "select_local(%u, %u, %u, %u)", p, d, s, x);
-    (void)p;
+    load_imm64(HW_SCR_VAL, uint64_t(1) << p);
+    emit32le(and_rr(HW_SCR_VAL, HW_FLAGS, HW_SCR_VAL));
+    size_t beq_pos = cursor();
+    emit32le(beq_imm(HW_SCR_VAL, 0, 0));
     mov_local(d, s);
-    (void)x;
+    size_t j_pos = cursor();
+    emit32le(j_imm(0));
+    patch_branch_site(beq_pos, cursor());
+    mov_local(d, x);
+    patch_branch_site(j_pos, cursor());
 }
 
 

@@ -690,20 +690,35 @@ void arm64::cmp_uimm(byte p, byte d, uvalue_t v, cstring op)
 
 void arm64::cond_mov_local(byte p, byte d, byte s)
 // ----------------------------------------------------------------------------
-//   Conditionally move local s into d
+//   Conditionally move local s into d when predicate p is set
 // ----------------------------------------------------------------------------
 {
     record(arm64, "cond_mov_local(%u, %u, %u)", p, d, s);
-    (void)p; mov_local(d,s);
+    load_imm64(HW_SCR_VAL, uint64_t(1) << p);
+    emit32le(and_rrr(HW_SCR_VAL, HW_FLAGS, HW_SCR_VAL));
+    size_t cbz_pos = cursor();
+    emit32le(cbz_imm(HW_SCR_VAL, 0));
+    mov_local(d, s);
+    int off = int((cursor() - cbz_pos) / 4);
+    code().patch32(cbz_pos, cbz_imm(HW_SCR_VAL, off));
 }
 
 void arm64::select_local(byte p, byte d, byte s, byte x)
 // ----------------------------------------------------------------------------
-//   Select between locals s and x into d
+//   Select between locals s and x into d based on predicate p
 // ----------------------------------------------------------------------------
 {
     record(arm64, "select_local(%u, %u, %u, %u)", p, d, s, x);
-    (void)p; mov_local(d,s); (void)x;
+    load_imm64(HW_SCR_VAL, uint64_t(1) << p);
+    emit32le(and_rrr(HW_SCR_VAL, HW_FLAGS, HW_SCR_VAL));
+    size_t cbz_pos = cursor();
+    emit32le(cbz_imm(HW_SCR_VAL, 0));
+    mov_local(d, s);
+    size_t b_pos = cursor();
+    emit32le(b_imm(0));
+    code().patch32(cbz_pos, cbz_imm(HW_SCR_VAL, int((cursor() - cbz_pos) / 4)));
+    mov_local(d, x);
+    code().patch32(b_pos, b_imm(int((cursor() - b_pos) / 4)));
 }
 
 void arm64::neg_local(byte d)

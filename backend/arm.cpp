@@ -223,6 +223,17 @@ void arm::reload_shadows(void)
 }
 
 
+void arm::reload_flags_reg()
+// ----------------------------------------------------------------------------
+//   Reload r10 from runtime flags after sys or leave
+// ----------------------------------------------------------------------------
+{
+    record(arm, "reload_flags_reg()");
+    rtcall("xlr8_get_flags");
+    emit32le(mov_rr(HW_FLAGS, 0));
+}
+
+
 uint arm::gjmp(uint t)
 // ----------------------------------------------------------------------------
 //   Emit jump with deferred fixup chain
@@ -491,24 +502,35 @@ void arm::cmp_uimm(byte p, byte d, uvalue_t v, cstring op)
 
 void arm::cond_mov_local(byte p, byte d, byte s)
 // ----------------------------------------------------------------------------
-//   Conditionally move local s into d
+//   Conditionally move local s into d when predicate p is set
 // ----------------------------------------------------------------------------
 {
     record(arm, "cond_mov_local(%u, %u, %u)", p, d, s);
-    (void)p;
+    load_imm32(HW_SCR_ADDR, 1u << p);
+    emit32le(and_rrr(HW_SCR_ADDR, HW_FLAGS, HW_SCR_ADDR));
+    size_t beq_pos = cursor();
+    emit32le(b_cond_imm(0x0, 0));
     mov_local(d, s);
+    patch_branch_site(beq_pos, cursor());
 }
 
 
 void arm::select_local(byte p, byte d, byte s, byte x)
 // ----------------------------------------------------------------------------
-//   Select between locals s and x into d
+//   Select between locals s and x into d based on predicate p
 // ----------------------------------------------------------------------------
 {
     record(arm, "select_local(%u, %u, %u, %u)", p, d, s, x);
-    (void)p;
+    load_imm32(HW_SCR_ADDR, 1u << p);
+    emit32le(and_rrr(HW_SCR_ADDR, HW_FLAGS, HW_SCR_ADDR));
+    size_t beq_pos = cursor();
+    emit32le(b_cond_imm(0x0, 0));
     mov_local(d, s);
-    (void)x;
+    size_t b_pos = cursor();
+    emit32le(b_imm(0));
+    patch_branch_site(beq_pos, cursor());
+    mov_local(d, x);
+    patch_branch_site(b_pos, cursor());
 }
 
 

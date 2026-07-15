@@ -1,4 +1,4 @@
-// Select register value based on predicate
+// Select register value based on predicate (true and false paths)
 
 int 0 10
 int 1 10
@@ -7,8 +7,17 @@ int 3 +222
 cmpeq 0 0 1
 select 0 4 2 3
 
+int 5 10
+int 6 20
+int 7 +333
+int 8 +444
+cmpeq 0 5 6
+select 0 9 7 8
+
 [STDOUT 1]
 
 sys write_integer STDOUT 4
+sys write_newline STDOUT
+sys write_integer STDOUT 9
 sys write_newline STDOUT
 end

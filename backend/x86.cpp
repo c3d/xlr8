@@ -1016,24 +1016,30 @@ void x86::cmp_uimm(byte p, byte d, uvalue_t v, cstring rel)
 
 void x86::cond_mov_local(byte p, byte d, byte s)
 // ----------------------------------------------------------------------------
-//   Conditionally move local s into d
+//   Conditionally move local s into d when predicate p is set
 // ----------------------------------------------------------------------------
 {
     record(x86, "cond_mov_local(%u, %u, %u)", p, d, s);
-    (void) p;
+    emit_pred_test_bit(p);
+    size_t pos = emit_jcc_rel32(JCC_JZ);
     mov_local(d, s);
+    patch_branch_site(pos, cursor());
 }
 
 
 void x86::select_local(byte p, byte d, byte s, byte x)
 // ----------------------------------------------------------------------------
-//   Select between locals s and x into d
+//   Select between locals s and x into d based on predicate p
 // ----------------------------------------------------------------------------
 {
     record(x86, "select_local(%u, %u, %u, %u)", p, d, s, x);
-    (void) p;
-    (void) x;
+    emit_pred_test_bit(p);
+    size_t jz_pos = emit_jcc_rel32(JCC_JZ);
     mov_local(d, s);
+    size_t jmp_pos = emit_near_jmp_rel32();
+    patch_branch_site(jz_pos, cursor());
+    mov_local(d, x);
+    patch_branch_site(jmp_pos, cursor());
 }
 
 

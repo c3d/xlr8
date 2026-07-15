@@ -309,11 +309,16 @@ void x86::emit_sys(tok_t t, byte_p args, byte_p next_pc)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_sys(%llu, %p, %p)", t, args, next_pc);
+    emit_set_arg0_r(hw_flags());
+    call_ptr(xlr8_runtime_fn("xlr8_set_flags"));
+    emit_cleanup_call_args(1);
     emit_set_arg1_imm(uint64_t(uintptr_t(args)));
     emit_set_arg0_imm(uint64_t(t));
     call_ptr((void *) xlr8_sys);
     emit_cleanup_call_args(2);
     reload_rt_regs();
+    if (ptr_size() == 8)
+        reload_flags_reg();
     emit_set_arg0_imm(uint64_t(uintptr_t(next_pc)));
     call_ptr((void *) xlr8_after_sys);
     emit_cleanup_call_args(1);

@@ -343,6 +343,7 @@ protected:
     void spill_frame();
     void reload_frame_reg();
     void reload_shadows();
+    void reload_flags_reg();
     void touch_local(byte d);
     void mov_local(byte d, byte s);
     void swap_locals(byte d, byte s);
