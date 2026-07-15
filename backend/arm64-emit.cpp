@@ -315,13 +315,7 @@ void arm64::emit_sys(tok_t t, byte_p args, byte_p next_pc)
     spill_frame();
     load_imm64(0, uint64_t(t));
     load_imm64(1, uint64_t(uintptr_t(args)));
-#if defined(__linux__) && !defined(__ANDROID__)
-    emit32le(stp_push(HW_ANCHOR));
-#endif
     call_abs((void *) xlr8_sys);
-#if defined(__linux__) && !defined(__ANDROID__)
-    emit32le(ldp_pop(HW_ANCHOR));
-#endif
     restore_frame_ptr();
     reload_shadows();
     load_imm64(HW_SCR_VAL, uint64_t(uintptr_t(next_pc)));
