@@ -617,13 +617,26 @@ void arm64::binop_imm(byte d, value_t v, cstring op)
     else if (!strcmp(op, "shl_imm") || !strcmp(op, "sar_imm")
           || !strcmp(op, "shr_imm"))
     {
-        load_imm64(HW_SCR_VAL, uint64_t(v));
-        if (!strcmp(op, "shl_imm"))
-            emit32le(lsl_rrr(rd, rd, HW_SCR_VAL));
-        else if (!strcmp(op, "sar_imm"))
-            emit32le(asr_rrr(rd, rd, HW_SCR_VAL));
+        uint amt = uint(v) & 63u;
+        if (v >= 0 && v < 64)
+        {
+            if (!strcmp(op, "shl_imm"))
+                emit32le(lsl_imm64(rd, rd, amt));
+            else if (!strcmp(op, "sar_imm"))
+                emit32le(asr_imm64(rd, rd, amt));
+            else
+                emit32le(lsr_imm64(rd, rd, amt));
+        }
         else
-            emit32le(lsr_rrr(rd, rd, HW_SCR_VAL));
+        {
+            load_imm64(HW_SCR_VAL, uint64_t(v));
+            if (!strcmp(op, "shl_imm"))
+                emit32le(lsl_rrr(rd, rd, HW_SCR_VAL));
+            else if (!strcmp(op, "sar_imm"))
+                emit32le(asr_rrr(rd, rd, HW_SCR_VAL));
+            else
+                emit32le(lsr_rrr(rd, rd, HW_SCR_VAL));
+        }
     }
     else if (!strcmp(op, "idiv_imm"))
     {
@@ -844,10 +857,7 @@ void arm64::zext_local(byte d, byte w)
     record(arm64, "zext_local(%u, %u)", d, w);
     load_local(d, HW_SCR_ADDR);
     if (w < 64)
-    {
-        load_imm64(HW_SCR_OFF, (1ull << w) - 1ull);
-        emit32le(and_rrr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_OFF));
-    }
+        emit32le(ubfm_width(HW_SCR_ADDR, HW_SCR_ADDR, w));
     store_local(HW_SCR_ADDR, d);
     touch_local(d);
 }
@@ -864,8 +874,8 @@ void arm64::frame_addr(byte d, byte s)
         emit32le(add_imm(HW_SCR_ADDR, HW_FRAME, uint(s) * 8));
     else
     {
-        load_imm64(HW_SCR_VAL, uint64_t(s) * 8);
-        emit32le(add_rrr(HW_SCR_ADDR, HW_FRAME, HW_SCR_VAL));
+        load_imm64(HW_SCR_VAL, uint64_t(s));
+        emit32le(frame_addr_rr(HW_SCR_ADDR, HW_SCR_VAL));
     }
     store_local(HW_SCR_ADDR, d);
     touch_local(d);
@@ -884,7 +894,7 @@ void arm64::store_mem(byte d, byte s, uint sz)
     {
     case 1: emit32le(0x39000000u | (HW_SCR_ADDR << 5) | HW_SCR_VAL); break;
     case 2: emit32le(0x79000000u | (HW_SCR_ADDR << 5) | HW_SCR_VAL); break;
-    case 4: emit32le(0xb9000000u | (HW_SCR_ADDR << 5) | HW_SCR_VAL); break;
+    case 4: emit32le(str_w_off(HW_SCR_VAL, HW_SCR_ADDR, 0)); break;
     default: emit32le(str_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
     }
     frame_memory_touched = true;
@@ -904,7 +914,7 @@ void arm64::load_mem(byte d, byte s, uint sz)
         {
         case 1: emit32le(ldrb_idx(xreg(d), HW_SCR_ADDR)); break;
         case 2: emit32le(ldrh_idx(xreg(d), HW_SCR_ADDR)); break;
-        case 4: emit32le(ldr_w_idx(xreg(d), HW_SCR_ADDR)); break;
+        case 4: emit32le(ldr_w_off(xreg(d), HW_SCR_ADDR, 0)); break;
         default: emit32le(ldr_idx(xreg(d), HW_SCR_ADDR)); break;
         }
         emit32le(str_off(xreg(d), HW_FRAME, d));
@@ -915,7 +925,7 @@ void arm64::load_mem(byte d, byte s, uint sz)
         {
         case 1: emit32le(ldrb_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
         case 2: emit32le(ldrh_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
-        case 4: emit32le(ldr_w_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        case 4: emit32le(ldr_w_off(HW_SCR_VAL, HW_SCR_ADDR, 0)); break;
         default: emit32le(ldr_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
         }
         store_local(HW_SCR_VAL, d);
@@ -941,7 +951,7 @@ void arm64::store_mem_off(byte d, byte s, value_t o, uint sz)
     {
     case 1: emit32le(0x39000000u | (HW_SCR_ADDR << 5) | HW_SCR_VAL); break;
     case 2: emit32le(0x79000000u | (HW_SCR_ADDR << 5) | HW_SCR_VAL); break;
-    case 4: emit32le(0xb9000000u | (HW_SCR_ADDR << 5) | HW_SCR_VAL); break;
+    case 4: emit32le(str_w_off(HW_SCR_VAL, HW_SCR_ADDR, 0)); break;
     default: emit32le(str_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
     }
     frame_memory_touched = true;
@@ -966,7 +976,7 @@ void arm64::load_mem_off(byte d, byte s, value_t o, uint sz)
         {
         case 1: emit32le(ldrb_idx(xreg(d), HW_SCR_ADDR)); break;
         case 2: emit32le(ldrh_idx(xreg(d), HW_SCR_ADDR)); break;
-        case 4: emit32le(ldr_w_idx(xreg(d), HW_SCR_ADDR)); break;
+        case 4: emit32le(ldr_w_off(xreg(d), HW_SCR_ADDR, 0)); break;
         default: emit32le(ldr_idx(xreg(d), HW_SCR_ADDR)); break;
         }
         emit32le(str_off(xreg(d), HW_FRAME, d));
@@ -977,7 +987,7 @@ void arm64::load_mem_off(byte d, byte s, value_t o, uint sz)
         {
         case 1: emit32le(ldrb_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
         case 2: emit32le(ldrh_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
-        case 4: emit32le(ldr_w_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        case 4: emit32le(ldr_w_off(HW_SCR_VAL, HW_SCR_ADDR, 0)); break;
         default: emit32le(ldr_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
         }
         store_local(HW_SCR_VAL, d);
@@ -1006,7 +1016,7 @@ void arm64::load_signext_mem(uint rd, uint addr_rn, byte w)
         {
         case 1: emit32le(ldrb_idx(rd, addr_rn)); break;
         case 2: emit32le(ldrh_idx(rd, addr_rn)); break;
-        case 4: emit32le(ldr_w_idx(rd, addr_rn)); break;
+        case 4: emit32le(ldr_w_off(rd, addr_rn, 0)); break;
         default: emit32le(ldr_idx(rd, addr_rn)); break;
         }
         sext_reg(rd, rd, w);

@@ -159,18 +159,18 @@ protected:
 
     static inline uint str_w_off(uint wt, uint rn, uint slot)
     // ------------------------------------------------------------------------
-    //   Encode str wt, [rn, #slot*8]  (32-bit store into a bytecode slot)
+    //   Encode str wt, [rn, #slot*8]  (32-bit store; scale-4 imm = slot*2)
     // ------------------------------------------------------------------------
     {
-        return 0xb9000000u | (slot << 8) | (rn << 5) | wt;
+        return 0xb9000000u | (slot << 11) | (rn << 5) | wt;
     }
 
     static inline uint ldr_w_off(uint wt, uint rn, uint slot)
     // ------------------------------------------------------------------------
-    //   Encode ldr wt, [rn, #slot*8]  (32-bit load from a bytecode slot)
+    //   Encode ldr wt, [rn, #slot*8]  (32-bit load; scale-4 imm = slot*2)
     // ------------------------------------------------------------------------
     {
-        return 0xb9400000u | (slot << 8) | (rn << 5) | wt;
+        return 0xb9400000u | (slot << 11) | (rn << 5) | wt;
     }
 
     static inline uint uxtw_x(uint xd, uint ws)
@@ -432,7 +432,7 @@ protected:
 
     static inline uint lsr_imm64(uint rd, uint rn, uint amt)
     // ------------------------------------------------------------------------
-    //   Encode lsr rd, rn, #amt
+    //   Encode lsr rd, rn, #amt  (alias of ubfm rd, rn, #amt, #63)
     // ------------------------------------------------------------------------
     {
         return 0xd340fc00u | ((amt & 0x3fu) << 16) | (rn << 5) | rd;
@@ -441,10 +441,19 @@ protected:
     static inline uint lsl_imm64(uint rd, uint rn, uint amt)
     // ------------------------------------------------------------------------
     //   Encode lsl rd, rn, #amt
+    //   Alias of ubfm rd, rn, #(-amt MOD 64), #(63-amt)
     // ------------------------------------------------------------------------
     {
-        return 0xd3400000u | (((64 - amt) & 0x3fu) << 16) | (63u << 10)
-               | (rn << 5) | rd;
+        return 0xd3400000u | (((64 - amt) & 0x3fu) << 16)
+               | (((63 - amt) & 0x3fu) << 10) | (rn << 5) | rd;
+    }
+
+    static inline uint asr_imm64(uint rd, uint rn, uint amt)
+    // ------------------------------------------------------------------------
+    //   Encode asr rd, rn, #amt  (alias of sbfm rd, rn, #amt, #63)
+    // ------------------------------------------------------------------------
+    {
+        return 0x9340fc00u | ((amt & 0x3fu) << 16) | (rn << 5) | rd;
     }
 
     static inline uint b_cond_imm(byte cond, int32_t imm19)
@@ -457,7 +466,7 @@ protected:
 
     static inline uint sbfm_width(uint rd, uint rn, uint w)
     // ------------------------------------------------------------------------
-    //   Encode sbfm rd, rn, #0, #(w-1)
+    //   Encode sbfm rd, rn, #0, #(w-1)  (sign-extend low w bits to 64)
     // ------------------------------------------------------------------------
     {
         return 0x93400000u | ((w - 1) << 10) | (rn << 5) | rd;
@@ -465,10 +474,10 @@ protected:
 
     static inline uint ubfm_width(uint rd, uint rn, uint w)
     // ------------------------------------------------------------------------
-    //   Encode ubfm rd, rn, #0, #(w-1)
+    //   Encode ubfm rd, rn, #0, #(w-1)  (zero-extend low w bits to 64)
     // ------------------------------------------------------------------------
     {
-        return 0x9300fc00u | ((w - 1) << 10) | (rn << 5) | rd;
+        return 0xd3400000u | ((w - 1) << 10) | (rn << 5) | rd;
     }
 
     static inline uint cmp_rr(uint rn, uint rm)
@@ -545,18 +554,18 @@ protected:
 
     static inline uint sbfm_64(uint rd)
     // ------------------------------------------------------------------------
-    //   Encode sbfm rd, rd, #0, #63  (sign-extend to 64 bits)
+    //   Encode sbfm rd, rd, #0, #63  (identity / sxtx of a full 64-bit value)
     // ------------------------------------------------------------------------
     {
-        return 0x9340fc00u | (63u << 10) | (rd << 5) | rd;
+        return 0x9340fc00u | (rd << 5) | rd;
     }
 
     static inline uint ubfm_64(uint rd)
     // ------------------------------------------------------------------------
-    //   Encode ubfm rd, rd, #0, #63  (zero-extend to 64 bits)
+    //   Encode ubfm rd, rd, #0, #63  (identity / uxtx of a full 64-bit value)
     // ------------------------------------------------------------------------
     {
-        return 0x92400000u | (rd << 5) | rd;
+        return 0xd340fc00u | (rd << 5) | rd;
     }
 
     static inline uint blr(uint rm)

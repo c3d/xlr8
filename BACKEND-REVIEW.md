@@ -150,6 +150,56 @@ broken (2/222).  Only passing JIT tests:
 interpreter output concatenated with `Test FAILED` on the next test, indicating
 broad codegen breakage rather than isolated opcode bugs.
 
+### 1.5 Future Work: Shadow Local Residency Tracking
+
+**Priority**: later optimization (P3-class).  Correctness is already handled by
+eagerly syncing shadows and frame memory; this is about cutting redundant moves.
+
+Today each shadow local is treated as if its value might need refreshing from
+several places on every use.  In reality the same logical slot can already be
+live in more than one place, and we do not record which place was written last.
+
+**ARM64 register files** (important): `x0`/`w0` share one **GPR**; `v0`/`d0`/`s0`
+share one **SIMD/FP** register.  Those two banks do **not** alias each other.
+`fmov s0, w0` copies bits GPR → FP; it is **not** a no-op.  What *is* free is
+reinterpreting within a bank (`w0`↔low 32 of `x0`, `s0`↔low 32 of `d0`/`v0`).
+
+**ARM64 example** — bytecode local 0 may live in:
+
+| View | Bank | Location | Notes |
+|------|------|----------|-------|
+| `x0` | GPR | 64-bit shadow | integer ops, loads, zero-extend |
+| `w0` | GPR | low 32 bits of `x0` | same register as `x0` (no move) |
+| `s0` | SIMD | FP scalar | needs `fmov` to/from `w0` |
+| `d0` | SIMD | 64-bit FP view | same SIMD reg as `s0` (no move) |
+| `[x19, #0]` | mem | frame slot | `str`/`ldr` after stores / spill |
+
+So in today's `float-add` JIT, `fmov s0, w0` / `fadd` / `fmov w0, s0` is the
+required GPR↔FP dance.  Residency tracking would skip a *second* crossing when
+the value is already in the needed bank (e.g. keep the result in `s0` for a
+following float op instead of bouncing back through `w0`), and skip `ldr x0,
+[x19]` when `x0` is still valid.
+
+Similar multi-home situations exist on other backends (x86-64 GPR vs XMM;
+high locals that only live in `[frame + n*8]`).
+
+**Work to do**
+
+1. Per shadow slot, track residency: `InGPR` (and whether full `Xn` or only
+   `Wn` is definitive), `InSIMD` (`Sn`/`Dn`), `InMem`, plus coherence flags.
+2. On read, emit a cross-bank `fmov` or a mem reload only when the needed bank
+   is not current; within a bank, prefer the matching width view for free.
+3. On write, update tags and invalidate the other bank / mem as needed
+   (integer write to `x0` clears `InSIMD`; float write to `s0` may still need
+   `fmov`+`uxtw` before `InGPR` is authoritative for the full 64-bit slot).
+4. Integrate with spill/reload around `sys` and calls: after a full spill,
+   residency becomes `InMem` until shadows are reloaded.
+5. Start with arm64 float/integer traffic (highest cross-bank noise), then
+   generalize to x86-64 / riscv64 / arm32.
+
+Do **not** block correctness work on this.  Ship as a dedicated optimization
+pass once the backends are green.
+
 ---
 
 ## 2. Cross-Platform Bugs (All Backends)
@@ -258,13 +308,24 @@ unnecessary.
 **Change**: Use the same inline FMOV+FOP sequence on all hosts.  Validated on
 macOS and torpille (`float-add` and full suite, interpreter and `-O`).
 
-### 3.7 [P4] Dead helper functions with encoding bugs
+### 3.7 [P4] ~~Dead helper functions with encoding bugs~~ — **FIXED** (2026-07-16)
 
-**File**: `arm64.h`
+**File**: `arm64.h` / `arm64.cpp`
 
-`ubfm_64()`, `ubfm_width()`, `lsl_imm64()`, `str_w_off()`, `ldr_w_off()`,
-`frame_addr_rr()`, `stp_fp_lr()` are defined but never called.  Several have
-incorrect encodings.  Remove them to prevent future misuse.
+Helpers were unused or mis-encoded.  Kept and corrected; wired into real paths:
+
+| Helper | Bug | Now used for |
+|--------|-----|--------------|
+| `ubfm_width` | Wrong opcode base (`0x9300fc00`) | `zext_local` (was mask+AND) |
+| `sbfm_width` | Encoding was already correct | `sext_reg` / `sext_local` / narrow sign-extend loads |
+| `ubfm_64` / `sbfm_64` | `ubfm_64` used wrong base | Identity UXTX/SXTX forms (kept; available) |
+| `lsl_imm64` | `imms` always 63 | `binop_imm` `shl_imm` when `0 ≤ v < 64` |
+| `lsr_imm64` / `asr_imm64` | (lsr OK; asr added) | `shr_imm` / `sar_imm` immediates |
+| `str_w_off` / `ldr_w_off` | Offset `slot<<8` not `<<11` | 32-bit `store_mem` / `load_mem` (+ off / signext) |
+| `frame_addr_rr` | Encoding OK | Large-slot `frame_addr` (`add xN, x19, xM, lsl #3`) |
+| `stp_fp_lr` | Encoding OK | AAPCS-style prologue helper (JIT uses `stp_push`) |
+
+Validated by existing `zext`/`sext`/`zext32`/`sext32` and shift/load tests.
 
 ### 3.8 [P4] Stale HW_ANCHOR comments reference x20 instead of x27
 
@@ -672,18 +733,19 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | 28 | Use SLLI/SRAI/SRLI immediates | riscv64 | -1 insn/shift |
 | 29 | Merge sys reload passes | arm64, riscv64 | -16 insns/sys fast path |
 | 30 | Fix Linux float binop path | arm64 | -40 insns/float op |
+| 31 | Shadow residency tracking (see §1.5) | all, arm64 first | skip redundant GPR↔FP↔mem moves |
 
 ### Phase 4 -- Cleanup
 
 | # | Item | Est. Effort |
 |---|------|-------------|
-| 31 | Remove `opdecl.tbl` (dead) | 5min |
-| 32 | Remove `branch_patches` member (dead) | 5min |
-| 33 | Remove `patch_branch()` function (dead) | 5min |
-| 34 | Remove dead arm64.h helper functions | 15min |
-| 35 | Fix stale HW_ANCHOR comments (x20 -> x27) | 5min |
-| 36 | Remove/fix dead VFP helpers in arm.h | 15min |
-| 37 | Fix `slti` encoding in riscv64.h | 5min |
+| 32 | Remove `opdecl.tbl` (dead) | 5min |
+| 33 | Remove `branch_patches` member (dead) | 5min |
+| 34 | Remove `patch_branch()` function (dead) | 5min |
+| 35 | ~~Remove dead arm64.h helpers~~ — done via §3.7 (fixed + wired) | — |
+| 36 | Fix stale HW_ANCHOR comments (x20 -> x27) | 5min |
+| 37 | Remove/fix dead VFP helpers in arm.h | 15min |
+| 38 | Fix `slti` encoding in riscv64.h | 5min |
 
 ---
 
