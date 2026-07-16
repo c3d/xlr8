@@ -4,8 +4,9 @@
 # Run from Mac (commit source). Remotes only git fetch mac; never push.
 #
 # Each host must already have a tmux session named "xlr8" (override with
-# TMUX_SESSION).  Build/test commands are send-keys'd into that session.
-# Output and exit status land under /tmp and are polled from Mac.
+# TMUX_SESSION).  We send-keys the validate command into that session so
+# git fetch / make / tests stream interactively in the tmux pane.  Output is
+# also teed to /tmp for the Mac to poll and summarize.
 set -euo pipefail
 
 MODE="${1:-both}"
@@ -29,10 +30,9 @@ echo "outdir=$OUTDIR"
 echo "mode=$MODE"
 echo "tmux_session=$TMUX_SESSION"
 echo "commit_expected=$(cd "$ROOT" && git log -1 --oneline)"
+echo "note: watch progress in each host's tmux session '$TMUX_SESSION'"
 
 remote_sh() {
-  # remote_sh "" 'cmd'  -> local bash -c
-  # remote_sh host 'cmd' -> ssh host
   local where="$1"
   shift
   if [ -z "$where" ]; then
@@ -49,6 +49,8 @@ tmux_kick() {
   local rexit="/tmp/xlr8-validate-${tag}.exit"
   local rdone="/tmp/xlr8-validate-${tag}.done"
 
+  # Run in the tmux pane with a live TTY: fetch/make/tests are visible there.
+  # tee keeps a copy under /tmp for Mac-side polling without silencing the pane.
   remote_sh "$where" "set -euo pipefail
 if ! tmux has-session -t '$TMUX_SESSION' 2>/dev/null; then
   echo \"error: tmux session '$TMUX_SESSION' not found on \$(hostname)\" >&2
@@ -58,8 +60,8 @@ rm -f '$rdone' '$rexit' '$rlog'
 tmux send-keys -t '$TMUX_SESSION' C-c
 sleep 0.3
 tmux send-keys -t '$TMUX_SESSION' C-u
-tmux send-keys -t '$TMUX_SESSION' \"cd ~/Work/xlr8 && rm -f '$rdone' '$rexit' && { bash scripts/platform-validate.sh $MODE; echo \\\$? > '$rexit'; } >'$rlog' 2>&1; touch '$rdone'\" Enter
-echo \"kicked session=$TMUX_SESSION tag=$tag log=$rlog\"
+tmux send-keys -t '$TMUX_SESSION' \"cd ~/Work/xlr8 && rm -f '$rdone' '$rexit' && set -o pipefail && bash scripts/platform-validate.sh $MODE 2>&1 | tee '$rlog'; echo \\\${PIPESTATUS[0]} > '$rexit'; touch '$rdone'\" Enter
+echo \"kicked session=$TMUX_SESSION tag=$tag tee=$rlog (live in tmux)\"
 "
 }
 
@@ -77,10 +79,15 @@ tmux_wait() {
          | tr -d '[:space:]')
     sz=$(remote_sh "$where" "if test -f '$rlog'; then wc -c < '$rlog'; else echo 0; fi" \
          | tr -d '[:space:]')
-    {
-      echo "[poll $(date +%H:%M:%S)] remote_log_bytes=${sz:-0} status=${st:-WAIT}"
-      remote_sh "$where" "if test -f '$rlog'; then tail -c 8192 '$rlog'; fi" || true
-    } >"$local_log"
+    # Refresh Mac-side copy from the tee file (pane remains the live view)
+    if [ -z "$where" ]; then
+      if [ -f "$rlog" ]; then cp "$rlog" "$local_log"; fi
+    else
+      ssh -o BatchMode=yes -o ConnectTimeout=15 "$where" \
+        "test -f '$rlog' && cat '$rlog' || true" >"$local_log" 2>/dev/null || true
+    fi
+    echo "[poll $(date +%H:%M:%S)] $([ -z "$where" ] && echo local || echo "$where") bytes=${sz:-0} status=${st:-WAIT}" \
+      >>"$OUTDIR/poll.log"
 
     if [ "${st:-}" = "DONE" ]; then
       break
@@ -88,7 +95,11 @@ tmux_wait() {
     sleep 15
   done
 
-  remote_sh "$where" "cat '$rlog'" >"$local_log" || true
+  if [ -z "$where" ]; then
+    [ -f "$rlog" ] && cp "$rlog" "$local_log"
+  else
+    remote_sh "$where" "cat '$rlog'" >"$local_log" || true
+  fi
   local ec
   ec=$(remote_sh "$where" "cat '$rexit' 2>/dev/null || echo 1" | tr -d '[:space:]')
   return "${ec:-1}"
@@ -109,7 +120,7 @@ for entry in "${HOSTS[@]}"; do
   (
     set +e
     {
-      echo "=== kick $name (tmux $TMUX_SESSION) ==="
+      echo "=== kick $name (tmux $TMUX_SESSION, interactive + tee) ==="
       tmux_kick "$host" "$tag"
     } >"$log" 2>&1
     if [ $? -ne 0 ]; then
@@ -141,7 +152,7 @@ for i in "${!pids[@]}"; do
   name="${names[$i]}"
   pid="${pids[$i]}"
   log="${logs[$i]}"
-  echo "waiting for $name (pid $pid)..."
+  echo "waiting for $name (pid $pid) — progress is in tmux '$TMUX_SESSION' on that host..."
   while kill -0 "$pid" 2>/dev/null; do
     status_line
     sleep 20

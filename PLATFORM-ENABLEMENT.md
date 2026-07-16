@@ -125,7 +125,9 @@ decision later). Until then, test platforms see new work only via
    ```
    The script `tmux send-keys`s `scripts/platform-validate.sh` into session
    `xlr8` on macOS / turbo / torpille / risky / turbo-x86 / turbo-arm (override
-   name with `TMUX_SESSION=`).  Those sessions must already exist.5. **If any already-green platform regresses:** fix on Mac and
+   name with `TMUX_SESSION=`).  Those sessions must already exist.  The command
+   runs **interactively in the tmux pane** (`git fetch`, `make`, tests) and is
+   also `tee`d to `/tmp` for the Mac to poll.5. **If any already-green platform regresses:** fix on Mac and
    **`git commit --amend`** (same commit). Repeat **parallel** fetch + full
    validation on all test platforms until nothing regresses.
 6. **If the target platform improved and every other platform is unchanged
