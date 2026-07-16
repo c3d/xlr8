@@ -1,0 +1,37 @@
+// Locals >= 16 are frame-only on arm64; must not touch HW shadow registers.
+// Default frame is enter 8; need enter >= 19 to legally use locals 16–18.
+
+enter 19
+
+nat 16 5
+neg 16
+nat 17 0
+not 17
+nat 18 3
+nat 10 3
+cmpeq 0 18 10
+nat 11 0
+nat 12 1
+select 0 13 12 11
+dbl 14 2.5
+
+txt 1 "neg16="
+txt 2 "not17="
+txt 3 "eq="
+txt 4 "dbl="
+
+[STDOUT 1]
+
+sys write_text STDOUT 1
+sys write_integer STDOUT 16
+sys write_newline STDOUT
+sys write_text STDOUT 2
+sys write_integer STDOUT 17
+sys write_newline STDOUT
+sys write_text STDOUT 3
+sys write_integer STDOUT 13
+sys write_newline STDOUT
+sys write_text STDOUT 4
+sys write_double STDOUT 14
+sys write_newline STDOUT
+end

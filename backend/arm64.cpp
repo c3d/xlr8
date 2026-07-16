@@ -431,8 +431,16 @@ void arm64::store_double(byte d, double v)
 {
     record(arm64, "store_double(%u, %g)", d, v);
     uint64_t bits = 0; memcpy(&bits, &v, 8);
-    load_imm64(xreg(d), bits);
-    emit32le(str_off(xreg(d), HW_FRAME, d));
+    if (d < LOC_SHADOW_COUNT)
+    {
+        load_imm64(xreg(d), bits);
+        emit32le(str_off(xreg(d), HW_FRAME, d));
+    }
+    else
+    {
+        load_imm64(HW_SCR_VAL, bits);
+        store_local(HW_SCR_VAL, d);
+    }
     touch_local(d);
 }
 
@@ -665,7 +673,9 @@ void arm64::cmp_local(byte p, byte d, byte s, cstring op)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "cmp_local(%u, %u, %u, %s)", p, d, s, op);
-    emit32le(cmp_rr(xreg(d), xreg(s)));
+    load_local(d, HW_SCR_ADDR);
+    load_local(s, HW_SCR_VAL);
+    emit32le(cmp_rr(HW_SCR_ADDR, HW_SCR_VAL));
     set_pred_cmp(p, cond_from_op(op));
 }
 
@@ -675,7 +685,8 @@ void arm64::cmp_imm(byte p, byte d, value_t v, cstring op)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "cmp_imm(%u, %u, %lld, %s)", p, d, v, op);
-    emit32le(cmp_r_imm(xreg(d), uint32_t(v)));
+    load_local(d, HW_SCR_ADDR);
+    emit32le(cmp_r_imm(HW_SCR_ADDR, uint32_t(v)));
     set_pred_cmp(p, cond_from_op(op));
 }
 
@@ -727,7 +738,14 @@ void arm64::neg_local(byte d)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "neg_local(%u)", d);
-    emit32le(neg_rr(xreg(d)));
+    if (d < LOC_SHADOW_COUNT)
+        emit32le(neg_rr(xreg(d)));
+    else
+    {
+        load_local(d, HW_SCR_VAL);
+        emit32le(neg_rr(HW_SCR_VAL));
+        store_local(HW_SCR_VAL, d);
+    }
     touch_local(d);
 }
 
@@ -737,7 +755,14 @@ void arm64::not_local(byte d)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "not_local(%u)", d);
-    emit32le(not_rr(xreg(d)));
+    if (d < LOC_SHADOW_COUNT)
+        emit32le(not_rr(xreg(d)));
+    else
+    {
+        load_local(d, HW_SCR_VAL);
+        emit32le(not_rr(HW_SCR_VAL));
+        store_local(HW_SCR_VAL, d);
+    }
     touch_local(d);
 }
 

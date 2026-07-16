@@ -202,17 +202,17 @@ skipping the memory dereference.
 Validated by `tests/bytecode/ld1s.xlr8`, `ld2s.xlr8`, `ld4s.xlr8`, and
 `ld8s.xlr8` (interpreter and `-O`).
 
-### 3.3 [P1] Operations assume d < 16 without bounds checking
+### 3.3 [P1] ~~Operations assume d < 16 without bounds checking~~ — **FIXED** (2026-07-16)
 
-**Files**: `arm64.cpp:662-680` (cmp_local/cmp_imm), `arm64.cpp:709-727`
-(neg_local/not_local), `arm64.cpp:427-437` (store_double)
+**Files**: `arm64.cpp` — `cmp_local`, `cmp_imm`, `neg_local`, `not_local`, `store_double`
 
-These use `xreg(d)` directly.  For d >= 16, `xreg(d) = d` maps into reserved
-registers: x16=HW_IP, x19=HW_FRAME, x22=HW_FLAGS, etc.  If the bytecode compiler
-can produce locals >= 16 for these operations, they will corrupt critical state.
+These paths used `xreg(d)` directly; for `d >= 16` that aliases reserved hardware
+registers (x16=HW_IP, x19=HW_FRAME, x22=HW_FLAGS, …).
 
-**Action**: Add a guard that loads from/stores to frame memory when `d >= LOC_SHADOW_COUNT`,
-similar to `load_local()`/`store_local()`.
+**Fix**: Route comparisons through `load_local` + scratch registers (matching
+riscv64); use load/operate/store via `HW_SCR_VAL` for `neg`/`not` and
+`store_double` when `d >= LOC_SHADOW_COUNT`.  Validated by
+`tests/bytecode/high-local.xlr8` (`enter 19`, locals 16–18, interpreter and `-O`).
 
 ### 3.4 [P3] Predicate branches: 3-5 instructions instead of 1
 
