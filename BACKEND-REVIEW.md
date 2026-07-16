@@ -46,18 +46,28 @@ declarations.  This is clean and prevents signature drift.
 
 ### 1.2 Register Models by Platform
 
-| Role              | arm64         | x86-64       | arm32        | riscv64       |
-|-------------------|---------------|--------------|--------------|---------------|
-| Shadow locals     | x0-x15        | (none)       | r0-r7        | x10-x25       |
-| Frame pointer     | x19           | r12          | r9           | x8 (s0)       |
-| Flags/predicates  | x22           | r15          | r10          | x9 (s1)       |
-| Scratch value     | x23           | r11          | r0 (alias!)  | x28 (t3)      |
-| Scratch address   | x24           | --           | r8           | x29           |
-| Scratch offset    | x25           | --           | r2 (alias!)  | x30           |
-| Intra-call IP     | x16           | --           | r12          | x5 (t0)       |
-| Saved link        | x28           | --           | r11          | --            |
-| Frame slot size   | 8 bytes       | 8 bytes      | 4 bytes      | 8 bytes       |
-| Max shadow locals | 16            | 0            | 8            | 16            |
+| Role              | arm64         | x86-64            | x86-32       | arm32        | riscv64       |
+|-------------------|---------------|-------------------|--------------|--------------|---------------|
+| Shadow locals     | x0-x15        | r8,r9,r10,rbx     | (none)       | r0-r7        | x10-x25       |
+| Frame pointer     | x19           | r12               | edi          | r9           | x8 (s0)       |
+| Flags/predicates  | x22           | r15               | esi          | r10          | x9 (s1)       |
+| Scratch value     | x23           | r11               | ecx          | r0 (alias!)  | x28 (t3)      |
+| Scratch address   | x24           | --                | --           | r8           | x29           |
+| Scratch offset    | x25           | --                | --           | r2 (alias!)  | x30           |
+| Intra-call IP     | x16           | --                | --           | r12          | x5 (t0)       |
+| Saved link        | x28           | --                | --           | r11          | --            |
+| Frame slot size   | 8 bytes       | 8 bytes           | 8 bytes      | 4 bytes      | 8 bytes       |
+| Max shadow locals | 16            | 4                 | 0            | 8            | 16            |
+
+### 1.3 Platforms and Test Machines
+
+| Platform | JIT backend | Machine(s)              |
+|----------|-------------|-------------------------|
+| arm64    | arm64       | macOS (dev), torpille   |
+| x86-64   | x86_64      | turbo                   |
+| x86-32   | i386        | turbo-x86               |
+| arm32    | arm         | turbo-arm               |
+| riscv64  | riscv64     | risky (`fedora-riscv`)  |
 
 ---
 
