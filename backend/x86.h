@@ -267,6 +267,72 @@ protected:
         g(ext | reg_value(r));
     }
 
+    void emit_modrm_frame(byte reg_field, int disp)
+    // ------------------------------------------------------------------------
+    //   Emit ModRM(+SIB)+disp for [hw_frame()+disp]; reg_field is ModRM.reg
+    // ------------------------------------------------------------------------
+    {
+        uint frame = hw_frame();
+        if (disp)
+        {
+            g(byte((2 << 6) | ((reg_field & 7) << 3) | 4));
+            g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
+            emit32(uint32_t(disp));
+            return;
+        }
+        // rbp/r13 cannot use mod=00 without a displacement
+        if (reg_value(frame) == 5)
+        {
+            g(byte((1 << 6) | ((reg_field & 7) << 3) | reg_value(frame)));
+            g(0);
+            return;
+        }
+        g(byte(((reg_field & 7) << 3) | reg_value(frame)));
+        if (reg_value(frame) == 4)
+            g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
+    }
+
+    void emit_rex_frame_rm()
+    // ------------------------------------------------------------------------
+    //   REX.W (x86-64) and REX.B when hw_frame() is r8–r15
+    // ------------------------------------------------------------------------
+    {
+        uint frame = hw_frame();
+        int w = (ptr_size() == 8) ? 8 : 0;
+        if (w || frame >= 8)
+            g(0x40 | w | (rex_b(frame) ? 1 : 0));
+    }
+
+    void emit_grp5_frame(byte n, byte op_ext)
+    // ------------------------------------------------------------------------
+    //   Emit FF /op_ext on [frame+local_disp(n)] (inc=0, dec=1)
+    // ------------------------------------------------------------------------
+    {
+        emit_rex_frame_rm();
+        g(0xff);
+        emit_modrm_frame(op_ext, local_disp(n));
+    }
+
+    void emit_alu_imm_frame(byte n, byte op_ext, int32_t imm)
+    // ------------------------------------------------------------------------
+    //   Emit add/sub/… [frame+disp], imm (83 ib or 81 id); op_ext=/0 add /5 sub
+    // ------------------------------------------------------------------------
+    {
+        emit_rex_frame_rm();
+        if (imm == int8_t(imm))
+        {
+            g(0x83);
+            emit_modrm_frame(op_ext, local_disp(n));
+            g(byte(int8_t(imm)));
+        }
+        else
+        {
+            g(0x81);
+            emit_modrm_frame(op_ext, local_disp(n));
+            emit32(uint32_t(imm));
+        }
+    }
+
     void emit_shift_cl(uint dest, byte ext)
     // ------------------------------------------------------------------------
     //   Emit d3 /ext dest, cl (shl/sar/shr by rcx)

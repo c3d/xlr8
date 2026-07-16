@@ -401,11 +401,13 @@ Previously each predicate op loaded a 64-bit mask via `movabs` + AND/OR/TEST
 (`0F BA /ext ib`, 5–6 bytes).  Consumers of `emit_pred_test_bit` branch on **CF**
 (`JC`/`JNC`) instead of ZF.
 
-### 4.6 [P3] No memory-destination ALU operations
+### 4.6 [P3] ~~No memory-destination ALU operations~~ — **FIXED** (2026-07-16)
 
-All arithmetic does load-local/operate/store-local (3 operations, ~18 bytes).
-x86 supports `inc qword [r12+disp]` and similar memory-destination forms that
-would halve code size for incr/decr/addi/subi.
+**File**: `x86.h` / `x86.cpp` — `emit_grp5_frame`, `emit_alu_imm_frame`
+
+Non-shadow `incr`/`decr` now emit `inc`/`dec [frame+disp]` (`FF /0`/`/1`).
+Non-shadow `addi`/`subi` emit `add`/`sub [frame+disp], imm` (`83 ib` or `81 id`).
+Shadow locals keep the register INC/DEC + frame store path.
 
 ### 4.7 [P3] `emit_leave()` generates redundant frame reload
 

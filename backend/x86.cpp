@@ -952,6 +952,22 @@ void x86::binop_imm(byte d, value_t v, cstring op)
 // ----------------------------------------------------------------------------
 {
     record(x86, "binop_imm(%u, %lld, %s)", d, v, op);
+
+    // Memory-destination add/sub for non-shadow locals (no load/store pair)
+    if (!has_shadow(d) && int64_t(v) == int32_t(v))
+    {
+        if (!strcmp(op, "add"))
+        {
+            emit_alu_imm_frame(d, /*ADD*/ 0, int32_t(v));
+            return;
+        }
+        if (!strcmp(op, "sub"))
+        {
+            emit_alu_imm_frame(d, /*SUB*/ 5, int32_t(v));
+            return;
+        }
+    }
+
     load_local(d, HW_RAX);
 if (!strcmp(op, "add"))
 // ----------------------------------------------------------------------------
@@ -1202,9 +1218,7 @@ void x86::incr_local(byte d)
         store_local_frame(s, d);
         return;
     }
-    load_local(d, HW_RAX);
-    emit_grp5_ff(HW_RAX, 0xc0);
-    store_local(HW_RAX, d);
+    emit_grp5_frame(d, /*INC*/ 0);
 }
 
 
@@ -1221,9 +1235,7 @@ void x86::decr_local(byte d)
         store_local_frame(s, d);
         return;
     }
-    load_local(d, HW_RAX);
-    emit_grp5_ff(HW_RAX, 0xc8);
-    store_local(HW_RAX, d);
+    emit_grp5_frame(d, /*DEC*/ 1);
 }
 
 
