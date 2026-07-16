@@ -338,19 +338,22 @@ Comment said "refresh x20"; `HW_ANCHOR` is x27.  Updated to match
 
 ## 4. x86-64-Specific Findings
 
-### 4.1 [P2] `emit_push_reg()` missing REX prefix for r8-r15
+### 4.1 [P2] ~~`emit_push_reg()` missing REX prefix for r8-r15~~ — **FIXED** (pre-existing)
 
-**File**: `x86.cpp:190-196`
+**File**: `x86.cpp` — `emit_push_reg()` / `emit_pop_reg()`
+
+Previously `g(0x50 + (r&7))` with no REX.B, so `push r12` would encode as
+`push rsp`.  Fixed when the x86-64 prologue landed (`d43b0da`): both push and
+pop emit `0x41` when `ptr_size()==8 && rex_b(r)`.
 
 ```cpp
-void x86::emit_push_reg(uint r)
-{
-    g(byte(0x50 + reg_value(r)));  // no REX.B for extended registers
-}
+if (ptr_size() == 8 && rex_b(r))
+    g(0x41);
+g(byte(0x50 + reg_value(r)));
 ```
 
-Currently only called on i386 (never with r8-r15), but calling with HW_R12 would
-emit `push rsp` instead of `push r12`.
+Current call sites use `rax`/`rbx`/`rbp` (no REX.B needed), but `HW_FRAME`
+(`r12`) and other r8–r15 args are safe if pushed later.
 
 ### 4.2 [P3] `load_hw_imm()` always emits 10-byte movabs
 
