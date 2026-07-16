@@ -314,6 +314,8 @@ static inline ularge_t sign_extend(ularge_t value, byte kshift)
 //   Sign-exend a value
 // ----------------------------------------------------------------------------
 {
+    if (kshift >= 64)
+        return value;
     ularge_t sign = (1ULL << (kshift - 1));
     ularge_t mask = (1ULL << kshift) - 1ULL;
     return ((value & sign) ? (~(~value & mask)) : (value & mask));
