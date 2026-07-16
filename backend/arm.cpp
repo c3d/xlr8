@@ -347,13 +347,23 @@ void arm::store_float(byte d, float v)
 
 void arm::store_double(byte d, double v)
 // ----------------------------------------------------------------------------
-//   Store double immediate into bytecode local (low 32 bits on 32-bit ARM)
+//   Store double immediate into bytecode local (full 64-bit ularge_t slot)
 // ----------------------------------------------------------------------------
 {
     record(arm, "store_double(%u, %g)", d, v);
     uint64_t bits = 0;
     memcpy(&bits, &v, 8);
-    store_imm(d, value_t(bits));
+    uint32_t lo = uint32_t(bits);
+    uint32_t hi = uint32_t(bits >> 32);
+    // Runtime frame[] is ularge_t; keep both halves even though GPRs are 32-bit.
+    uint off = uint(d) * 8;
+    load_imm32(HW_SCR_VAL, lo);
+    load_imm32(HW_SCR_ADDR, hi);
+    emit32le(str_off(HW_SCR_VAL, HW_FRAME, off));
+    emit32le(str_off(HW_SCR_ADDR, HW_FRAME, off + 4));
+    if (d < ARM_SHADOW_COUNT)
+        emit32le(mov_rr(rreg(d), HW_SCR_VAL));
+    touch_local(d);
 }
 
 

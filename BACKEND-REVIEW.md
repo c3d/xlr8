@@ -521,12 +521,12 @@ clear the predicate bit with flag-preserving `AND`, then `ORR{cond}` from CPSR.
 Offset is now `(a - n - 8) / 4`, matching `patch_branch_site`.  Chain-next is
 taken from the 24-bit imm field only (not the full insn word).
 
-### 6.4 [P0] Double-precision truncated to 32 bits
+### 6.4 [P0] ~~Double-precision truncated to 32 bits~~ — **FIXED** (2026-07-16)
 
-**File**: `arm.cpp:334-343`
+**File**: `arm.cpp` — `store_double()`
 
-`store_double()` calls `store_imm(d, value_t(bits))` which truncates the 64-bit
-representation to 32 bits.  All double-precision values lose their upper half.
+Writes both 32-bit halves into the `ularge_t` frame slot at `d * 8`, and updates
+the shadow GPR with the low half when `d < 8`.
 
 ### 6.5 [P1] Division, modulo, shift-immediate, bitwise-immediate all trap
 
@@ -703,7 +703,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | # | Bug | Platforms | Est. Effort |
 |---|-----|-----------|-------------|
 | 11 | ~~Add `d < LOC_SHADOW_COUNT` guards~~ — arm64 §3.3; riscv64 `store_double` §5.4 | arm64, riscv64 | — |
-| 12 | Fix `store_double` 64-bit truncation | arm32 | 1h |
+| 12 | ~~Fix `store_double` 64-bit truncation~~ — §6.4 | arm32 | — |
 | 13 | Implement `sext_local`/`zext_local` | arm32 | 1h |
 | 14 | Implement memory access sizes | arm32 | 2h |
 | 15 | Fix `frame_addr` shift amount | arm32 | 5min |
