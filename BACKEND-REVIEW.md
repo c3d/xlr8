@@ -327,9 +327,12 @@ Helpers were unused or mis-encoded.  Kept and corrected; wired into real paths:
 
 Validated by existing `zext`/`sext`/`zext32`/`sext32` and shift/load tests.
 
-### 3.8 [P4] Stale HW_ANCHOR comments reference x20 instead of x27
+### 3.8 [P4] ~~Stale HW_ANCHOR comments reference x20 instead of x27~~ — **FIXED** (2026-07-16)
 
-**File**: `arm64.cpp:215, 225`
+**File**: `arm64.cpp` — `reload_frame_reg()`
+
+Comment said "refresh x20"; `HW_ANCHOR` is x27.  Updated to match
+`restore_frame_ptr()` and `arm64.h` (`HW_ANCHOR = 27`).
 
 ---
 
@@ -743,7 +746,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | 33 | Remove `branch_patches` member (dead) | 5min |
 | 34 | Remove `patch_branch()` function (dead) | 5min |
 | 35 | ~~Remove dead arm64.h helpers~~ — done via §3.7 (fixed + wired) | — |
-| 36 | Fix stale HW_ANCHOR comments (x20 -> x27) | 5min |
+| 36 | ~~Fix stale HW_ANCHOR comments (x20 -> x27)~~ — done via §3.8 | — |
 | 37 | Remove/fix dead VFP helpers in arm.h | 15min |
 | 38 | Fix `slti` encoding in riscv64.h | 5min |
 

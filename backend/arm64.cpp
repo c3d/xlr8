@@ -257,7 +257,7 @@ void arm64::restore_frame_ptr()
 
 void arm64::reload_frame_reg()
 // ----------------------------------------------------------------------------
-//   Reload x19 from x0 after xlr8_enter or xlr8_leave, then refresh x20
+//   Reload x19 from x0 after xlr8_enter or xlr8_leave, then refresh x27
 // ----------------------------------------------------------------------------
 {
     record(arm64, "reload_frame_reg()");
