@@ -1006,8 +1006,7 @@ else if (!strcmp(op, "shl_imm"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    load_hw_imm(HW_RCX, uint64_t(v));
-    emit_shift_cl(HW_RAX, 0xe0);
+    emit_shift_imm8(HW_RAX, 0xe0, byte(uint64_t(v)));
 }
 
 else if (!strcmp(op, "sar_imm"))
@@ -1015,8 +1014,7 @@ else if (!strcmp(op, "sar_imm"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    load_hw_imm(HW_RCX, uint64_t(v));
-    emit_shift_cl(HW_RAX, 0xf8);
+    emit_shift_imm8(HW_RAX, 0xf8, byte(uint64_t(v)));
 }
 
 else if (!strcmp(op, "shr_imm"))
@@ -1024,8 +1022,7 @@ else if (!strcmp(op, "shr_imm"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    load_hw_imm(HW_RCX, uint64_t(v));
-    emit_shift_cl(HW_RAX, 0xe8);
+    emit_shift_imm8(HW_RAX, 0xe8, byte(uint64_t(v)));
 }
 
 else if (!strcmp(op, "idiv_imm"))
@@ -1263,9 +1260,8 @@ void x86::sext_reg(uint r, byte w)
     }
     else
     {
-        load_hw_imm(HW_RCX, 64 - w);
-        emit_shift_cl(r, 0xe0);
-        emit_shift_cl(r, 0xf8);
+        emit_shift_imm8(r, 0xe0, byte(64 - w));
+        emit_shift_imm8(r, 0xf8, byte(64 - w));
     }
 }
 

@@ -384,12 +384,13 @@ Validated on macOS / turbo / torpille (226/0) with commit `a164ffe`.
 
 Validated on macOS / turbo / torpille (226/0) with commit `8795932`.
 
-### 4.4 [P3] Shift-by-immediate uses movabs + cl shift
+### 4.4 [P3] ~~Shift-by-immediate uses movabs + cl shift~~ — **FIXED** (2026-07-16)
 
-**File**: `x86.cpp:879-904`
+**File**: `x86.cpp` / `x86.h` — `binop_imm`, `emit_shift_imm8`
 
-Emits `movabs rcx, imm64` (10 bytes) + `shl rax, cl` (3 bytes) = 13 bytes.
-Should use `shl rax, imm8` = 4 bytes with REX.
+`shl_imm` / `sar_imm` / `shr_imm` now emit `C1 /ext ib` (or `D1 /ext` when
+the count is 1) instead of loading rcx and shifting by `cl`.  Same helper used
+for the generic `sext_reg` shift pair.
 
 ### 4.5 [P3] Predicate set/clear/test are 30-44 bytes each
 
@@ -746,7 +747,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | 23 | ~~Use MOVN for negative immediates~~ — §3.5 | arm64 | — |
 | 24 | Use BT/BTS/BTR for predicates | x86-64 | -8 bytes/predicate op |
 | 25 | ~~Use rel8 short branches~~ — §4.3 | x86-64 | — |
-| 26 | Use imm8 shifts instead of movabs+cl | x86-64 | -9 bytes/shift (§4.4 open) |
+| 26 | ~~Use imm8 shifts instead of movabs+cl~~ — §4.4 | x86-64 | — |
 | 27 | ~~Optimize `load_hw_imm` for small values~~ — §4.2 | x86-64 | — |
 | 28 | Use SLLI/SRAI/SRLI immediates | riscv64 | -1 insn/shift |
 | 29 | Merge sys reload passes | arm64, riscv64 | -16 insns/sys fast path |

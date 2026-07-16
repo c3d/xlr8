@@ -274,6 +274,24 @@ protected:
         g(ext | reg_value(dest));
     }
 
+    void emit_shift_imm8(uint dest, byte ext, byte amt)
+    // ------------------------------------------------------------------------
+    //   Emit c1 /ext dest, imm8 (shl/sar/shr by immediate); amt==1 uses d1
+    // ------------------------------------------------------------------------
+    {
+        byte mask = ptr_size() == 8 ? 63 : 31;
+        amt = byte(amt & mask);
+        if (amt == 1)
+        {
+            orex(1, 0, dest, 0xd1);
+            g(ext | reg_value(dest));
+            return;
+        }
+        orex(1, 0, dest, 0xc1);
+        g(ext | reg_value(dest));
+        g(amt);
+    }
+
     size_t emit_jcc_rel32(byte cc)
     // ------------------------------------------------------------------------
     //   Emit 0f cc rel32 and return the offset patch site
