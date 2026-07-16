@@ -118,16 +118,22 @@ decision later). Until then, test platforms see new work only via
 1. Implement fix on macOS (or platform-isolated `#ifdef` if required).
 2. Run local mandatory validation on macOS.
 3. **`git commit`** on macOS (on branch `xlr8`). Do **not** `git push`.
-4. On each test platform:
+4. **Validate all test platforms in parallel** (never one host after another).
+   From Mac, fan out the same sync+test script to every machine at once:
    ```bash
+   scripts/platform-validate-all.sh
+   ```
+   Or manually, in parallel SSH sessions / background jobs:
+   ```bash
+   # on each of: turbo torpille fedora-riscv turbo-x86 turbo-arm  (and local mac)
    git fetch mac && git reset --hard mac/xlr8
    git submodule update --init --recursive
    make tests 2>&1 | tee /tmp/xlr8-ref.log
    make tests OPTLEVEL=-O 2>&1 | tee /tmp/xlr8-opt.log
    ```
 5. **If any already-green platform regresses:** fix on Mac and
-   **`git commit --amend`** (same commit). Repeat fetch + full validation on
-   all test platforms until nothing regresses.
+   **`git commit --amend`** (same commit). Repeat **parallel** fetch + full
+   validation on all test platforms until nothing regresses.
 6. **If the target platform improved and every other platform is unchanged
    (no regression):** stop amending; that commit is done. Start the **next**
    commit for further work on that or another platform.
@@ -154,6 +160,8 @@ different ABI handling:
 - SCP/sed patches on remotes instead of fetch/reset from mac.
 - Changing `arm64.cpp` while debugging arm32 or riscv “just in case”.
 - Proceeding to riscv/i386 work while torpille or turbo is unknowingly red.
+- Validating hosts **sequentially** (turbo, then torpille, then …). Always
+  fan out in parallel; wall-clock should be ~max(host times), not the sum.
 
 ## Current priority (Jul 2026)
 
