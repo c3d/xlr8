@@ -115,9 +115,10 @@ struct scanner
     void        patch_cstref(size_t cstref, tok_t target);
     void        patch_label_references(size_t pos, size_t added);
 
-    void        append_byte(uvalue_t b);
-    void        append(value_t i);
-    void        append(uvalue_t u);
+    void        append_byte(ularge_t b);
+    void        append(large_t i);
+    void        append(ularge_t u);
+    void        append(tok_t t);
     void        append(float f);
     void        append(double d);
 
@@ -181,8 +182,10 @@ public:
         expr(bool x = 0) : type(BYTE), xnat(x) {}
         expr(byte x)     : type(BYTE), xnat(x) {}
         expr(char x)     : type(BYTE), xnat(x) {}
-        expr(uintptr_t x): type(NAT),  xnat(x) {}
-        expr(intptr_t  x): type(INT),  xint(x) {}
+        expr(ularge_t x) : type(NAT),  xnat(x) {}
+        expr(large_t  x) : type(INT),  xint(x) {}
+        expr(uvalue_t x) : type(NAT),  xnat(x) {}
+        expr(value_t x)  : type(INT),  xint(x) {}
         expr(float     x): type(FLT),  xflt(x) {}
         expr(double    x): type(DBL),  xdbl(x) {}
         expr(text      x): type(TXT),  xtxt(new text(x)) {}
@@ -215,8 +218,8 @@ public:
         expr_type type;
         union
         {
-            uintptr_t xnat;
-            intptr_t  xint;
+            ularge_t  xnat;
+            large_t   xint;
             float     xflt;
             double    xdbl;
             text     *xtxt;

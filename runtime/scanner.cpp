@@ -1226,7 +1226,7 @@ bool scanner::expr_apply(char op)
     }
     else if (op == '+' && l.type == expr::TXT && r.type <= expr::NAT)
     {
-        size_t pos = std::min(r.xnat, l.xtxt->length());
+        size_t pos = std::min(size_t(r.xnat), l.xtxt->length());
         exprs.emplace_back(l.xtxt->substr(pos));
         return true;
     }
@@ -1373,6 +1373,8 @@ bool scanner::expr_apply(char op)
     IOP('|', | );
     IOP('^', ^ );
 
+    record(scanner, "Expression result %u %c %u: %llu %lld %f %f",
+           l.type, op, r.type, l.xnat, l.xint, l.xflt, l.xdbl);
     exprs.emplace_back(l);
     return true;
 }
@@ -1608,7 +1610,7 @@ bool scanner::do_branch_offset()
     }
     auto    it     = labels.find(scanned);
     bool    seen   = it != labels.end();
-    value_t delta  = 0;
+    large_t delta  = 0;
     size_t  branch = pc();
     if (seen)
         delta = value_t((*it).second - branch);
@@ -1893,7 +1895,7 @@ void scanner::patch_label_references(size_t pos, size_t added)
 }
 
 
-void scanner::append_byte(uvalue_t b)
+void scanner::append_byte(ularge_t b)
 // ----------------------------------------------------------------------------
 //   Append a signed integer to the program
 // ----------------------------------------------------------------------------
@@ -1904,7 +1906,7 @@ void scanner::append_byte(uvalue_t b)
 }
 
 
-void scanner::append(value_t i)
+void scanner::append(large_t i)
 // ----------------------------------------------------------------------------
 //   Append a signed integer to the program
 // ----------------------------------------------------------------------------
@@ -1916,7 +1918,7 @@ void scanner::append(value_t i)
 }
 
 
-void scanner::append(uvalue_t u)
+void scanner::append(ularge_t u)
 // ----------------------------------------------------------------------------
 //  Append an unsigned integer to the program
 // ----------------------------------------------------------------------------
@@ -1924,6 +1926,18 @@ void scanner::append(uvalue_t u)
     byte   buffer[LEB128_MAXSIZE];
     byte  *bp = buffer;
     bp = leb128(bp, u);
+    program += text((char *) buffer, bp - buffer);
+}
+
+
+void scanner::append(tok_t t)
+// ----------------------------------------------------------------------------
+//   Append a signed integer to the program
+// ----------------------------------------------------------------------------
+{
+    byte   buffer[LEB128_MAXSIZE];
+    byte  *bp = buffer;
+    bp = leb128(bp, t);
     program += text((char *) buffer, bp - buffer);
 }
 
