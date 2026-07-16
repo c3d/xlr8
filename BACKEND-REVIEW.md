@@ -419,12 +419,15 @@ Shadow locals keep the register INC/DEC + frame store path.
 `emit_runtime_call` now special-cases `xlr8_leave`/`xlr8_enter` like the byte-arg
 overload (`mov` frame from `rax`), and `emit_leave` only reloads flags afterward.
 
-### 4.8 [P1] No Windows x64 calling convention support
+### 4.8 [P1] ~~No Windows x64 calling convention support~~ — **FIXED** (2026-07-16)
 
-**File**: `x86.cpp:199-254`
+**File**: `x86.h` / `x86.cpp` — `hw_arg0`/`hw_arg1`, `call_ptr`, prologue/epilogue
 
-All argument passing hardcodes System V ABI (rdi/rsi).  Windows uses rcx/rdx.
-No callee-saved register save/restore in prologue (r12/r15 are clobbered).
+- Helper args use `hw_arg0()`/`hw_arg1()`: SysV `rdi`/`rsi`, Win64 `rcx`/`rdx`
+  (`win64_abi()` from `_WIN64`).
+- `call_ptr` allocates the Win64 32-byte parameter home space around the call.
+- x86-64 prologue/epilogue now save/restore **r12 and r15** (frame/flags) in
+  addition to rbx/rbp — required on both SysV and Win64 (callee-saved).
 
 ---
 
@@ -792,10 +795,12 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | Bitwise NOT          | Working | Working | Broken  | Working |
 | Division/modulo      | Traps   | Working | Working | Traps   |
 | switch/dispatch      | Crashes | Crashes | Crashes | Crashes |
-| Callee-save ABI      | Correct | Missing | Correct | Missing |
-| Windows support      | N/A     | Missing | N/A     | N/A     |
+| Callee-save ABI      | Correct | Correct | Correct | Missing |
+| Windows support      | N/A     | ABI ready* | N/A   | N/A     |
 
-\* riscv64 `fmv_x_w` has wrong encoding; integer NOT is silently a no-op
+\* riscv64 `fmv_x_w` has wrong encoding; integer NOT is silently a no-op.
+  x86-64 Win64 arg/home-space/callee-save paths are compiled in under `_WIN64`;
+  full Windows host bring-up is still untested.
 
 **Bottom line**: arm64 is the primary development platform and closest to
 production-ready, but needs `neg_rr`, `lds`, and `switch` fixes.

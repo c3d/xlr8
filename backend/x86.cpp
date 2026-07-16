@@ -65,9 +65,13 @@ void x86::begin_translation()
     }
     else
     {
+        // SysV and Win64: rbx,rbp,r12,r15 are callee-saved.  r12/r15 hold
+        // frame/flags for the whole translation; rbx shadows local 3.
         emit_push_reg(HW_RBX);
         emit_push_reg(HW_RBP);
-        emit_sub_rsp_imm8(0x08);
+        emit_push_reg(HW_R12);
+        emit_push_reg(HW_R15);
+        emit_sub_rsp_imm8(0x08);        // 16-byte align before C calls
         call_ptr(xlr8_runtime_fn("xlr8_get_frame"));
         emit_mov_rr(hw_frame(), HW_RAX);
         call_ptr(xlr8_runtime_fn("xlr8_get_flags"));
@@ -86,6 +90,8 @@ void x86::finish_translation()
     if (ptr_size() == 8)
     {
         emit_add_rsp_imm8(0x08);
+        emit_pop_reg(HW_R15);
+        emit_pop_reg(HW_R12);
         emit_pop_reg(HW_RBP);
         emit_pop_reg(HW_RBX);
     }
@@ -245,11 +251,7 @@ void x86::emit_set_arg0_rax()
 // ----------------------------------------------------------------------------
 {
     if (ptr_size() == 8)
-    {
-        g(0x48);
-        g(0x89);
-        g(0xc7);
-    }
+        emit_mov_rr(hw_arg0(), HW_RAX);
     else
         emit_push_reg(HW_RAX);
 }
@@ -261,7 +263,7 @@ void x86::emit_set_arg0_r(uint r)
 // ----------------------------------------------------------------------------
 {
     if (ptr_size() == 8)
-        emit_mov_rr(HW_RDI, r);
+        emit_mov_rr(hw_arg0(), r);
     else
         emit_push_reg(r);
 }
@@ -273,7 +275,7 @@ void x86::emit_set_arg0_imm(uint64_t imm)
 // ----------------------------------------------------------------------------
 {
     if (ptr_size() == 8)
-        load_hw_imm(HW_RDI, imm);
+        load_hw_imm(hw_arg0(), imm);
     else
     {
         load_hw_imm(HW_RAX, imm);
@@ -288,7 +290,7 @@ void x86::emit_set_arg1_imm(uint64_t imm)
 // ----------------------------------------------------------------------------
 {
     if (ptr_size() == 8)
-        load_hw_imm(HW_RSI, imm);
+        load_hw_imm(hw_arg1(), imm);
     else
     {
         load_hw_imm(HW_RAX, imm);
@@ -1814,8 +1816,13 @@ void x86::call_ptr(void *fn)
 // ----------------------------------------------------------------------------
 {
     record(x86, "call_ptr(%p)", fn);
+    // Microsoft x64: caller provides 32 bytes of register parameter home space
+    if (ptr_size() == 8 && win64_abi())
+        emit_sub_rsp_imm8(0x20);
     load_hw_imm(HW_RAX, uint64_t(fn));
     emit_call_rax();
+    if (ptr_size() == 8 && win64_abi())
+        emit_add_rsp_imm8(0x20);
 }
 
 

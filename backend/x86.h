@@ -42,8 +42,10 @@
 //    Flags/predicates  r15 (HW_FLAGS)   rt.flags (64-bit), primed at entry
 //    Scratch           r11 (HW_SCR)     general temp (swap, etc.)
 //    Value temps       rax, rcx, rdx    used by opcode helpers
-//    Callee-saved      rbx, rbp         rbx shadows local 3; rbp in prologue
-//    Stack pointer     rsp              native stack
+//    Callee-saved      rbx,rbp,r12,r15  saved/restored in prologue/epilogue
+//    C args (SysV)     rdi, rsi         first two integer helper args
+//    C args (Win64)    rcx, rdx         first two integer helper args
+//    Stack pointer     rsp              native stack (Win64: 32-byte call shadow)
 //
 //  i386 variant: same model, ularge_t slots (8 bytes), nb_regs == 8.
 //    Frame pointer     edi (HW_RDI)     rt.frame, callee-saved (avoid ebx PIC/GOT)
@@ -115,6 +117,34 @@ struct x86 : backend
     uint hw_frame() const { return arch() == ARCH_I386 ? HW_RDI : HW_R12; }
     uint hw_flags() const { return arch() == ARCH_I386 ? HW_RSI : HW_R15; }
     uint hw_scr() const   { return arch() == ARCH_I386 ? HW_RCX : HW_R11; }
+
+    static bool win64_abi()
+    // ------------------------------------------------------------------------
+    //   True when generating code for the Microsoft x64 calling convention
+    // ------------------------------------------------------------------------
+    {
+#if defined(_WIN64)
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    uint hw_arg0() const
+    // ------------------------------------------------------------------------
+    //   First integer C-helper argument register (SysV rdi / Win64 rcx)
+    // ------------------------------------------------------------------------
+    {
+        return win64_abi() ? HW_RCX : HW_RDI;
+    }
+
+    uint hw_arg1() const
+    // ------------------------------------------------------------------------
+    //   Second integer C-helper argument register (SysV rsi / Win64 rdx)
+    // ------------------------------------------------------------------------
+    {
+        return win64_abi() ? HW_RDX : HW_RSI;
+    }
 
     void begin_translation() override;
     void finish_translation() override;
