@@ -33,9 +33,9 @@
 //  REGISTER ALLOCATION CONVENTIONS (32-bit ARM / AArch32)
 //  ===========================================================================
 //
-//  Bytecode locals are frame[n] slots (uintptr_t, 4 bytes).  Locals 0..7 live
-//  in shadow registers r0..r7 while valid; locals 8..15 and >= 16 use frame
-//  memory only (ldr/str via [r9, #local*4]).  See regmap.h.
+//  Bytecode locals are frame[n] slots (ularge_t, 8 bytes).  Locals 0..7 live
+//  in shadow registers r0..r7 while valid; locals >= 8 use frame memory only
+//  (ldr/str via [r9, #local*8]).  See regmap.h.
 //
 //  TinyCC allocates r0-r3 and r12 for expression temps; this backend keeps
 //  r0-r7 as shadows for the first eight locals (matching enter(8)) and still
@@ -44,12 +44,11 @@
 //  Register map:
 //    Shadow locals     r0 .. r7      frame[0] .. frame[7] when valid
 //    Scratch address   r8  (HW_SCR_ADDR)
-//    Frame pointer     r9  (HW_FRAME)   rt.frame, primed at JIT entry
-//    Flags/predicates  r10 (HW_FLAGS)   rt.flags (64-bit), primed at entry
-//    Saved link        r11 (HW_LINK)    LR across runtime calls
+//    Frame pointer     r9  (HW_FRAME)   rt.frame (reloaded in prologue)
+//    Flags/predicates  r10 (HW_FLAGS)   rt.flags low half (reloaded in prologue)
+//    Callee-save / LR  r11, lr         pushed in prologue, popped on return
 //    Intra-call IP     r12 (HW_IP)      call_abs target (AAPCS IP)
 //    Stack pointer     r13 (sp)         native stack
-//    Link register     r14 (lr)         restored from r11 on return
 //
 //  Scratch value/offset reuse r0-r3 during operations that do not clobber live
 //  shadow locals (HW_SCR_VAL = r0, HW_SCR_OFF = r2).
@@ -97,14 +96,23 @@ protected:
         HW_LOC7  = 7,
         HW_SCR_ADDR = 8,
         HW_FRAME = 9,       // callee-saved, rt.frame base for spill
-        HW_FLAGS = 10,      // callee-saved, rt.flags (64-bit predicates)
-        HW_LINK  = 11,      // callee-saved, saved link register
+        HW_FLAGS = 10,      // callee-saved, rt.flags (low 32 of predicates)
+        HW_LINK  = 11,      // callee-saved; prologue also keeps LR on stack
         HW_IP    = 12,      // intra-procedure call scratch (AAPCS IP)
         HW_SCR_VAL  = 0,    // shares r0 with local 0 / syscall arg
         HW_SCR_OFF  = 2,    // shares r2 with local 2
     };
 
     static const uint ARM_SHADOW_COUNT = 8;
+    static const uint ARM_SLOT_SIZE = 8; // sizeof(ularge_t)
+
+    static inline uint slot_off(byte n)
+    // ------------------------------------------------------------------------
+    //   Byte offset of bytecode local n in the runtime frame
+    // ------------------------------------------------------------------------
+    {
+        return uint(n) * ARM_SLOT_SIZE;
+    }
 
     static inline uint rreg(byte n)
     // ------------------------------------------------------------------------
@@ -322,6 +330,22 @@ protected:
     // ------------------------------------------------------------------------
     {
         return 0xE12FFF10u | (rm & 0xFu);
+    }
+
+    static inline uint push_callee_lr()
+    // ------------------------------------------------------------------------
+    //   Encode push {r4-r11, lr}  (stmfd sp!, ...)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE92D4FF0u;
+    }
+
+    static inline uint pop_callee_pc()
+    // ------------------------------------------------------------------------
+    //   Encode pop {r4-r11, pc}  (ldmfd sp!, ...)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE8BD8FF0u;
     }
 
     static inline uint b_imm(int offset)

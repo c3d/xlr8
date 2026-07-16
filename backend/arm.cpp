@@ -109,7 +109,7 @@ void arm::load_local(byte n, uint r)
     }
     else
     {
-        emit32le(ldr_off(r, HW_FRAME, uint(n) * ptr_size()));
+        emit32le(ldr_off(r, HW_FRAME, slot_off(n)));
     }
 }
 
@@ -128,7 +128,7 @@ void arm::store_local(uint r, byte n)
     }
     else
     {
-        emit32le(str_off(r, HW_FRAME, uint(n) * ptr_size()));
+        emit32le(str_off(r, HW_FRAME, slot_off(n)));
     }
 }
 
@@ -187,7 +187,7 @@ void arm::spill_frame(void)
     {
         if (r <= 1 && !spill_arg_regs)
             continue;
-        emit32le(str_off(rreg(byte(r)), HW_FRAME, r * ptr_size()));
+        emit32le(str_off(rreg(byte(r)), HW_FRAME, slot_off(byte(r))));
     }
 }
 
@@ -219,7 +219,7 @@ void arm::reload_shadows(void)
         locals = ARM_SHADOW_COUNT;
 
     for (uint r = 0; r < locals; r++)
-        emit32le(ldr_off(rreg(byte(r)), HW_FRAME, r * ptr_size()));
+        emit32le(ldr_off(rreg(byte(r)), HW_FRAME, slot_off(byte(r))));
 }
 
 
@@ -274,11 +274,18 @@ void arm::gsym_addr(uint t, uint a)
 
 void arm::begin_translation()
 // ----------------------------------------------------------------------------
-//   Save link register for return to native runner
+//   Save callee-saved regs, reload frame/flags, then shadow locals
 // ----------------------------------------------------------------------------
 {
     record(arm, "begin_translation()");
-    emit32le(mov_rr(HW_LINK, 14));
+    // invoke_arm only briefly sets r9/r10 in a separate asm blob before a C
+    // call to the JIT entry, so those values are not trustworthy here.
+    emit32le(push_callee_lr());
+    rtcall("xlr8_get_frame");
+    emit32le(mov_rr(HW_FRAME, 0));
+    rtcall("xlr8_get_flags");
+    emit32le(mov_rr(HW_FLAGS, 0));
+    reload_shadows();
 }
 
 
@@ -356,7 +363,7 @@ void arm::store_double(byte d, double v)
     uint32_t lo = uint32_t(bits);
     uint32_t hi = uint32_t(bits >> 32);
     // Runtime frame[] is ularge_t; keep both halves even though GPRs are 32-bit.
-    uint off = uint(d) * 8;
+    uint off = slot_off(d);
     load_imm32(HW_SCR_VAL, lo);
     load_imm32(HW_SCR_ADDR, hi);
     emit32le(str_off(HW_SCR_VAL, HW_FRAME, off));
@@ -780,7 +787,8 @@ void arm::frame_addr(byte d, byte s)
 {
     record(arm, "frame_addr(%u, %u)", d, s);
     load_local(s, HW_SCR_OFF);
-    emit32le(0xE0800080u | (HW_SCR_ADDR << 12) | (HW_FRAME << 16) | HW_SCR_OFF);
+    // add r8, r9, r2, lsl #3  (ularge_t slot scale)
+    emit32le(0xE0800180u | (HW_SCR_ADDR << 12) | (HW_FRAME << 16) | HW_SCR_OFF);
     store_local(HW_SCR_ADDR, d);
 }
 
@@ -1077,7 +1085,7 @@ void arm::do_ret()
 // ----------------------------------------------------------------------------
 {
     record(arm, "do_ret()");
-    emit32le(bx_reg(HW_LINK));
+    emit32le(pop_callee_pc());
 }
 
 
