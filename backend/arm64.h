@@ -672,6 +672,30 @@ protected:
         return 0xb5000000u | ((uint32_t(offset) & 0x7ffffu) << 5) | rt;
     }
 
+    static inline uint tbz_imm(uint rt, uint bit, int offset)
+    // ------------------------------------------------------------------------
+    //   Encode tbz rt, #bit, #offset  (14-bit signed insn offset)
+    // ------------------------------------------------------------------------
+    {
+        return 0x36000000u
+             | ((bit & 0x20u) << 26)
+             | ((bit & 0x1fu) << 19)
+             | ((uint32_t(offset) & 0x3fffu) << 5)
+             | (rt & 0x1fu);
+    }
+
+    static inline uint tbnz_imm(uint rt, uint bit, int offset)
+    // ------------------------------------------------------------------------
+    //   Encode tbnz rt, #bit, #offset  (14-bit signed insn offset)
+    // ------------------------------------------------------------------------
+    {
+        return 0x37000000u
+             | ((bit & 0x20u) << 26)
+             | ((bit & 0x1fu) << 19)
+             | ((uint32_t(offset) & 0x3fffu) << 5)
+             | (rt & 0x1fu);
+    }
+
     void emit32le(uint32_t insn);
     void load_local(byte n, uint r);
     void store_local(uint r, byte n);

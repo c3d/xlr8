@@ -1069,6 +1069,18 @@ void arm64::patch_branch_site(size_t insn_pos, size_t target_native)
         insn = cbz_imm(insn & 0x1fu, off);
     else if (op == 0xb5000000u)
         insn = cbnz_imm(insn & 0x1fu, off);
+    else if ((insn & 0x7f000000u) == 0x36000000u)
+    {
+        uint rt = insn & 0x1fu;
+        uint bit = ((insn >> 26) & 0x20u) | ((insn >> 19) & 0x1fu);
+        insn = tbz_imm(rt, bit, off);
+    }
+    else if ((insn & 0x7f000000u) == 0x37000000u)
+    {
+        uint rt = insn & 0x1fu;
+        uint bit = ((insn >> 26) & 0x20u) | ((insn >> 19) & 0x1fu);
+        insn = tbnz_imm(rt, bit, off);
+    }
     code().patch32(insn_pos, insn);
 }
 
@@ -1091,18 +1103,15 @@ void arm64::bra_zero(byte s, broff_t b, bool eq)
 
 void arm64::bra_pred(byte p, broff_t b, bool sense)
 // ----------------------------------------------------------------------------
-//   Emit branch on predicate p with given sense
+//   Emit branch on predicate p with given sense (TBZ/TBNZ on HW_FLAGS bit)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "bra_pred(%u, %lld, %d)", p, b, sense);
-    (void) b;
-    load_imm64(HW_SCR_VAL, uint64_t(1) << p);
-    emit32le(and_rrr(HW_SCR_VAL, HW_FLAGS, HW_SCR_VAL));
     uint pos = uint(cursor());
     if (sense)
-        emit32le(cbnz_imm(HW_SCR_VAL, 0));
+        emit32le(tbnz_imm(HW_FLAGS, p, 0));
     else
-        emit32le(cbz_imm(HW_SCR_VAL, 0));
+        emit32le(tbz_imm(HW_FLAGS, p, 0));
     record_branch(b, pos);
 }
 

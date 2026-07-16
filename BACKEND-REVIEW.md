@@ -71,7 +71,7 @@ declarations.  This is clean and prevents signature drift.
 
 ### 1.4 Parallel Baseline (2026-07-16)
 
-**Commit**: `0282055` — *Update backend review register map and platform table.*
+**Commit**: `f2c95aa` — *Fix arm64 codegen for bytecode locals >= 16.*
 
 **Protocol**: Per `PLATFORM-ENABLEMENT.md` — on each machine,
 `git fetch mac && git reset --hard mac/xlr8`, `git submodule update --init
@@ -83,32 +83,35 @@ OPTLEVEL=-O`.
 
 | Machine     | Platform | Reference          | JIT (`-O`)         | Status |
 |-------------|----------|--------------------|--------------------|--------|
-| macOS       | arm64    | 224 / 0 failed     | 224 / 0 failed     | Green  |
-| turbo       | x86-64   | 224 / 0 failed     | 224 / 0 failed     | Green  |
-| torpille    | arm64    | 224 / 0 failed     | 224 / 0 failed     | Green  |
-| risky       | riscv64  | 224 / 0 failed     | 2 / 222 failed     | Red    |
-| turbo-x86   | x86-32   | 210 / 14 failed    | incomplete (abort) | Red    |
-| turbo-arm   | arm32    | 210 / 14 failed    | incomplete (abort) | Red    |
+| macOS       | arm64    | 225 / 0 failed     | 225 / 0 failed     | Green  |
+| turbo       | x86-64   | 225 / 0 failed     | 225 / 0 failed     | Green  |
+| torpille    | arm64    | 225 / 0 failed     | 225 / 0 failed     | Green  |
+| risky       | riscv64  | 224 / 0 failed\*   | 2 / 222 failed\*   | Red    |
+| turbo-x86   | x86-32   | 210 / 14 failed\*  | incomplete\*       | Red    |
+| turbo-arm   | arm32    | 210 / 14 failed\*  | incomplete\*       | Red    |
 
-Expected baseline: 224 functional tests per run (Jul 2026).
+\* Red-platform counts from earlier same-day baseline at `0282055` (suite was
+224 tests then; +1 is `high-local.xlr8`).  Not re-run at `f2c95aa`.
+
+Expected baseline: **225** functional tests per run (Jul 2026).
 
 #### Performance suite (`make perf`)
 
-Runs 230 tests (224 functional + 6 `performance/` benchmarks).
+Runs 231 tests (225 functional + 6 `performance/` benchmarks).
 
 | Machine  | Reference          | JIT (`-O`)         | Notes |
 |----------|--------------------|--------------------|-------|
-| macOS    | 230 / 0 failed     | 230 / 0 failed     | All six benchmarks pass |
-| turbo    | 224 / 6 failed     | 224 / 6 failed     | All six `performance/` tests fail: `timeout: invalid time interval './time'` (harness issue, not codegen) |
-| torpille | 227 / 3 failed     | incomplete         | `millions`, `millions-addi`, `millions-incr` fail in reference perf run |
+| macOS    | 230 / 0 failed\*   | 230 / 0 failed\*   | Measured at `0282055` (224 functional); all six benchmarks pass |
+| turbo    | 224 / 6 failed\*   | 224 / 6 failed\*   | All six `performance/` tests fail: `timeout: invalid time interval './time'` (harness issue, not codegen) |
+| torpille | 227 / 3 failed\*   | incomplete\*       | `millions`, `millions-addi`, `millions-incr` fail in reference perf run |
 | risky    | not run            | not run            | Functional JIT red |
 | turbo-x86 | not run           | not run            | Functional tests red |
 | turbo-arm | not run           | not run            | Functional tests red |
 
 #### Embedded timing (from `make tests` summary table)
 
-Selected benchmark times in seconds (lower is better).  `-O` column shows JIT
-speedup vs stored reference baseline.
+Selected benchmark times in seconds (lower is better).  From green-platform
+validation at `f2c95aa` where available; risky/`-O` timings from earlier run.
 
 | Machine   | Mode | fibonacci | millions | millions-incr | tokenization |
 |-----------|------|-----------|----------|---------------|--------------|
@@ -214,13 +217,15 @@ riscv64); use load/operate/store via `HW_SCR_VAL` for `neg`/`not` and
 `store_double` when `d >= LOC_SHADOW_COUNT`.  Validated by
 `tests/bytecode/high-local.xlr8` (`enter 19`, locals 16–18, interpreter and `-O`).
 
-### 3.4 [P3] Predicate branches: 3-5 instructions instead of 1
+### 3.4 [P3] ~~Predicate branches: 3-5 instructions instead of 1~~ — **FIXED** (2026-07-16)
 
-**File**: `arm64.cpp:984-999`
+**File**: `arm64.cpp` — `bra_pred()`
 
-`bra_pred()` loads a mask via MOVZ/MOVK, ANDs it with the flags register, then
-branches on CBNZ/CBZ.  A single `TBZ`/`TBNZ` instruction tests a specific bit and
-branches, replacing the entire sequence.
+Previously loaded a mask via MOVZ/MOVK, ANDed with `HW_FLAGS`, then CBZ/CBNZ.
+
+**Fix**: Emit a single `TBNZ` (`btrue`) or `TBZ` (`bfalse`) on bit `p` of
+`HW_FLAGS` (x22).  `patch_branch_site()` updated to fix up TBZ/TBNZ immediates.
+Validated by `tests/bytecode/btrue.xlr8` and `bfalse.xlr8` (interpreter and `-O`).
 
 ### 3.5 [P3] No MOVN for negative immediates
 
