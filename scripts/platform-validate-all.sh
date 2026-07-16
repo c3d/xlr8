@@ -49,8 +49,8 @@ tmux_kick() {
   local rexit="/tmp/xlr8-validate-${tag}.exit"
   local rdone="/tmp/xlr8-validate-${tag}.done"
 
-  # Run in the tmux pane with a live TTY: fetch/make/tests are visible there.
-  # tee keeps a copy under /tmp for Mac-side polling without silencing the pane.
+  # Pane shells are often zsh (no PIPESTATUS).  Wrap the pipeline in bash -c
+  # so exit status is recorded correctly.  tee keeps the pane interactive.
   remote_sh "$where" "set -euo pipefail
 if ! tmux has-session -t '$TMUX_SESSION' 2>/dev/null; then
   echo \"error: tmux session '$TMUX_SESSION' not found on \$(hostname)\" >&2
@@ -60,7 +60,7 @@ rm -f '$rdone' '$rexit' '$rlog'
 tmux send-keys -t '$TMUX_SESSION' C-c
 sleep 0.3
 tmux send-keys -t '$TMUX_SESSION' C-u
-tmux send-keys -t '$TMUX_SESSION' \"cd ~/Work/xlr8 && rm -f '$rdone' '$rexit' && set -o pipefail && bash scripts/platform-validate.sh $MODE 2>&1 | tee '$rlog'; echo \\\${PIPESTATUS[0]} > '$rexit'; touch '$rdone'\" Enter
+tmux send-keys -t '$TMUX_SESSION' \"cd ~/Work/xlr8 && rm -f '$rdone' '$rexit' && bash -c 'set -o pipefail; bash scripts/platform-validate.sh $MODE 2>&1 | tee \\\"$rlog\\\"; echo \\\${PIPESTATUS[0]} > \\\"$rexit\\\"; touch \\\"$rdone\\\"'\" Enter
 echo \"kicked session=$TMUX_SESSION tag=$tag tee=$rlog (live in tmux)\"
 "
 }
