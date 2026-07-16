@@ -189,7 +189,7 @@ struct runtime
     }
 
 
-    template<typename stack_t>
+    template<typename stack_t = ularge_t>
     bool push(stack_t value)
     // ------------------------------------------------------------------------
     //   Push an value_t sized value on the stack
@@ -205,7 +205,7 @@ struct runtime
     }
 
 
-    template<typename stack_t = value_t>
+    template<typename stack_t = ularge_t>
     stack_t pop()
     // ------------------------------------------------------------------------
     //   Pop an value_t sized value from the stack
