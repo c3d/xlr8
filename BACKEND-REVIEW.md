@@ -485,12 +485,12 @@ SLTI).  Currently unused; prevents silent wrong codegen if wired later.
 For `0 ≤ v < 64`, `shl_imm` / `sar_imm` / `shr_imm` now emit `SLLI` / `SRAI` /
 `SRLI`.  Out-of-range amounts still load a scratch and use the register path.
 
-### 5.8 [P2] Conditional branch range not validated
+### 5.8 [P2] ~~Conditional branch range not validated~~ — **FIXED** (2026-07-16)
 
-**File**: `riscv64.cpp:1058-1080`
+**File**: `riscv64.cpp` — `patch_branch_site()`
 
-B-type branches have a +/-4KB range.  `patch_branch_site()` does not check whether
-the offset fits, silently truncating large offsets.
+B-type (±4KiB) and J-type (±1MiB) patches now reject out-of-range or odd
+offsets via `riscv64_error` instead of silently truncating the immediate.
 
 ---
 
@@ -725,7 +725,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | 16 | Add callee-save prologue/epilogue | arm32 | 1h |
 | 17 | Implement division/modulo/shift-imm | arm32 | 2h |
 | 18 | ~~Fix `fcvt_x_d` baked-in rd~~ — §5.5 | riscv64 | — |
-| 19 | Validate branch range on patch | riscv64 | 1h |
+| 19 | ~~Validate branch range on patch~~ — §5.8 | riscv64 | — |
 | 20 | Fix `section::realloc()` null check | common | 5min |
 | 21 | Factor emit.tbl into single method | common | 1h |
 

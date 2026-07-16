@@ -1166,9 +1166,23 @@ void riscv64::patch_branch_site(size_t insn_pos, size_t target_native)
                   | (uint32_t(code()[insn_pos + 3]) << 24);
     uint opcode = insn & 0x7fu;
     if (opcode == 0x6fu)
+    {
+        // J-type: signed 21-bit, even byte offset (±1MiB)
+        if (off < -1048576 || off > 1048574 || (off & 1))
+        {
+            record(riscv64_error, "J-type branch out of range off=%d", off);
+            return;
+        }
         insn = j_imm(off);
+    }
     else if (opcode == 0x63u)
     {
+        // B-type: signed 13-bit, even byte offset (±4KiB)
+        if (off < -4096 || off > 4094 || (off & 1))
+        {
+            record(riscv64_error, "B-type branch out of range off=%d", off);
+            return;
+        }
         uint rs1 = (insn >> 15) & 0x1fu;
         uint rs2 = (insn >> 20) & 0x1fu;
         uint f3 = (insn >> 12) & 0x7u;
