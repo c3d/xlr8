@@ -1,12 +1,13 @@
-// Very simple output: compute -5
+// Negate a non-zero shadow local (reg != x0).
+// Local 0 alone would not catch arm64 neg_rr Rm encoding bugs.
 
-nat 0 5
-neg 0
+nat 3 5
+neg 3
 txt 1 "-5="
 
 [STDOUT 1]
 
 sys write_text STDOUT 1
-sys write_integer STDOUT 0
+sys write_integer STDOUT 3
 sys write_newline STDOUT
 end

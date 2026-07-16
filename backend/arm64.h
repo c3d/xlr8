@@ -513,10 +513,10 @@ protected:
 
     static inline uint neg_rr(uint rd)
     // ------------------------------------------------------------------------
-    //   Encode neg rd, rd
+    //   Encode neg rd, rd  (SUB xd, xzr, xd — Rm in bits 20:16)
     // ------------------------------------------------------------------------
     {
-        return 0xcb0003e0u | (rd << 5) | rd;
+        return 0xcb0003e0u | (rd << 16) | rd;
     }
 
     static inline uint not_rr(uint rd)

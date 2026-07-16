@@ -179,24 +179,16 @@ switch/dispatch inline (binary search or jump table over the case entries).
 
 ## 3. ARM64-Specific Findings
 
-### 3.1 [P0] `neg_rr()` encoding puts Rm in the wrong field
+### 3.1 [P0] ~~`neg_rr()` encoding puts Rm in the wrong field~~ — **FIXED** (2026-07-16)
 
-**File**: `arm64.h:489-495`
+**File**: `arm64.h:514-520`
 
-```cpp
-static inline uint neg_rr(uint rd)
-{
-    return 0xcb0003e0u | (rd << 5) | rd;  // BUG: should be (rd << 16) | rd
-}
-```
+Previously `neg_rr` ORed `rd` into bits 9:5 (Rn, already XZR), leaving Rm=0, so
+it encoded `NEG Xd, X0` for every `d`.
 
-NEG Xd, Xd is `SUB Xd, XZR, Xd`.  The Rm field is bits 20:16, but the code puts
-`rd` into bits 9:5 (the Rn field, which is already XZR=31).  The actual Rm field
-stays 0, so this encodes `SUB Xd, XZR, X0` = `NEG Xd, X0` for all `d`.
-
-**Impact**: `emit_neg(d)` for d != 0 negates x0 into xd instead of negating xd.
-
-**Fix**: Change `(rd << 5) | rd` to `(rd << 16) | rd`.
+**Fix**: Use `(rd << 16) | rd` so Rm is the source register (`SUB Xd, XZR, Xd`).
+`tests/bytecode/neg.xlr8` now uses local 3 (not x0) so the old encoding cannot
+pass silently.
 
 ### 3.2 [P0] `emit_lds()` does not load from memory
 
