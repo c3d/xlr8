@@ -549,8 +549,9 @@ void riscv64::binop_local(byte d, byte s, cstring op)
     else if (!strcmp(op, "dadd") || !strcmp(op, "dsub")
           || !strcmp(op, "dmul") || !strcmp(op, "ddiv"))
     {
-        emit32le(fcvt_d_x(0, rd));
-        emit32le(fcvt_d_x(1, rs));
+        // Frame slots hold IEEE bit patterns; use fmv, not fcvt
+        emit32le(fmv_d_x(0, rd));
+        emit32le(fmv_d_x(1, rs));
         if (!strcmp(op, "dadd"))
             emit32le(fadd_d(0, 0, 1));
         else if (!strcmp(op, "dsub"))
@@ -559,7 +560,7 @@ void riscv64::binop_local(byte d, byte s, cstring op)
             emit32le(fmul_d(0, 0, 1));
         else
             emit32le(fdiv_d(0, 0, 1));
-        emit32le(fcvt_x_d(rd, 0));
+        emit32le(fmv_x_d(rd, 0));
     }
     else
         trap(op);

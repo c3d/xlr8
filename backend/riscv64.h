@@ -641,6 +641,22 @@ protected:
         return 0xe0001053u | (fs << 15) | (rd << 7);
     }
 
+    static inline uint fmv_d_x(uint fd, uint rs)
+    // ------------------------------------------------------------------------
+    //   Encode fmv.d.x fd, rs  (bitwise int→double, not a conversion)
+    // ------------------------------------------------------------------------
+    {
+        return 0xf2000053u | (rs << 15) | (fd << 7);
+    }
+
+    static inline uint fmv_x_d(uint rd, uint fs)
+    // ------------------------------------------------------------------------
+    //   Encode fmv.x.d rd, fs  (bitwise double→int, not a conversion)
+    // ------------------------------------------------------------------------
+    {
+        return 0xe2000053u | (fs << 15) | (rd << 7);
+    }
+
     static inline uint fadd_s(uint fd, uint fs1, uint fs2)
     // ------------------------------------------------------------------------
     //   Encode fadd.s fd, fs1, fs2

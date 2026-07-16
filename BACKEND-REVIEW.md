@@ -440,22 +440,13 @@ overload (`mov` frame from `rax`), and `emit_leave` only reloads flags afterward
 Previously used funct3=7 (`ANDI rd, rd, -1`, a no-op).  Now funct3=4
 (`XORI rd, rd, -1`).  `emit_not` / `tests/bytecode/not.xlr8` exercise this.
 
-### 5.2 [P0] Double-precision uses integer conversion instead of bitwise move
+### 5.2 [P0] ~~Double-precision uses integer conversion instead of bitwise move~~ — **FIXED** (2026-07-16)
 
-**File**: `riscv64.cpp:549-563`
+**File**: `riscv64.h` / `riscv64.cpp` — `fmv_d_x` / `fmv_x_d`, `binop_local`
 
-```cpp
-emit32le(fcvt_d_x(0, rd));   // integer-to-double CONVERSION
-// ... arithmetic ...
-emit32le(fcvt_x_d(rd, 0));   // double-to-integer CONVERSION
-```
-
-Frame slots contain double bit-patterns stored as integers.  Moving them to FP
-registers should use `fmv.d.x` (bitwise move), not `fcvt.d.l` (numeric
-conversion).  The float path correctly uses `fmv.w.x`.
-
-**Action**: Add `fmv_d_x()` / `fmv_x_d()` helpers and use them instead of
-`fcvt_d_x()` / `fcvt_x_d()`.
+Double binops loaded/stored frame bit-patterns with `fcvt.d.l` / `fcvt.l.d`
+(numeric conversion).  Now use `fmv.d.x` / `fmv.x.d` (bitwise), matching the
+float path’s `fmv.w.x` / `fmv.x.w`.
 
 ### 5.3 [P0] `fmv_x_w` encoding has wrong funct3
 
@@ -719,7 +710,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | 3 | Fix `emit_lds()` to call `load_signext()` | arm64 | 5min |
 | 4 | ~~Fix `not_rr()` funct3 (ANDI -> XORI)~~ — §5.1 | riscv64 | — |
 | 5 | Fix `fmv_x_w` funct3 | riscv64 | 5min |
-| 6 | Fix double-precision `fcvt` -> `fmv` | riscv64 | 30min |
+| 6 | ~~Fix double-precision `fcvt` -> `fmv`~~ — §5.2 | riscv64 | — |
 | 7 | Register `xlr8_switch` or implement inline | All 4 | 1h |
 | 8 | Fix `ldr_off`/`str_off` U-bit | arm32 | 5min |
 | 9 | Fix comparison string mismatch | arm32 | 30min |
@@ -781,7 +772,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | sys calls            | Working | Working | Working | Buggy   |
 | enter/leave          | Working | Working | Working | Partial |
 | Float (single)       | Working | Working | Working*| Working |
-| Float (double)       | Working | Working | Broken  | Broken  |
+| Float (double)       | Working | Working | Working | Broken  |
 | Memory loads/stores  | Working | Working | Working | Wrong sz|
 | Sign/zero extension  | Working | Working | Working | No-op   |
 | Bitwise NOT          | Working | Working | Working | Working |
