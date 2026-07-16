@@ -73,6 +73,16 @@ struct section : std::vector<byte>
         (*this)[at + 3] = byte(c >> 24);
     }
 
+    void patch8(size_t at, byte c)
+    // ------------------------------------------------------------------------
+    //   Patch a single byte at a given offset
+    // ------------------------------------------------------------------------
+    {
+        if (at >= size())
+            return;
+        (*this)[at] = c;
+    }
+
     size_t allocated() const
     // ------------------------------------------------------------------------
     //   Return reserved capacity (TinyCC-compatible name)

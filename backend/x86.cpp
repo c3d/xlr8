@@ -105,12 +105,29 @@ size_t x86::emit_over_callees_branch()
 
 void x86::patch_branch_site(size_t insn_pos, size_t target_native)
 // ----------------------------------------------------------------------------
-//   Patch a recorded branch instruction to jump to target_native
+//   Patch a recorded branch (rel8 or rel32) to jump to target_native
 // ----------------------------------------------------------------------------
 {
     record(x86, "patch_branch_site(%zu, %zu)", insn_pos, target_native);
+    section &sec = code();
+    // Short forms return the disp8 site; opcode is the preceding byte.
+    if (insn_pos >= 1)
+    {
+        byte op = sec[insn_pos - 1];
+        if (op == 0xeb || (op & 0xf0) == 0x70)
+        {
+            int32_t off = int32_t(target_native) - int32_t(insn_pos) - 1;
+            if (off < -128 || off > 127)
+            {
+                record(x86_error, "rel8 branch out of range off=%d", off);
+                return;
+            }
+            sec.patch8(insn_pos, byte(int8_t(off)));
+            return;
+        }
+    }
     int32_t off = int32_t(target_native) - int32_t(insn_pos) - 4;
-    code().patch32(insn_pos, uint32_t(off));
+    sec.patch32(insn_pos, uint32_t(off));
 }
 
 
@@ -1068,7 +1085,7 @@ void x86::set_pred_cmp(byte p, byte cc)
     emit_mov_rr(hw_scr(), HW_RAX);
     emit_pred_clear_bit(p);
     emit_test_rr(hw_scr(), hw_scr());
-    size_t pos = emit_jcc_rel32(JCC_JZ);
+    size_t pos = emit_jcc_rel8(JCC_JZ);
     emit_pred_set_bit(p);
     patch_branch_site(pos, cursor());
 }
@@ -1129,7 +1146,7 @@ void x86::cond_mov_local(byte p, byte d, byte s)
 {
     record(x86, "cond_mov_local(%u, %u, %u)", p, d, s);
     emit_pred_test_bit(p);
-    size_t pos = emit_jcc_rel32(JCC_JZ);
+    size_t pos = emit_jcc_rel8(JCC_JZ);
     mov_local(d, s);
     patch_branch_site(pos, cursor());
 }
@@ -1142,9 +1159,9 @@ void x86::select_local(byte p, byte d, byte s, byte x)
 {
     record(x86, "select_local(%u, %u, %u, %u)", p, d, s, x);
     emit_pred_test_bit(p);
-    size_t jz_pos = emit_jcc_rel32(JCC_JZ);
+    size_t jz_pos = emit_jcc_rel8(JCC_JZ);
     mov_local(d, s);
-    size_t jmp_pos = emit_near_jmp_rel32();
+    size_t jmp_pos = emit_jmp_rel8();
     patch_branch_site(jz_pos, cursor());
     mov_local(d, x);
     patch_branch_site(jmp_pos, cursor());
@@ -1573,6 +1590,12 @@ void x86::jmp_tok(tok_t t)
 // ----------------------------------------------------------------------------
 {
     record(x86, "jmp_tok(%llu)", t);
+    auto it = labels.find(t);
+    if (it != labels.end())
+    {
+        emit_jmp_to(it->second);
+        return;
+    }
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
     uint pos = gjmp(head);
     record_tok_jump(t, pos);

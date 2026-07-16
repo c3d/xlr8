@@ -368,13 +368,17 @@ Prefer short encodings on x86-64 (i386 still truncates to 32 bits):
 | signed `imm32` (e.g. `-1`) | `mov r64, imm32` (sign-extends) | 7 B |
 | otherwise | `movabs r64, imm64` | 10 B |
 
-### 4.3 [P3] No short (rel8) branch encoding
+### 4.3 [P3] ~~No short (rel8) branch encoding~~ — **FIXED** (2026-07-16)
 
-**File**: `x86.cpp` (all branch emission)
+**File**: `x86.cpp` / `x86.h` / `section.h`
 
-All conditional branches use 6-byte `0F 8x rel32`.  No attempt to use 2-byte
-`7x rel8` for nearby targets.  Unconditional `gjmp()` always uses 5-byte
-`E9 rel32`, never 2-byte `EB rel8`.
+- Local skips (`set_pred_cmp`, `cond_mov_local`, `select_local`) emit
+  `7x rel8` / `EB rel8` instead of `0F 8x rel32` / `E9 rel32`.
+- `patch_branch_site` recognizes both forms (opcode before the disp site).
+- `jmp_tok` to an already-bound label uses `emit_jmp_to` (rel8 when in ±128).
+- Deferred bytecode branches (`bra_*`, unbound `gjmp` chains) still use rel32;
+  distance is unknown at emit time and expanding a short site would shift
+  later fixups.
 
 ### 4.4 [P3] Shift-by-immediate uses movabs + cl shift
 

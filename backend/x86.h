@@ -286,10 +286,16 @@ protected:
         return pos;
     }
 
-    static constexpr byte SSE_ADD = 0x58;
-    static constexpr byte SSE_SUB = 0x5c;
-    static constexpr byte SSE_MUL = 0x59;
-    static constexpr byte SSE_DIV = 0x5e;
+    size_t emit_jcc_rel8(byte cc)
+    // ------------------------------------------------------------------------
+    //   Emit 7x rel8 (cc is the near form 0x8x; short is cc-0x10)
+    // ------------------------------------------------------------------------
+    {
+        g(byte(cc - 0x10));
+        size_t pos = cursor();
+        g(0);
+        return pos;
+    }
 
     size_t emit_near_jmp_rel32()
     // ------------------------------------------------------------------------
@@ -301,6 +307,41 @@ protected:
         emit32(0);
         return pos;
     }
+
+    size_t emit_jmp_rel8()
+    // ------------------------------------------------------------------------
+    //   Emit jmp rel8 (eb) and return the disp8 patch site
+    // ------------------------------------------------------------------------
+    {
+        g(0xeb);
+        size_t pos = cursor();
+        g(0);
+        return pos;
+    }
+
+    void emit_jmp_to(size_t target)
+    // ------------------------------------------------------------------------
+    //   Emit jmp to a known native address (rel8 when in range)
+    // ------------------------------------------------------------------------
+    {
+        int32_t off8 = int32_t(target) - int32_t(cursor()) - 2;
+        if (off8 >= -128 && off8 <= 127)
+        {
+            g(0xeb);
+            g(byte(int8_t(off8)));
+            return;
+        }
+        g(0xe9);
+        size_t pos = cursor();
+        emit32(0);
+        int32_t off = int32_t(target) - int32_t(pos) - 4;
+        code().patch32(pos, uint32_t(off));
+    }
+
+    static constexpr byte SSE_ADD = 0x58;
+    static constexpr byte SSE_SUB = 0x5c;
+    static constexpr byte SSE_MUL = 0x59;
+    static constexpr byte SSE_DIV = 0x5e;
 
     void emit_call_rax()
     // ------------------------------------------------------------------------
