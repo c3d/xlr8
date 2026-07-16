@@ -119,19 +119,13 @@ decision later). Until then, test platforms see new work only via
 2. Run local mandatory validation on macOS.
 3. **`git commit`** on macOS (on branch `xlr8`). Do **not** `git push`.
 4. **Validate all test platforms in parallel** (never one host after another).
-   From Mac, fan out the same sync+test script to every machine at once:
+   From Mac, fan out into each host's existing tmux session `xlr8`:
    ```bash
    scripts/platform-validate-all.sh
    ```
-   Or manually, in parallel SSH sessions / background jobs:
-   ```bash
-   # on each of: turbo torpille fedora-riscv turbo-x86 turbo-arm  (and local mac)
-   git fetch mac && git reset --hard mac/xlr8
-   git submodule update --init --recursive
-   make tests 2>&1 | tee /tmp/xlr8-ref.log
-   make tests OPTLEVEL=-O 2>&1 | tee /tmp/xlr8-opt.log
-   ```
-5. **If any already-green platform regresses:** fix on Mac and
+   The script `tmux send-keys`s `scripts/platform-validate.sh` into session
+   `xlr8` on macOS / turbo / torpille / risky / turbo-x86 / turbo-arm (override
+   name with `TMUX_SESSION=`).  Those sessions must already exist.5. **If any already-green platform regresses:** fix on Mac and
    **`git commit --amend`** (same commit). Repeat **parallel** fetch + full
    validation on all test platforms until nothing regresses.
 6. **If the target platform improved and every other platform is unchanged

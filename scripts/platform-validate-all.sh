@@ -3,13 +3,13 @@
 # Usage: scripts/platform-validate-all.sh [ref|opt|both]
 # Run from Mac (commit source). Remotes only git fetch mac; never push.
 #
-# SSH without a TTY block-buffers remote stdout, so a host log can sit at a
-# few hundred bytes (post git-reset) for minutes while make tests is busy.
-# Do not treat a small/stale-looking log as "idle" or "done".  We force line
-# buffering with stdbuf on the remote, and print a heartbeat while waiting.
+# Each host must already have a tmux session named "xlr8" (override with
+# TMUX_SESSION).  Build/test commands are send-keys'd into that session.
+# Output and exit status land under /tmp and are polled from Mac.
 set -euo pipefail
 
 MODE="${1:-both}"
+TMUX_SESSION="${TMUX_SESSION:-xlr8}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OUTDIR="${TMPDIR:-/tmp}/xlr8-validate-${STAMP}"
@@ -25,22 +25,74 @@ HOSTS=(
   "turbo-arm:turbo-arm"
 )
 
-REMOTE_SCRIPT='set -euo pipefail
-cd ~/Work/xlr8
-git fetch mac
-git reset --hard mac/xlr8
-git submodule update --init --recursive
-if command -v stdbuf >/dev/null 2>&1; then
-  stdbuf -oL -eL bash scripts/platform-validate.sh '"$MODE"'
-else
-  bash scripts/platform-validate.sh '"$MODE"'
-fi
-'
-
 echo "outdir=$OUTDIR"
 echo "mode=$MODE"
+echo "tmux_session=$TMUX_SESSION"
 echo "commit_expected=$(cd "$ROOT" && git log -1 --oneline)"
-echo "note: small log after git reset != idle; ssh may buffer until stdbuf/flush"
+
+remote_sh() {
+  # remote_sh "" 'cmd'  -> local bash -c
+  # remote_sh host 'cmd' -> ssh host
+  local where="$1"
+  shift
+  if [ -z "$where" ]; then
+    bash -c "$*"
+  else
+    ssh -o BatchMode=yes -o ConnectTimeout=15 "$where" "$@"
+  fi
+}
+
+tmux_kick() {
+  local where="$1"
+  local tag="$2"
+  local rlog="/tmp/xlr8-validate-${tag}.log"
+  local rexit="/tmp/xlr8-validate-${tag}.exit"
+  local rdone="/tmp/xlr8-validate-${tag}.done"
+
+  remote_sh "$where" "set -euo pipefail
+if ! tmux has-session -t '$TMUX_SESSION' 2>/dev/null; then
+  echo \"error: tmux session '$TMUX_SESSION' not found on \$(hostname)\" >&2
+  exit 90
+fi
+rm -f '$rdone' '$rexit' '$rlog'
+tmux send-keys -t '$TMUX_SESSION' C-c
+sleep 0.3
+tmux send-keys -t '$TMUX_SESSION' C-u
+tmux send-keys -t '$TMUX_SESSION' \"cd ~/Work/xlr8 && rm -f '$rdone' '$rexit' && { bash scripts/platform-validate.sh $MODE; echo \\\$? > '$rexit'; } >'$rlog' 2>&1; touch '$rdone'\" Enter
+echo \"kicked session=$TMUX_SESSION tag=$tag log=$rlog\"
+"
+}
+
+tmux_wait() {
+  local where="$1"
+  local tag="$2"
+  local local_log="$3"
+  local rlog="/tmp/xlr8-validate-${tag}.log"
+  local rexit="/tmp/xlr8-validate-${tag}.exit"
+  local rdone="/tmp/xlr8-validate-${tag}.done"
+
+  while true; do
+    local st sz
+    st=$(remote_sh "$where" "if test -f '$rdone'; then echo DONE; else echo WAIT; fi" \
+         | tr -d '[:space:]')
+    sz=$(remote_sh "$where" "if test -f '$rlog'; then wc -c < '$rlog'; else echo 0; fi" \
+         | tr -d '[:space:]')
+    {
+      echo "[poll $(date +%H:%M:%S)] remote_log_bytes=${sz:-0} status=${st:-WAIT}"
+      remote_sh "$where" "if test -f '$rlog'; then tail -c 8192 '$rlog'; fi" || true
+    } >"$local_log"
+
+    if [ "${st:-}" = "DONE" ]; then
+      break
+    fi
+    sleep 15
+  done
+
+  remote_sh "$where" "cat '$rlog'" >"$local_log" || true
+  local ec
+  ec=$(remote_sh "$where" "cat '$rexit' 2>/dev/null || echo 1" | tr -d '[:space:]')
+  return "${ec:-1}"
+}
 
 pids=()
 names=()
@@ -50,49 +102,30 @@ for entry in "${HOSTS[@]}"; do
   name="${entry%%:*}"
   host="${entry#*:}"
   log="$OUTDIR/${name}.log"
+  tag="${STAMP}-${name}"
   names+=("$name")
   logs+=("$log")
-  if [ -z "$host" ]; then
-    (
-      cd "$ROOT"
-      MODE="$MODE" bash -c '
-        set -euo pipefail
-        MODE="$0"
-        run_suite() {
-          local label="$1" optflag="$2"
-          local log="/tmp/xlr8-mac-${label}-'"$STAMP"'.log"
-          echo "=== ${label} ==="
-          if [ -n "$optflag" ]; then
-            make tests OPTLEVEL=-O 2>&1 | tee "$log"
-          else
-            make tests 2>&1 | tee "$log"
-          fi
-          grep "^\[SUMMARY\].*Successful tests" "$log" | tail -1 || true
-          grep "^\[SUMMARY\].*Failed tests" "$log" | tail -1 || true
-        }
-        case "$MODE" in
-          ref)  run_suite ref "" ;;
-          opt)  run_suite opt "-O" ;;
-          both) run_suite ref ""; run_suite opt "-O" ;;
-          *) echo "usage: both|ref|opt" >&2; exit 2 ;;
-        esac
-        echo "commit=$(git log -1 --oneline)"
-        echo "arch=$(uname -m)"
-        echo "host=$(hostname)"
-      ' "$MODE"
-    ) >"$log" 2>&1 &
-  else
-    ssh -o BatchMode=yes -o ConnectTimeout=15 "$host" "$REMOTE_SCRIPT" \
-      >"$log" 2>&1 &
-  fi
+
+  (
+    set +e
+    {
+      echo "=== kick $name (tmux $TMUX_SESSION) ==="
+      tmux_kick "$host" "$tag"
+    } >"$log" 2>&1
+    if [ $? -ne 0 ]; then
+      echo "kick failed for $name" >>"$log"
+      exit 90
+    fi
+    tmux_wait "$host" "$tag" "$log"
+    exit $?
+  ) &
   pids+=("$!")
-  echo "started $name pid=${pids[$((${#pids[@]} - 1))]} log=$log"
+  echo "started $name pid=${pids[$((${#pids[@]} - 1))]} tmux=$TMUX_SESSION tag=$tag log=$log"
 done
 
 status_line() {
-  local parts=() i
+  local parts=() i sz
   for i in "${!pids[@]}"; do
-    local sz
     sz=$(wc -c < "${logs[$i]}" 2>/dev/null | tr -d ' ')
     if kill -0 "${pids[$i]}" 2>/dev/null; then
       parts+=("${names[$i]}:run/${sz}B")
@@ -111,7 +144,6 @@ for i in "${!pids[@]}"; do
   echo "waiting for $name (pid $pid)..."
   while kill -0 "$pid" 2>/dev/null; do
     status_line
-    # sleep in foreground so we can see heartbeats; 20s keeps noise low
     sleep 20
   done
   set +e
@@ -125,7 +157,7 @@ for i in "${!pids[@]}"; do
     fail=1
   fi
   sed 's/\x1b\[[0-9;]*m//g' "$log" \
-    | grep -E 'SUMMARY|commit=|host=|arch=|Test FAILED|error:|fatal:' \
+    | grep -E 'SUMMARY|commit=|host=|arch=|Test FAILED|error:|fatal:|kicked ' \
     | tail -20
   echo
 done
