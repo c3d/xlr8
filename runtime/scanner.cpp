@@ -1930,18 +1930,6 @@ void scanner::append(ularge_t u)
 }
 
 
-void scanner::append(tok_t t)
-// ----------------------------------------------------------------------------
-//   Append a signed integer to the program
-// ----------------------------------------------------------------------------
-{
-    byte   buffer[LEB128_MAXSIZE];
-    byte  *bp = buffer;
-    bp = leb128(bp, t);
-    program += text((char *) buffer, bp - buffer);
-}
-
-
 void scanner::append(float f)
 // ----------------------------------------------------------------------------
 //   Append a float value to the program

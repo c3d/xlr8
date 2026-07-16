@@ -29,11 +29,13 @@
 //   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // ****************************************************************************
 
+#include "leb128.h"
 #include "recorder.h"
 #include "types.h"
 
 #include <iostream>
 #include <map>
+#include <type_traits>
 #include <vector>
 
 struct runtime;
@@ -118,9 +120,18 @@ struct scanner
     void        append_byte(ularge_t b);
     void        append(large_t i);
     void        append(ularge_t u);
-    void        append(tok_t t);
     void        append(float f);
     void        append(double d);
+    // tok_t aliases ularge_t on Linux LP64; keep a distinct overload elsewhere.
+    template <typename T>
+    std::enable_if_t <std::is_integral_v<T> && !std::is_signed_v<T>,
+                      void>
+    append(T t) { return append(ularge_t(t)); }
+    template <typename T>
+    std::enable_if_t <std::is_integral_v<T> && std::is_signed_v<T>,
+                      void>
+    append(T t) { return append(large_t(t)); }
+
 
     static void append(ostream *out, value_t value);
     static void append(ostream *out, uvalue_t u);
@@ -182,10 +193,20 @@ public:
         expr(bool x = 0) : type(BYTE), xnat(x) {}
         expr(byte x)     : type(BYTE), xnat(x) {}
         expr(char x)     : type(BYTE), xnat(x) {}
+        // value_t/uvalue_t may alias large_t/ularge_t (Linux LP64); only
+        // declare the pointer-sized ctors when they are distinct types.
         expr(ularge_t x) : type(NAT),  xnat(x) {}
         expr(large_t  x) : type(INT),  xint(x) {}
-        expr(uvalue_t x) : type(NAT),  xnat(x) {}
-        expr(value_t x)  : type(INT),  xint(x) {}
+        template <typename T = uvalue_t>
+        expr(T x, std::enable_if_t<
+                 std::is_same_v<T, uvalue_t> &&
+                 !std::is_same_v<uvalue_t, ularge_t>, int> = 0)
+            : type(NAT), xnat(x) {}
+        template <typename T = value_t>
+        expr(T x, std::enable_if_t<
+                 std::is_same_v<T, value_t> &&
+                 !std::is_same_v<value_t, large_t>, int> = 0)
+            : type(INT), xint(x) {}
         expr(float     x): type(FLT),  xflt(x) {}
         expr(double    x): type(DBL),  xdbl(x) {}
         expr(text      x): type(TXT),  xtxt(new text(x)) {}
