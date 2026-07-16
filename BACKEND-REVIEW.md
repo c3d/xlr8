@@ -455,12 +455,13 @@ float path’s `fmv.w.x` / `fmv.x.w`.
 Base was `0xe0001053` (funct3=1).  `FMV.X.W` requires funct3=0; corrected to
 `0xe0000053`.
 
-### 5.4 [P2] `store_double()` no bounds check for d >= 16
+### 5.4 [P2] ~~`store_double()` no bounds check for d >= 16~~ — **FIXED** (2026-07-16)
 
-**File**: `riscv64.cpp:470-481`
+**File**: `riscv64.cpp` — `store_double()`
 
-Uses `xreg(d)` without checking `d < LOC_SHADOW_COUNT`.  For d=21, `xreg(21) = 31`
-= sp.  Writing an immediate into sp is catastrophic.
+Previously always used `xreg(d)` (so `d=21` → `x31`/sp).  Now matches
+`store_float`: shadow locals via `xreg(d)`, else `HW_SCR_VAL` + `store_local`.
+`tests/bytecode/high-local.xlr8` stores/prints `dbl` in local 18.
 
 ### 5.5 [P2] `fcvt_x_d` has baked-in rd=4
 
@@ -718,7 +719,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 
 | # | Bug | Platforms | Est. Effort |
 |---|-----|-----------|-------------|
-| 11 | Add `d < LOC_SHADOW_COUNT` guards | arm64, riscv64 | 1h |
+| 11 | ~~Add `d < LOC_SHADOW_COUNT` guards~~ — arm64 §3.3; riscv64 `store_double` §5.4 | arm64, riscv64 | — |
 | 12 | Fix `store_double` 64-bit truncation | arm32 | 1h |
 | 13 | Implement `sext_local`/`zext_local` | arm32 | 1h |
 | 14 | Implement memory access sizes | arm32 | 2h |

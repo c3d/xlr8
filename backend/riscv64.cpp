@@ -475,8 +475,16 @@ void riscv64::store_double(byte d, double v)
     record(riscv64, "store_double(%u, %g)", d, v);
     uint64_t bits = 0;
     memcpy(&bits, &v, 8);
-    load_imm64(xreg(d), bits);
-    emit32le(sd_off(xreg(d), HW_FRAME, int(d) * int(ptr_size())));
+    if (d < LOC_SHADOW_COUNT)
+    {
+        load_imm64(xreg(d), bits);
+        emit32le(sd_off(xreg(d), HW_FRAME, int(d) * int(ptr_size())));
+    }
+    else
+    {
+        load_imm64(HW_SCR_VAL, bits);
+        store_local(HW_SCR_VAL, d);
+    }
     touch_local(d);
 }
 

@@ -13,7 +13,7 @@ cmpeq 0 18 10
 nat 11 0
 nat 12 1
 select 0 13 12 11
-dbl 14 2.5
+dbl 18 2.5
 
 txt 1 "neg16="
 txt 2 "not17="
@@ -32,6 +32,6 @@ sys write_text STDOUT 3
 sys write_integer STDOUT 13
 sys write_newline STDOUT
 sys write_text STDOUT 4
-sys write_double STDOUT 14
+sys write_double STDOUT 18
 sys write_newline STDOUT
 end
