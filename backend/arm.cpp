@@ -124,11 +124,17 @@ void arm::store_local(uint r, byte n)
     {
         if (r != rreg(n))
             emit32le(mov_rr(rreg(n), r));
+        // Write-through like arm64/riscv: natives read rt.frame, not shadows.
+        emit32le(str_off(rreg(n), HW_FRAME, slot_off(n)));
+        emit32le(movw(HW_IP, 0));
+        emit32le(str_off(HW_IP, HW_FRAME, slot_off(n) + 4));
         touch_local(n);
     }
     else
     {
         emit32le(str_off(r, HW_FRAME, slot_off(n)));
+        emit32le(movw(HW_IP, 0));
+        emit32le(str_off(HW_IP, HW_FRAME, slot_off(n) + 4));
     }
 }
 
@@ -169,7 +175,7 @@ void arm::touch_local(byte d)
 
 void arm::spill_frame(void)
 // ----------------------------------------------------------------------------
-//   Store live bytecode locals in r0-r7 into the runtime frame at r9
+//   Store live bytecode locals in r0-r7 into the runtime frame at r11
 // ----------------------------------------------------------------------------
 {
     record(arm, "spill_frame()");
@@ -188,13 +194,15 @@ void arm::spill_frame(void)
         if (r <= 1 && !spill_arg_regs)
             continue;
         emit32le(str_off(rreg(byte(r)), HW_FRAME, slot_off(byte(r))));
+        emit32le(movw(HW_IP, 0));
+        emit32le(str_off(HW_IP, HW_FRAME, slot_off(byte(r)) + 4));
     }
 }
 
 
 void arm::reload_frame_reg()
 // ----------------------------------------------------------------------------
-//   Reload r9 from r0 after xlr8_enter or xlr8_leave
+//   Reload r11 from r0 after xlr8_enter or xlr8_leave
 // ----------------------------------------------------------------------------
 {
     record(arm, "reload_frame_reg()");
@@ -280,7 +288,11 @@ void arm::begin_translation()
     record(arm, "begin_translation()");
     // invoke_arm only briefly sets r9/r10 in a separate asm blob before a C
     // call to the JIT entry, so those values are not trustworthy here.
+    // Frame lives in r11 (not r9): some ARM Linux ABIs treat r9 as PIC/sb.
+    // push {r4-r11,lr} is 9 words; pad 4 bytes so SP stays 8-byte aligned
+    // for AAPCS calls into the runtime / libc.
     emit32le(push_callee_lr());
+    emit32le(sub_imm(13, 13, 4));
     rtcall("xlr8_get_frame");
     emit32le(mov_rr(HW_FRAME, 0));
     rtcall("xlr8_get_flags");
@@ -333,7 +345,12 @@ void arm::store_imm(byte d, value_t v)
 {
     record(arm, "store_imm(%u, %lld)", d, v);
     if (d < ARM_SHADOW_COUNT)
+    {
         load_imm32(rreg(d), uint32_t(v));
+        emit32le(str_off(rreg(d), HW_FRAME, slot_off(d)));
+        emit32le(movw(HW_IP, 0));
+        emit32le(str_off(HW_IP, HW_FRAME, slot_off(d) + 4));
+    }
     else
         load_imm32(HW_SCR_VAL, uint32_t(v)), store_local(HW_SCR_VAL, d);
     touch_local(d);
@@ -520,8 +537,7 @@ void arm::binop_imm(byte d, value_t v, cstring op)
     }
     else
         trap(op);
-    if (d >= ARM_SHADOW_COUNT)
-        store_local(rd, d);
+    store_local(rd, d);
     touch_local(d);
 }
 
@@ -787,7 +803,7 @@ void arm::frame_addr(byte d, byte s)
 {
     record(arm, "frame_addr(%u, %u)", d, s);
     load_local(s, HW_SCR_OFF);
-    // add r8, r9, r2, lsl #3  (ularge_t slot scale)
+    // add r8, r11, r2, lsl #3  (ularge_t slot scale)
     emit32le(0xE0800180u | (HW_SCR_ADDR << 12) | (HW_FRAME << 16) | HW_SCR_OFF);
     store_local(HW_SCR_ADDR, d);
 }
@@ -1085,6 +1101,7 @@ void arm::do_ret()
 // ----------------------------------------------------------------------------
 {
     record(arm, "do_ret()");
+    emit32le(add_imm(13, 13, 4));
     emit32le(pop_callee_pc());
 }
 

@@ -35,7 +35,7 @@
 //
 //  Bytecode locals are frame[n] slots (ularge_t, 8 bytes).  Locals 0..7 live
 //  in shadow registers r0..r7 while valid; locals >= 8 use frame memory only
-//  (ldr/str via [r9, #local*8]).  See regmap.h.
+//  (ldr/str via [r11, #local*8]).  See regmap.h.
 //
 //  TinyCC allocates r0-r3 and r12 for expression temps; this backend keeps
 //  r0-r7 as shadows for the first eight locals (matching enter(8)) and still
@@ -44,7 +44,7 @@
 //  Register map:
 //    Shadow locals     r0 .. r7      frame[0] .. frame[7] when valid
 //    Scratch address   r8  (HW_SCR_ADDR)
-//    Frame pointer     r9  (HW_FRAME)   rt.frame (reloaded in prologue)
+//    Frame pointer     r11 (HW_FRAME)  rt.frame (reloaded in prologue)
 //    Flags/predicates  r10 (HW_FLAGS)   rt.flags low half (reloaded in prologue)
 //    Callee-save / LR  r11, lr         pushed in prologue, popped on return
 //    Intra-call IP     r12 (HW_IP)      call_abs target (AAPCS IP)
@@ -95,9 +95,9 @@ protected:
         HW_LOC0  = 0,       // shadow frame[0] .. frame[7]
         HW_LOC7  = 7,
         HW_SCR_ADDR = 8,
-        HW_FRAME = 9,       // callee-saved, rt.frame base for spill
+        HW_SB    = 9,       // leave r9 alone (platform/PIC sb on some ABIs)
         HW_FLAGS = 10,      // callee-saved, rt.flags (low 32 of predicates)
-        HW_LINK  = 11,      // callee-saved; prologue also keeps LR on stack
+        HW_FRAME = 11,      // callee-saved fp, rt.frame base for spill
         HW_IP    = 12,      // intra-procedure call scratch (AAPCS IP)
         HW_SCR_VAL  = 0,    // shares r0 with local 0 / syscall arg
         HW_SCR_OFF  = 2,    // shares r2 with local 2
@@ -334,7 +334,8 @@ protected:
 
     static inline uint push_callee_lr()
     // ------------------------------------------------------------------------
-    //   Encode push {r4-r11, lr}  (stmfd sp!, ...)
+    //   Encode push {r4-r11, lr}  (stmfd sp!, ...). Caller must then
+    //   sub sp,#4 so the stack stays 8-byte aligned for AAPCS C calls.
     // ------------------------------------------------------------------------
     {
         return 0xE92D4FF0u;
@@ -342,7 +343,8 @@ protected:
 
     static inline uint pop_callee_pc()
     // ------------------------------------------------------------------------
-    //   Encode pop {r4-r11, pc}  (ldmfd sp!, ...)
+    //   Encode pop {r4-r11, pc}  (ldmfd sp!, ...). Caller must add sp,#4
+    //   first to undo the prologue alignment pad.
     // ------------------------------------------------------------------------
     {
         return 0xE8BD8FF0u;

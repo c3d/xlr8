@@ -289,14 +289,20 @@ void arm::emit_sys(tok_t t, byte_p args, byte_p next_pc)
     spill_arg_regs = true;
     spill_frame();
     emit32le(mov_rr(0, HW_FLAGS));
+    emit32le(movw(1, 0)); // uint64_t flags arg high half (AAPCS r0:r1)
     rtcall("xlr8_set_flags");
     load_imm32(0, uint32_t(t));
     load_imm32(1, uint32_t(uintptr_t(args)));
     call_abs((void *) xlr8_sys);
+    // Linux may move rt.frame during natives; keep r11 in sync (cf. arm64).
+    rtcall("xlr8_get_frame");
+    emit32le(mov_rr(HW_FRAME, 0));
     reload_shadows();
     reload_flags_reg();
     load_imm32(0, uint32_t(uintptr_t(next_pc)));
     rtcall("xlr8_after_sys");
+    // Arm32 has no CBNZ; cmp sets Z from r0, then BNE matches arm64 CBNZ x0.
+    emit32le(cmp_r_imm(0, 0));
     uint cbnz_at = uint(cursor());
     emit32le(b_cond_imm(0x1, 0));
     reload_shadows();
