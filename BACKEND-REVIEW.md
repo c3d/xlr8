@@ -69,9 +69,11 @@ declarations.  This is clean and prevents signature drift.
 | arm32    | arm         | turbo-arm               |
 | riscv64  | riscv64     | risky (`fedora-riscv`)  |
 
-### 1.4 Parallel Baseline (2026-07-16)
+### 1.4 Parallel Baseline (2026-07-17)
 
-**Commit**: `df4c77d` — *runtime: Fix endianness detection for `RTYPE`.*
+**Commit**: `ef61add` — *scanner: Use `large` / `ularge` values for expressions*
+(plus follow-up `9c1e9f9` for Linux LP64 overload collisions — re-validate
+needed on turbo / torpille / risky).
 
 **Protocol**: Per `PLATFORM-ENABLEMENT.md` — on each machine,
 `git fetch mac && git reset --hard mac/xlr8`, `git submodule update --init
@@ -84,36 +86,41 @@ OPTLEVEL=-O`.
 | Machine     | Platform | Reference          | JIT (`-O`)         | Status |
 |-------------|----------|--------------------|--------------------|--------|
 | macOS       | arm64    | 226 / 0 failed     | 226 / 0 failed     | Green  |
-| turbo       | x86-64   | 226 / 0 failed     | 226 / 0 failed     | Green  |
-| torpille    | arm64    | 226 / 0 failed     | 226 / 0 failed     | Green  |
-| risky       | riscv64  | 226 / 0 failed     | in progress\*      | Yellow |
-| turbo-x86   | x86-32   | 223 / 3 failed     | not run†           | Red    |
-| turbo-arm   | arm32    | 224 / 2 failed     | not run†           | Red    |
+| turbo       | x86-64   | build failed\*     | —                  | Red    |
+| torpille    | arm64    | build failed\*     | —                  | Red    |
+| risky       | riscv64  | build failed\*     | —                  | Red    |
+| turbo-x86   | x86-32   | 226 / 0 failed     | 151 / 75 failed    | Yellow |
+| turbo-arm   | arm32    | 225 / 1 failed†    | not run‡           | Yellow |
 
-\* risky `-O` was still running when this table was updated; interpreter is green.
-† `platform-validate.sh` uses `set -e`, so the `-O` suite is skipped after a
-failed reference run.
+\* `ef61add` added `expr(value_t)` / `append(tok_t)` overloads that collide with
+`large_t` / `ularge_t` on Linux LP64 (`value_t`≡`long`≡`int64_t`).  Fixed in
+`9c1e9f9` (keep those overloads only when the types are distinct).  macOS was
+unaffected (`long` ≠ `long long`).
+† Remaining: `scanner/printf-style-formatting-in-expression` (hex of `33`
+prints as `0` instead of `0x21`).
+‡ `platform-validate.sh` uses `set -e`, so `-O` is skipped after a failed
+reference run.
 
 Expected baseline: **226** functional tests per run (Jul 2026).
 
 #### Performance suite (`make perf`)
 
 Runs 232 tests (226 functional + 6 `performance/` benchmarks).  Perf numbers
-below are from earlier same-day green runs (not re-measured at `df4c77d`).
+below are from earlier green runs (not re-measured at `ef61add`).
 
 | Machine  | Reference          | JIT (`-O`)         | Notes |
 |----------|--------------------|--------------------|-------|
 | macOS    | 230 / 0 failed\*   | 230 / 0 failed\*   | Earlier run; all six benchmarks pass |
 | turbo    | 224 / 6 failed\*   | 224 / 6 failed\*   | All six `performance/` tests fail: `timeout: invalid time interval './time'` (harness issue, not codegen) |
 | torpille | 227 / 3 failed\*   | incomplete\*       | `millions`, `millions-addi`, `millions-incr` fail in reference perf run |
-| risky    | not run            | not run            | Waiting on full `-O` functional pass |
-| turbo-x86 | not run           | not run            | Functional reference still red |
-| turbo-arm | not run           | not run            | Functional reference still red |
+| risky    | not run            | not run            | Waiting on rebuild after `9c1e9f9` |
+| turbo-x86 | not run           | not run            | JIT functional still red |
+| turbo-arm | not run           | not run            | Reference not fully green |
 
 #### Embedded timing (from `make tests` summary table)
 
 Selected benchmark times in seconds (lower is better).  From earlier
-green-platform validation; not refreshed at `df4c77d`.
+green-platform validation; not refreshed at `ef61add`.
 
 | Machine   | Mode | fibonacci | millions | millions-incr | tokenization |
 |-----------|------|-----------|----------|---------------|--------------|
@@ -127,22 +134,25 @@ green-platform validation; not refreshed at `df4c77d`.
 
 #### Known failures (non-green platforms)
 
-**turbo-x86 / turbo-arm (ILP32 interpreter)** — down to a few failures after
-`df4c77d` (`RTYPE` endian fix).  Likely remaining issues are implicit 32-bit
-conversions / narrow value handling in the tests or runtime:
+**Interpreter (ILP32)** — largely fixed by `ef61add` / `76157a3` / `df4c77d`:
 
-| Test | turbo-x86 | turbo-arm |
-|------|-----------|-----------|
-| `bytecode/ld8s` | fail | pass |
-| `scanner/expressions` | fail | fail |
-| `scanner/printf-style-formatting-in-expression` | fail | fail |
+| Host | Reference | Remaining failures |
+|------|-----------|--------------------|
+| turbo-x86 | 226 / 0 | — |
+| turbo-arm | 225 / 1 | `printf-style-formatting-in-expression` |
 
-Shared failures (both hosts): `expressions` (e.g. expected `42.42`, got a
-huge float like `3.6807e+180`) and `printf-style-formatting-in-expression`.
-`ld8s` fails only on x86-32 so far.
+**JIT (`-O`) on turbo-x86 (i386)**: **151 / 75 failed**.  Large clusters:
 
-**risky (riscv64)**: interpreter green (226/226) at `df4c77d`.  JIT status
-pending completion of the parallel validate `-O` pass.
+- Integer compares / branches: `cmpeq`, `cmplt`, `cmple`, … and immediates
+- Float/double math and compares: `dmul`, `ddiv`, `dcmpeq`, …
+- Control / misc: `btrue`, `branch_on_eof`, `dispatch`, …
+
+**arm32 JIT**: not measured in this validate pass (reference still had one
+scanner failure).  Next focus after `addi` smoke: the same compare/predicate
+path as on i386.
+
+**Linux LP64 build**: blocked on `ef61add` until `9c1e9f9`; re-run parallel
+validate after remotes pick up that commit.
 
 ### 1.5 Future Work: Shadow Local Residency Tracking
 
