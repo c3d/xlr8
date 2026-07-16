@@ -193,12 +193,45 @@ protected:
         return 0xE0000090u | (rd << 16) | (rs << 8) | rm;
     }
 
+    static inline uint sdiv_rrr(uint rd, uint rn, uint rm)
+    // ------------------------------------------------------------------------
+    //   Encode sdiv rd, rn, rm  (ARMv7 AE / hwdiv-arm)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE710F010u | (rd << 16) | (rm << 8) | rn;
+    }
+
+    static inline uint udiv_rrr(uint rd, uint rn, uint rm)
+    // ------------------------------------------------------------------------
+    //   Encode udiv rd, rn, rm  (ARMv7 AE / hwdiv-arm)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE730F010u | (rd << 16) | (rm << 8) | rn;
+    }
+
+    static inline uint mls_rrrr(uint rd, uint rn, uint rm, uint ra)
+    // ------------------------------------------------------------------------
+    //   Encode mls rd, rn, rm, ra  (rd = ra - rn*rm)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE0600090u | (rd << 16) | (ra << 12) | (rm << 8) | rn;
+    }
+
     static inline uint shift_rrr(uint rd, uint rm, uint rs, uint stype)
     // ------------------------------------------------------------------------
     //   Encode mov rd, rm, shift-by-rs (LSL=0, LSR=1, ASR=2)
     // ------------------------------------------------------------------------
     {
         return 0xE1B00000u | (rd << 12) | (rs << 8) | (stype << 5) | rm;
+    }
+
+    static inline uint shift_imm(uint rd, uint rm, uint imm, uint stype)
+    // ------------------------------------------------------------------------
+    //   Encode mov rd, rm, shift-#imm (LSL=0, LSR=1, ASR=2)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE1A00000u | (rd << 12) | ((imm & 31u) << 7)
+             | (stype << 5) | rm;
     }
 
     static inline uint cmp_rr(uint rn, uint rm)

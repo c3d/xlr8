@@ -528,12 +528,13 @@ taken from the 24-bit imm field only (not the full insn word).
 Writes both 32-bit halves into the `ularge_t` frame slot at `d * 8`, and updates
 the shadow GPR with the low half when `d < 8`.
 
-### 6.5 [P1] Division, modulo, shift-immediate, bitwise-immediate all trap
+### 6.5 [P1] ~~Division, modulo, shift-immediate, bitwise-immediate all trap~~ — **FIXED** (2026-07-16)
 
-**Files**: `arm-emit.cpp:657-710`, `arm-emit.cpp:912-970`
+**Files**: `arm.cpp` / `arm.h` — `binop_local()`, `binop_imm()`
 
-`binop_local` and `binop_imm` do not handle operation strings like `"imul"`,
-`"idiv"`, `"shl_imm"`, `"and"`, `"or"`, `"xor"`.  All fall through to `trap(op)`.
+Handles `imul`/`idiv`/`div`/`idiv_mod`/`div_mod`, shift-imm (`SLL`/`ASR`/`LSR`),
+and bitwise/mul/div immediates.  Encodings checked with
+`scripts/check-arm32-binop-encodings.sh` (`llvm-objdump --triple=arm`).
 
 ### 6.6 [P1] `sext_local` and `zext_local` are no-ops
 
@@ -708,7 +709,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | 14 | Implement memory access sizes | arm32 | 2h |
 | 15 | Fix `frame_addr` shift amount | arm32 | 5min |
 | 16 | Add callee-save prologue/epilogue | arm32 | 1h |
-| 17 | Implement division/modulo/shift-imm | arm32 | 2h |
+| 17 | ~~Implement division/modulo/shift-imm~~ — §6.5 | arm32 | — |
 | 18 | ~~Fix `fcvt_x_d` baked-in rd~~ — §5.5 | riscv64 | — |
 | 19 | ~~Validate branch range on patch~~ — §5.8 | riscv64 | — |
 | 20 | Fix `section::realloc()` null check | common | 5min |
@@ -758,7 +759,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | Memory loads/stores  | Working | Working | Working | Wrong sz|
 | Sign/zero extension  | Working | Working | Working | No-op   |
 | Bitwise NOT          | Working | Working | Working | Working |
-| Division/modulo      | Traps   | Working | Working | Traps   |
+| Division/modulo      | Traps   | Working | Working | Working*|
 | switch/dispatch      | Crashes | Crashes | Crashes | Crashes |
 | Callee-save ABI      | Correct | Correct | Correct | Missing |
 | Windows support      | N/A     | ABI ready* | N/A   | N/A     |

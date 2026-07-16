@@ -386,7 +386,7 @@ void arm::binop_local(byte d, byte s, cstring op)
         emit32le(add_rrr(rd, rd, rs));
     else if (!strcmp(op, "sub"))
         emit32le(sub_rrr(rd, rd, rs));
-    else if (!strcmp(op, "mul"))
+    else if (!strcmp(op, "mul") || !strcmp(op, "imul"))
         emit32le(mul_rrr(rd, rd, rs));
     else if (!strcmp(op, "and"))
         emit32le(and_rrr(rd, rd, rs));
@@ -396,10 +396,24 @@ void arm::binop_local(byte d, byte s, cstring op)
         emit32le(eor_rrr(rd, rd, rs));
     else if (!strcmp(op, "shl"))
         emit32le(shift_rrr(rd, rd, rs, 0));
-    else if (!strcmp(op, "shr"))
+    else if (!strcmp(op, "sar"))
         emit32le(shift_rrr(rd, rd, rs, 2));
-    else if (!strcmp(op, "ushr"))
+    else if (!strcmp(op, "shr") || !strcmp(op, "ushr"))
         emit32le(shift_rrr(rd, rd, rs, 1));
+    else if (!strcmp(op, "idiv"))
+        emit32le(sdiv_rrr(rd, rd, rs));
+    else if (!strcmp(op, "div"))
+        emit32le(udiv_rrr(rd, rd, rs));
+    else if (!strcmp(op, "idiv_mod"))
+    {
+        emit32le(sdiv_rrr(HW_SCR_ADDR, rd, rs));
+        emit32le(mls_rrrr(rd, HW_SCR_ADDR, rs, rd));
+    }
+    else if (!strcmp(op, "div_mod"))
+    {
+        emit32le(udiv_rrr(HW_SCR_ADDR, rd, rs));
+        emit32le(mls_rrrr(rd, HW_SCR_ADDR, rs, rd));
+    }
     else if (!strcmp(op, "fadd"))
     {
         emit32le(vmov_s_r(0, rd));
@@ -449,6 +463,54 @@ void arm::binop_imm(byte d, value_t v, cstring op)
         emit32le(add_imm(rd, rd, uint32_t(v)));
     else if (!strcmp(op, "sub") || !strcmp(op, "subi"))
         emit32le(sub_imm(rd, rd, uint32_t(v)));
+    else if (!strcmp(op, "imul")
+          || !strcmp(op, "and") || !strcmp(op, "or") || !strcmp(op, "xor")
+          || !strcmp(op, "idiv_imm") || !strcmp(op, "div_imm")
+          || !strcmp(op, "idiv_mod_imm") || !strcmp(op, "div_mod_imm"))
+    {
+        // r8 scratch avoids clobbering rd when rd aliases HW_SCR_VAL (r0).
+        load_imm32(HW_SCR_ADDR, uint32_t(v));
+        if (!strcmp(op, "imul"))
+            emit32le(mul_rrr(rd, rd, HW_SCR_ADDR));
+        else if (!strcmp(op, "and"))
+            emit32le(and_rrr(rd, rd, HW_SCR_ADDR));
+        else if (!strcmp(op, "or"))
+            emit32le(orr_rrr(rd, rd, HW_SCR_ADDR));
+        else if (!strcmp(op, "xor"))
+            emit32le(eor_rrr(rd, rd, HW_SCR_ADDR));
+        else if (!strcmp(op, "idiv_imm"))
+            emit32le(sdiv_rrr(rd, rd, HW_SCR_ADDR));
+        else if (!strcmp(op, "div_imm"))
+            emit32le(udiv_rrr(rd, rd, HW_SCR_ADDR));
+        else if (!strcmp(op, "idiv_mod_imm") || !strcmp(op, "div_mod_imm"))
+        {
+            // Quotient scratch must not alias rd (r0/r2 when d is 0/2).
+            uint q = (rd == HW_SCR_OFF) ? HW_SCR_VAL : HW_SCR_OFF;
+            if (!strcmp(op, "idiv_mod_imm"))
+                emit32le(sdiv_rrr(q, rd, HW_SCR_ADDR));
+            else
+                emit32le(udiv_rrr(q, rd, HW_SCR_ADDR));
+            emit32le(mls_rrrr(rd, q, HW_SCR_ADDR, rd));
+        }
+    }
+    else if (!strcmp(op, "shl_imm") || !strcmp(op, "sar_imm")
+          || !strcmp(op, "shr_imm"))
+    {
+        uint amt = uint(v) & 31u;
+        if (v >= 0 && v < 32)
+        {
+            uint stype = !strcmp(op, "shl_imm") ? 0u
+                       : !strcmp(op, "sar_imm") ? 2u : 1u;
+            emit32le(shift_imm(rd, rd, amt, stype));
+        }
+        else
+        {
+            load_imm32(HW_SCR_ADDR, uint32_t(v));
+            uint stype = !strcmp(op, "shl_imm") ? 0u
+                       : !strcmp(op, "sar_imm") ? 2u : 1u;
+            emit32le(shift_rrr(rd, rd, HW_SCR_ADDR, stype));
+        }
+    }
     else
         trap(op);
     if (d >= ARM_SHADOW_COUNT)
