@@ -4,13 +4,17 @@
 # Run from Mac (commit source). Remotes only git fetch mac; never push.
 #
 # Each host must already have a tmux session named "xlr8" (override with
-# TMUX_SESSION).  We send-keys the validate command into that session so
-# git fetch / make / tests stream interactively in the tmux pane.  Output is
-# also teed to /tmp for the Mac to poll and summarize.
+# TMUX_SESSION).  Commands are send-keys'd into that session with a real
+# pane TTY (line-buffered).  Output is captured with tmux pipe-pane into
+# /tmp for the Mac to poll and summarize — no | tee on the validate
+# command (a pipe would re-introduce full block buffering).
 set -euo pipefail
 
 MODE="${1:-both}"
 TMUX_SESSION="${TMUX_SESSION:-xlr8}"
+# Prefer window 0 pane 0 so send-keys and pipe-pane hit the same target
+# even if another pane (e.g. btop) is active.
+TMUX_TARGET="${TMUX_TARGET:-${TMUX_SESSION}:0.0}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OUTDIR="${TMPDIR:-/tmp}/xlr8-validate-${STAMP}"
@@ -28,9 +32,9 @@ HOSTS=(
 
 echo "outdir=$OUTDIR"
 echo "mode=$MODE"
-echo "tmux_session=$TMUX_SESSION"
+echo "tmux_target=$TMUX_TARGET"
 echo "commit_expected=$(cd "$ROOT" && git log -1 --oneline)"
-echo "note: watch progress in each host's tmux session '$TMUX_SESSION'"
+echo "note: watch progress in tmux target '$TMUX_TARGET' on each host"
 
 remote_sh() {
   local where="$1"
@@ -49,19 +53,21 @@ tmux_kick() {
   local rexit="/tmp/xlr8-validate-${tag}.exit"
   local rdone="/tmp/xlr8-validate-${tag}.done"
 
-  # Pane shells are often zsh (no PIPESTATUS).  Wrap the pipeline in bash -c
-  # so exit status is recorded correctly.  tee keeps the pane interactive.
   remote_sh "$where" "set -euo pipefail
 if ! tmux has-session -t '$TMUX_SESSION' 2>/dev/null; then
   echo \"error: tmux session '$TMUX_SESSION' not found on \$(hostname)\" >&2
   exit 90
 fi
 rm -f '$rdone' '$rexit' '$rlog'
-tmux send-keys -t '$TMUX_SESSION' C-c
+# Stop any prior pipe, then capture pane output to the log file.
+tmux pipe-pane -t '$TMUX_TARGET'
+tmux pipe-pane -o -t '$TMUX_TARGET' \"cat >> '$rlog'\"
+tmux send-keys -t '$TMUX_TARGET' C-c
 sleep 0.3
-tmux send-keys -t '$TMUX_SESSION' C-u
-tmux send-keys -t '$TMUX_SESSION' \"cd ~/Work/xlr8 && rm -f '$rdone' '$rexit' && bash -c 'set -o pipefail; bash scripts/platform-validate.sh $MODE 2>&1 | tee \\\"$rlog\\\"; echo \\\${PIPESTATUS[0]} > \\\"$rexit\\\"; touch \\\"$rdone\\\"'\" Enter
-echo \"kicked session=$TMUX_SESSION tag=$tag tee=$rlog (live in tmux)\"
+tmux send-keys -t '$TMUX_TARGET' C-u
+# No | tee: keep stdout as the pane TTY so make/xlr8 stay line-buffered.
+tmux send-keys -t '$TMUX_TARGET' \"cd ~/Work/xlr8 && rm -f '$rdone' '$rexit' && { bash scripts/platform-validate.sh $MODE; echo \\\$? > '$rexit'; touch '$rdone'; }\" Enter
+echo \"kicked target=$TMUX_TARGET tag=$tag pipe-pane=$rlog (live in tmux)\"
 "
 }
 
@@ -79,7 +85,7 @@ tmux_wait() {
          | tr -d '[:space:]')
     sz=$(remote_sh "$where" "if test -f '$rlog'; then wc -c < '$rlog'; else echo 0; fi" \
          | tr -d '[:space:]')
-    # Refresh Mac-side copy from the tee file (pane remains the live view)
+    # Refresh Mac-side copy from the pipe-pane capture
     if [ -z "$where" ]; then
       if [ -f "$rlog" ]; then cp "$rlog" "$local_log"; fi
     else
@@ -94,6 +100,10 @@ tmux_wait() {
     fi
     sleep 15
   done
+
+  # Let pipe-pane flush last lines, then disconnect capture
+  sleep 0.5
+  remote_sh "$where" "tmux pipe-pane -t '$TMUX_TARGET' 2>/dev/null || true" || true
 
   if [ -z "$where" ]; then
     [ -f "$rlog" ] && cp "$rlog" "$local_log"
@@ -120,7 +130,7 @@ for entry in "${HOSTS[@]}"; do
   (
     set +e
     {
-      echo "=== kick $name (tmux $TMUX_SESSION, interactive + tee) ==="
+      echo "=== kick $name (tmux $TMUX_TARGET, pipe-pane capture) ==="
       tmux_kick "$host" "$tag"
     } >"$log" 2>&1
     if [ $? -ne 0 ]; then
@@ -131,7 +141,7 @@ for entry in "${HOSTS[@]}"; do
     exit $?
   ) &
   pids+=("$!")
-  echo "started $name pid=${pids[$((${#pids[@]} - 1))]} tmux=$TMUX_SESSION tag=$tag log=$log"
+  echo "started $name pid=${pids[$((${#pids[@]} - 1))]} tmux=$TMUX_TARGET tag=$tag log=$log"
 done
 
 status_line() {
@@ -152,7 +162,7 @@ for i in "${!pids[@]}"; do
   name="${names[$i]}"
   pid="${pids[$i]}"
   log="${logs[$i]}"
-  echo "waiting for $name (pid $pid) — progress is in tmux '$TMUX_SESSION' on that host..."
+  echo "waiting for $name (pid $pid) — progress is in tmux '$TMUX_TARGET' on that host..."
   while kill -0 "$pid" 2>/dev/null; do
     status_line
     sleep 20

@@ -14,7 +14,7 @@ if git remote get-url mac >/dev/null 2>&1; then
     git submodule update --init --recursive
 fi
 
-make -s 2>&1 | tail -3
+make -j$(nproc) 2>&1
 
 run_suite() {
     local label="$1"
