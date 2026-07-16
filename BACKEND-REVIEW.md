@@ -463,14 +463,13 @@ Previously always used `xreg(d)` (so `d=21` → `x31`/sp).  Now matches
 `store_float`: shadow locals via `xreg(d)`, else `HW_SCR_VAL` + `store_local`.
 `tests/bytecode/high-local.xlr8` stores/prints `dbl` in local 18.
 
-### 5.5 [P2] `fcvt_x_d` has baked-in rd=4
+### 5.5 [P2] ~~`fcvt_x_d` has baked-in rd=4~~ — **FIXED** (2026-07-16)
 
-**File**: `riscv64.h:715-721`
+**File**: `riscv64.h` — `fcvt_x_d()`
 
-Base `0xc2200253` has rd=4 in bits 11:7.  Currently safe because the sole call
-site uses rd=29 (29|4=29), but any other rd without bit 2 set will be wrong.
-
-**Fix**: Change base to `0xc2200053`.
+Base was `0xc2200253` (rd=4 in bits 11:7).  Corrected to `0xc2200053` so
+`rd << 7` sets the destination cleanly.  (Unused after §5.2’s `fmv` path;
+kept correct for real numeric conversions.)
 
 ### 5.6 [P2] `slti` encoding uses wrong funct3
 
@@ -726,7 +725,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | 15 | Fix `frame_addr` shift amount | arm32 | 5min |
 | 16 | Add callee-save prologue/epilogue | arm32 | 1h |
 | 17 | Implement division/modulo/shift-imm | arm32 | 2h |
-| 18 | Fix `fcvt_x_d` baked-in rd | riscv64 | 5min |
+| 18 | ~~Fix `fcvt_x_d` baked-in rd~~ — §5.5 | riscv64 | — |
 | 19 | Validate branch range on patch | riscv64 | 1h |
 | 20 | Fix `section::realloc()` null check | common | 5min |
 | 21 | Factor emit.tbl into single method | common | 1h |

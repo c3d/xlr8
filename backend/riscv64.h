@@ -734,7 +734,7 @@ protected:
     //   Encode fcvt.x.d rd, fs  (double to integer)
     // ------------------------------------------------------------------------
     {
-        return 0xc2200253u | (fs << 15) | (rd << 7);
+        return 0xc2200053u | (fs << 15) | (rd << 7);
     }
 
     void emit32le(uint32_t insn);
