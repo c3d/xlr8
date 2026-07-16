@@ -499,20 +499,13 @@ offsets via `riscv64_error` instead of silently truncating the immediate.
 **Overall assessment: Early prototype.  Multiple show-stopping bugs prevent
 execution of non-trivial programs.**
 
-### 6.1 [P0] `ldr_off` / `str_off` U-bit is inverted
+### 6.1 [P0] ~~`ldr_off` / `str_off` U-bit is inverted~~ — **FIXED** (2026-07-16)
 
-**File**: `arm.h:212-225`
+**File**: `arm.h` — `ldr_off()` / `str_off()`
 
-```cpp
-static inline uint ldr_off(uint rd, uint rn, uint off) {
-    return 0xE5100000u | ...;  // U=0: offset SUBTRACTED
-}
-```
-
-Base `0xE5100000` has bit 23 (U) = 0, meaning the offset is subtracted.  Every
-`ldr_off(r, HW_FRAME, n*4)` loads from `[r9, #-n*4]` instead of `[r9, #+n*4]`.
-
-**Fix**: Use `0xE5900000` (ldr) and `0xE5800000` (str).
+Bases were `0xE5100000` / `0xE5000000` (U=0: subtract offset).  Corrected to
+`0xE5900000` / `0xE5800000` (U=1: add offset) so frame/local accesses use
+`[rn, #+off]`.
 
 ### 6.2 [P0] Comparisons always produce false
 
@@ -709,7 +702,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | 5 | ~~Fix `fmv_x_w` funct3~~ — §5.3 | riscv64 | — |
 | 6 | ~~Fix double-precision `fcvt` -> `fmv`~~ — §5.2 | riscv64 | — |
 | 7 | Register `xlr8_switch` or implement inline | All 4 | 1h |
-| 8 | Fix `ldr_off`/`str_off` U-bit | arm32 | 5min |
+| 8 | ~~Fix `ldr_off`/`str_off` U-bit~~ — §6.1 | arm32 | — |
 | 9 | Fix comparison string mismatch | arm32 | 30min |
 | 10 | Fix `gsym_addr` pipeline offset (-8) | arm32 | 5min |
 

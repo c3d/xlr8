@@ -213,7 +213,7 @@ protected:
     //   Encode ldr rd, [rn, #off]
     // ------------------------------------------------------------------------
     {
-        return 0xE5100000u | (rd << 12) | (rn << 16) | off;
+        return 0xE5900000u | (rd << 12) | (rn << 16) | (off & 0xFFFu);
     }
 
     static inline uint str_off(uint rd, uint rn, uint off)
@@ -221,7 +221,7 @@ protected:
     //   Encode str rd, [rn, #off]
     // ------------------------------------------------------------------------
     {
-        return 0xE5000000u | (rd << 12) | (rn << 16) | off;
+        return 0xE5800000u | (rd << 12) | (rn << 16) | (off & 0xFFFu);
     }
 
     static inline uint movw(uint rd, uint imm16)
