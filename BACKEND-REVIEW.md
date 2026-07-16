@@ -448,14 +448,12 @@ Double binops loaded/stored frame bit-patterns with `fcvt.d.l` / `fcvt.l.d`
 (numeric conversion).  Now use `fmv.d.x` / `fmv.x.d` (bitwise), matching the
 float path’s `fmv.w.x` / `fmv.x.w`.
 
-### 5.3 [P0] `fmv_x_w` encoding has wrong funct3
+### 5.3 [P0] ~~`fmv_x_w` encoding has wrong funct3~~ — **FIXED** (2026-07-16)
 
-**File**: `riscv64.h:635-641`
+**File**: `riscv64.h` — `fmv_x_w()`
 
-Base `0xe0001053` has funct3=1; `FMV.X.W` requires funct3=0.  Generates an
-illegal instruction on real hardware.
-
-**Fix**: Change base to `0xe0000053`.
+Base was `0xe0001053` (funct3=1).  `FMV.X.W` requires funct3=0; corrected to
+`0xe0000053`.
 
 ### 5.4 [P2] `store_double()` no bounds check for d >= 16
 
@@ -709,7 +707,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | 2 | Fix `neg_rr()` encoding (rd << 16) | arm64 | 5min |
 | 3 | Fix `emit_lds()` to call `load_signext()` | arm64 | 5min |
 | 4 | ~~Fix `not_rr()` funct3 (ANDI -> XORI)~~ — §5.1 | riscv64 | — |
-| 5 | Fix `fmv_x_w` funct3 | riscv64 | 5min |
+| 5 | ~~Fix `fmv_x_w` funct3~~ — §5.3 | riscv64 | — |
 | 6 | ~~Fix double-precision `fcvt` -> `fmv`~~ — §5.2 | riscv64 | — |
 | 7 | Register `xlr8_switch` or implement inline | All 4 | 1h |
 | 8 | Fix `ldr_off`/`str_off` U-bit | arm32 | 5min |
@@ -781,8 +779,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | Callee-save ABI      | Correct | Correct | Correct | Missing |
 | Windows support      | N/A     | ABI ready* | N/A   | N/A     |
 
-\* riscv64 `fmv_x_w` has wrong encoding.
-  x86-64 Win64 arg/home-space/callee-save paths are compiled in under `_WIN64`;
+\* x86-64 Win64 arg/home-space/callee-save paths are compiled in under `_WIN64`;
   full Windows host bring-up is still untested.
 
 **Bottom line**: arm64 is the primary development platform and closest to

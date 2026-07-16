@@ -638,7 +638,7 @@ protected:
     //   Encode fmv.x.w rd, fs
     // ------------------------------------------------------------------------
     {
-        return 0xe0001053u | (fs << 15) | (rd << 7);
+        return 0xe0000053u | (fs << 15) | (rd << 7);  // funct3=0
     }
 
     static inline uint fmv_d_x(uint fd, uint rs)
