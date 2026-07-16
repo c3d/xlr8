@@ -368,6 +368,8 @@ Prefer short encodings on x86-64 (i386 still truncates to 32 bits):
 | signed `imm32` (e.g. `-1`) | `mov r64, imm32` (sign-extends) | 7 B |
 | otherwise | `movabs r64, imm64` | 10 B |
 
+Validated on macOS / turbo / torpille (226/0) with commit `a164ffe`.
+
 ### 4.3 [P3] ~~No short (rel8) branch encoding~~ — **FIXED** (2026-07-16)
 
 **File**: `x86.cpp` / `x86.h` / `section.h`
@@ -379,6 +381,8 @@ Prefer short encodings on x86-64 (i386 still truncates to 32 bits):
 - Deferred bytecode branches (`bra_*`, unbound `gjmp` chains) still use rel32;
   distance is unknown at emit time and expanding a short site would shift
   later fixups.
+
+Validated on macOS / turbo / torpille (226/0) with commit `8795932`.
 
 ### 4.4 [P3] Shift-by-immediate uses movabs + cl shift
 
@@ -738,15 +742,15 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 
 | # | Optimization | Platforms | Impact |
 |---|-------------|-----------|--------|
-| 22 | Use TBZ/TBNZ for predicate branches | arm64 | -3 insns/branch |
-| 23 | Use MOVN for negative immediates | arm64 | -3 insns for -1..-65536 |
+| 22 | ~~Use TBZ/TBNZ for predicate branches~~ — §3.4 | arm64 | — |
+| 23 | ~~Use MOVN for negative immediates~~ — §3.5 | arm64 | — |
 | 24 | Use BT/BTS/BTR for predicates | x86-64 | -8 bytes/predicate op |
-| 25 | Use rel8 short branches | x86-64 | -4 bytes/branch |
-| 26 | Use imm8 shifts instead of movabs+cl | x86-64 | -9 bytes/shift |
-| 27 | Optimize `load_hw_imm` for small values | x86-64 | -5 bytes common case |
+| 25 | ~~Use rel8 short branches~~ — §4.3 | x86-64 | — |
+| 26 | Use imm8 shifts instead of movabs+cl | x86-64 | -9 bytes/shift (§4.4 open) |
+| 27 | ~~Optimize `load_hw_imm` for small values~~ — §4.2 | x86-64 | — |
 | 28 | Use SLLI/SRAI/SRLI immediates | riscv64 | -1 insn/shift |
 | 29 | Merge sys reload passes | arm64, riscv64 | -16 insns/sys fast path |
-| 30 | Fix Linux float binop path | arm64 | -40 insns/float op |
+| 30 | ~~Fix Linux float binop path~~ — §3.6 | arm64 | — |
 | 31 | Shadow residency tracking (see §1.5) | all, arm64 first | skip redundant GPR↔FP↔mem moves |
 
 ### Phase 4 -- Cleanup
