@@ -630,13 +630,26 @@ void riscv64::binop_imm(byte d, value_t v, cstring op)
     else if (!strcmp(op, "shl_imm") || !strcmp(op, "sar_imm")
           || !strcmp(op, "shr_imm"))
     {
-        load_imm64(HW_SCR_VAL, uint64_t(v));
-        if (!strcmp(op, "shl_imm"))
-            emit32le(sll_rr(rd, rd, HW_SCR_VAL));
-        else if (!strcmp(op, "sar_imm"))
-            emit32le(sra_rr(rd, rd, HW_SCR_VAL));
+        uint amt = uint(v) & 63u;
+        if (v >= 0 && v < 64)
+        {
+            if (!strcmp(op, "shl_imm"))
+                emit32le(slli(rd, rd, amt));
+            else if (!strcmp(op, "sar_imm"))
+                emit32le(srai(rd, rd, amt));
+            else
+                emit32le(srli(rd, rd, amt));
+        }
         else
-            emit32le(srl_rr(rd, rd, HW_SCR_VAL));
+        {
+            load_imm64(HW_SCR_VAL, uint64_t(v));
+            if (!strcmp(op, "shl_imm"))
+                emit32le(sll_rr(rd, rd, HW_SCR_VAL));
+            else if (!strcmp(op, "sar_imm"))
+                emit32le(sra_rr(rd, rd, HW_SCR_VAL));
+            else
+                emit32le(srl_rr(rd, rd, HW_SCR_VAL));
+        }
     }
     else if (!strcmp(op, "idiv_imm"))
     {

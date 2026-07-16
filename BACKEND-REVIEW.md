@@ -478,13 +478,12 @@ kept correct for real numeric conversions.)
 Base was `0x00001013` (funct3=1 = SLLI).  Corrected to `0x00002013` (funct3=2 =
 SLTI).  Currently unused; prevents silent wrong codegen if wired later.
 
-### 5.7 [P3] Shift-by-immediate uses register-register path
+### 5.7 [P3] ~~Shift-by-immediate uses register-register path~~ — **FIXED** (2026-07-16)
 
-**File**: `riscv64.cpp:621-631`
+**File**: `riscv64.cpp` — `binop_imm`
 
-`SLLI`/`SRAI`/`SRLI` helpers are defined in the header but `binop_imm` loads the
-shift amount into a register and uses `SLL`/`SRA`/`SRL`.  Wastes 1-2 instructions
-per shift.
+For `0 ≤ v < 64`, `shl_imm` / `sar_imm` / `shr_imm` now emit `SLLI` / `SRAI` /
+`SRLI`.  Out-of-range amounts still load a scratch and use the register path.
 
 ### 5.8 [P2] Conditional branch range not validated
 
@@ -740,7 +739,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | 25 | ~~Use rel8 short branches~~ — §4.3 | x86-64 | — |
 | 26 | ~~Use imm8 shifts instead of movabs+cl~~ — §4.4 | x86-64 | — |
 | 27 | ~~Optimize `load_hw_imm` for small values~~ — §4.2 | x86-64 | — |
-| 28 | Use SLLI/SRAI/SRLI immediates | riscv64 | -1 insn/shift |
+| 28 | ~~Use SLLI/SRAI/SRLI immediates~~ — §5.7 | riscv64 | — |
 | 29 | Merge sys reload passes | arm64, riscv64 | -16 insns/sys fast path |
 | 30 | ~~Fix Linux float binop path~~ — §3.6 | arm64 | — |
 | 31 | Shadow residency tracking (see §1.5) | all, arm64 first | skip redundant GPR↔FP↔mem moves |
