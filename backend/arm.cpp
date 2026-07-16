@@ -617,7 +617,7 @@ void arm::cond_mov_local(byte p, byte d, byte s)
 {
     record(arm, "cond_mov_local(%u, %u, %u)", p, d, s);
     load_imm32(HW_SCR_ADDR, 1u << p);
-    emit32le(and_rrr(HW_SCR_ADDR, HW_FLAGS, HW_SCR_ADDR));
+    emit32le(ands_rrr(HW_SCR_ADDR, HW_FLAGS, HW_SCR_ADDR));
     size_t beq_pos = cursor();
     emit32le(b_cond_imm(0x0, 0));
     mov_local(d, s);
@@ -632,7 +632,7 @@ void arm::select_local(byte p, byte d, byte s, byte x)
 {
     record(arm, "select_local(%u, %u, %u, %u)", p, d, s, x);
     load_imm32(HW_SCR_ADDR, 1u << p);
-    emit32le(and_rrr(HW_SCR_ADDR, HW_FLAGS, HW_SCR_ADDR));
+    emit32le(ands_rrr(HW_SCR_ADDR, HW_FLAGS, HW_SCR_ADDR));
     size_t beq_pos = cursor();
     emit32le(b_cond_imm(0x0, 0));
     mov_local(d, s);
@@ -847,7 +847,7 @@ void arm::bra_pred(byte p, broff_t b, bool sense)
 {
     record(arm, "bra_pred(%u, %lld, %d)", p, b, sense);
     load_imm32(HW_SCR_ADDR, 1u << p);
-    emit32le(and_rrr(HW_SCR_ADDR, HW_FLAGS, HW_SCR_ADDR));
+    emit32le(ands_rrr(HW_SCR_ADDR, HW_FLAGS, HW_SCR_ADDR));
     uint pos = uint(cursor());
     emit32le(b_cond_imm(sense ? 0x1 : 0x0, 0));
     record_branch(b, pos);

@@ -154,6 +154,14 @@ protected:
         return 0xE0000000u | (rd << 12) | (rn << 16) | rm;
     }
 
+    static inline uint ands_rrr(uint rd, uint rn, uint rm)
+    // ------------------------------------------------------------------------
+    //   Encode ands rd, rn, rm  (sets NZCV for following BEQ/BNE)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE0100000u | (rd << 12) | (rn << 16) | rm;
+    }
+
     static inline uint orr_rrr(uint rd, uint rn, uint rm)
     // ------------------------------------------------------------------------
     //   Encode orr rd, rn, rm
