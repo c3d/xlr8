@@ -433,20 +433,12 @@ overload (`mov` frame from `rax`), and `emit_leave` only reloads flags afterward
 
 ## 5. RISC-V 64-Specific Findings
 
-### 5.1 [P0] `not_rr()` generates ANDI instead of XORI
+### 5.1 [P0] ~~`not_rr()` generates ANDI instead of XORI~~ — **FIXED** (2026-07-16)
 
-**File**: `riscv64.h:318-324`
+**File**: `riscv64.h` — `not_rr()`
 
-```cpp
-static inline uint not_rr(uint rd)
-{
-    return 0xfff07013u | (rd << 15) | (rd << 7);  // funct3=7 = ANDI
-}
-```
-
-ANDI rd, rd, -1 is a no-op.  Should be `0xfff04013` (funct3=4 = XORI).
-
-**Impact**: `emit_not(d)` silently does nothing.
+Previously used funct3=7 (`ANDI rd, rd, -1`, a no-op).  Now funct3=4
+(`XORI rd, rd, -1`).  `emit_not` / `tests/bytecode/not.xlr8` exercise this.
 
 ### 5.2 [P0] Double-precision uses integer conversion instead of bitwise move
 
@@ -725,7 +717,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | 1 | ~~Fix `cond_mov_local` / `select_local`~~ | All 4 | done |
 | 2 | Fix `neg_rr()` encoding (rd << 16) | arm64 | 5min |
 | 3 | Fix `emit_lds()` to call `load_signext()` | arm64 | 5min |
-| 4 | Fix `not_rr()` funct3 (ANDI -> XORI) | riscv64 | 5min |
+| 4 | ~~Fix `not_rr()` funct3 (ANDI -> XORI)~~ — §5.1 | riscv64 | — |
 | 5 | Fix `fmv_x_w` funct3 | riscv64 | 5min |
 | 6 | Fix double-precision `fcvt` -> `fmv` | riscv64 | 30min |
 | 7 | Register `xlr8_switch` or implement inline | All 4 | 1h |
@@ -792,13 +784,13 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | Float (double)       | Working | Working | Broken  | Broken  |
 | Memory loads/stores  | Working | Working | Working | Wrong sz|
 | Sign/zero extension  | Working | Working | Working | No-op   |
-| Bitwise NOT          | Working | Working | Broken  | Working |
+| Bitwise NOT          | Working | Working | Working | Working |
 | Division/modulo      | Traps   | Working | Working | Traps   |
 | switch/dispatch      | Crashes | Crashes | Crashes | Crashes |
 | Callee-save ABI      | Correct | Correct | Correct | Missing |
 | Windows support      | N/A     | ABI ready* | N/A   | N/A     |
 
-\* riscv64 `fmv_x_w` has wrong encoding; integer NOT is silently a no-op.
+\* riscv64 `fmv_x_w` has wrong encoding.
   x86-64 Win64 arg/home-space/callee-save paths are compiled in under `_WIN64`;
   full Windows host bring-up is still untested.
 

@@ -321,7 +321,7 @@ protected:
     //   Encode not rd, rd  (xori rd, rd, -1)
     // ------------------------------------------------------------------------
     {
-        return 0xfff07013u | (rd << 15) | (rd << 7);
+        return 0xfff04013u | (rd << 15) | (rd << 7);  // funct3=4 = XORI
     }
 
     static inline uint ld_off(uint rd, uint rs1, int off)
