@@ -2,6 +2,11 @@
 # Fan out mandatory validation to all platforms in parallel.
 # Usage: scripts/platform-validate-all.sh [ref|opt|both]
 # Run from Mac (commit source). Remotes only git fetch mac; never push.
+#
+# SSH without a TTY block-buffers remote stdout, so a host log can sit at a
+# few hundred bytes (post git-reset) for minutes while make tests is busy.
+# Do not treat a small/stale-looking log as "idle" or "done".  We force line
+# buffering with stdbuf on the remote, and print a heartbeat while waiting.
 set -euo pipefail
 
 MODE="${1:-both}"
@@ -25,25 +30,31 @@ cd ~/Work/xlr8
 git fetch mac
 git reset --hard mac/xlr8
 git submodule update --init --recursive
-bash scripts/platform-validate.sh '"$MODE"'
+if command -v stdbuf >/dev/null 2>&1; then
+  stdbuf -oL -eL bash scripts/platform-validate.sh '"$MODE"'
+else
+  bash scripts/platform-validate.sh '"$MODE"'
+fi
 '
 
 echo "outdir=$OUTDIR"
 echo "mode=$MODE"
 echo "commit_expected=$(cd "$ROOT" && git log -1 --oneline)"
+echo "note: small log after git reset != idle; ssh may buffer until stdbuf/flush"
 
 pids=()
 names=()
+logs=()
 
 for entry in "${HOSTS[@]}"; do
   name="${entry%%:*}"
   host="${entry#*:}"
   log="$OUTDIR/${name}.log"
   names+=("$name")
+  logs+=("$log")
   if [ -z "$host" ]; then
     (
       cd "$ROOT"
-      # Local mac: already on the commit; skip fetch/reset
       MODE="$MODE" bash -c '
         set -euo pipefail
         MODE="$0"
@@ -74,27 +85,51 @@ for entry in "${HOSTS[@]}"; do
     ssh -o BatchMode=yes -o ConnectTimeout=15 "$host" "$REMOTE_SCRIPT" \
       >"$log" 2>&1 &
   fi
-  pid=$!
-  pids+=("$pid")
-  echo "started $name pid=$pid log=$log"
+  pids+=("$!")
+  echo "started $name pid=${pids[$((${#pids[@]} - 1))]} log=$log"
 done
+
+status_line() {
+  local parts=() i
+  for i in "${!pids[@]}"; do
+    local sz
+    sz=$(wc -c < "${logs[$i]}" 2>/dev/null | tr -d ' ')
+    if kill -0 "${pids[$i]}" 2>/dev/null; then
+      parts+=("${names[$i]}:run/${sz}B")
+    else
+      parts+=("${names[$i]}:done/${sz}B")
+    fi
+  done
+  echo "  status: ${parts[*]}"
+}
 
 fail=0
 for i in "${!pids[@]}"; do
   name="${names[$i]}"
   pid="${pids[$i]}"
-  if wait "$pid"; then
+  log="${logs[$i]}"
+  echo "waiting for $name (pid $pid)..."
+  while kill -0 "$pid" 2>/dev/null; do
+    status_line
+    # sleep in foreground so we can see heartbeats; 20s keeps noise low
+    sleep 20
+  done
+  set +e
+  wait "$pid"
+  ec=$?
+  set -e
+  if [ "$ec" -eq 0 ]; then
     echo "=== $name OK ==="
   else
-    ec=$?
     echo "=== $name FAILED (exit $ec) ==="
     fail=1
   fi
-  sed 's/\x1b\[[0-9;]*m//g' "$OUTDIR/${name}.log" \
+  sed 's/\x1b\[[0-9;]*m//g' "$log" \
     | grep -E 'SUMMARY|commit=|host=|arch=|Test FAILED|error:|fatal:' \
     | tail -20
   echo
 done
 
 echo "outdir=$OUTDIR"
+status_line
 exit "$fail"
