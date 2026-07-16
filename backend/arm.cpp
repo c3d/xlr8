@@ -259,11 +259,14 @@ void arm::gsym_addr(uint t, uint a)
         uint32_t next = 0;
         if (n + 4 <= sec.size())
         {
-            next = uint32_t(sec[n]) | (uint32_t(sec[n + 1]) << 8)
-                 | (uint32_t(sec[n + 2]) << 16) | (uint32_t(sec[n + 3]) << 24);
+            // Chain link is in the 24-bit imm field of the placeholder B.
+            next = (uint32_t(sec[n]) | (uint32_t(sec[n + 1]) << 8)
+                 | (uint32_t(sec[n + 2]) << 16) | (uint32_t(sec[n + 3]) << 24))
+                 & 0x00FFFFFFu;
         }
-        int32_t offset = (int32_t(a) - int32_t(n)) / 4;
-        sec.patch32(n, 0xEA000000u | (uint32_t(offset) & 0x00FFFFFFu));
+        // ARM PC = insn_addr + 8 (same as patch_branch_site).
+        int32_t offset = (int32_t(a) - int32_t(n) - 8) / 4;
+        sec.patch32(n, b_imm(offset));
         t = next;
     }
 }

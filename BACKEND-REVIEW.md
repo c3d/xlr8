@@ -514,13 +514,12 @@ Bases were `0xE5100000` / `0xE5000000` (U=0: subtract offset).  Corrected to
 `cmp_local` / `cmp_imm` now map `"eq"`/`"ne"`/`"lt"`/… to ARM condition codes,
 clear the predicate bit with flag-preserving `AND`, then `ORR{cond}` from CPSR.
 
-### 6.3 [P0] `gsym_addr()` missing -8 pipeline offset
+### 6.3 [P0] ~~`gsym_addr()` missing -8 pipeline offset~~ — **FIXED** (2026-07-16)
 
-**File**: `arm.cpp:238-258`
+**File**: `arm.cpp` — `gsym_addr()`
 
-ARM branch offsets are relative to PC = instruction_address + 8.  The formula
-`(a - n) / 4` is wrong; correct is `(a - n - 8) / 4`.  Compare with
-`patch_branch_site` (line 685) which gets this right.
+Offset is now `(a - n - 8) / 4`, matching `patch_branch_site`.  Chain-next is
+taken from the 24-bit imm field only (not the full insn word).
 
 ### 6.4 [P0] Double-precision truncated to 32 bits
 
@@ -697,7 +696,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | 7 | Register `xlr8_switch` or implement inline | All 4 | 1h |
 | 8 | ~~Fix `ldr_off`/`str_off` U-bit~~ — §6.1 | arm32 | — |
 | 9 | ~~Fix comparison string mismatch~~ — §6.2 | arm32 | — |
-| 10 | Fix `gsym_addr` pipeline offset (-8) | arm32 | 5min |
+| 10 | ~~Fix `gsym_addr` pipeline offset (-8)~~ — §6.3 | arm32 | — |
 
 ### Phase 2 -- Correctness Hardening
 
