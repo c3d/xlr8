@@ -431,16 +431,46 @@ void x86::emit_rex_modrm(int ll, int r, int x, int b, byte op)
 
 void x86::load_hw_imm(uint r, uint64_t imm)
 // ----------------------------------------------------------------------------
-//   Load immediate into a hardware register
+//   Load immediate into a hardware register (prefer short encodings)
 // ----------------------------------------------------------------------------
 {
     record(x86, "load_hw_imm(%u, %lld)", r, imm);
-    if (ptr_size() == 8 || r >= 8)
-        g(0x40 | (ptr_size() == 8 ? 8 : 0) | (rex_b(r) ? 1 : 0));
+
+    // i386 only ever materializes the low 32 bits
+    if (ptr_size() == 4)
+        imm = uint32_t(imm);
+
+    // xor r32, r32 — 2–3 bytes; clears the full 64-bit register on x86-64
+    if (imm == 0)
+    {
+        emit_op_rr(0x31, r, r, /*ll=*/0);
+        return;
+    }
+
+    // mov r32, imm32 — 5–6 bytes; zero-extends into r64 on x86-64
+    if (imm == uint32_t(imm))
+    {
+        if (rex_b(r))
+            g(0x41);
+        g(0xb8 + reg_value(r));
+        emit32(uint32_t(imm));
+        return;
+    }
+
+    // mov r64, imm32 — 7 bytes; sign-extends (e.g. -1)
+    if (int64_t(imm) == int32_t(imm))
+    {
+        orex(1, 0, r, 0xc7);
+        g(byte(0xc0 | reg_value(r)));
+        emit32(uint32_t(imm));
+        return;
+    }
+
+    // movabs r64, imm64 — 10 bytes
+    g(0x48 | (rex_b(r) ? 1 : 0));
     g(0xb8 + reg_value(r));
     emit32(uint32_t(imm));
-    if (ptr_size() == 8)
-        emit32(uint32_t(imm >> 32));
+    emit32(uint32_t(imm >> 32));
 }
 
 

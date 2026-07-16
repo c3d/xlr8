@@ -355,14 +355,18 @@ g(byte(0x50 + reg_value(r)));
 Current call sites use `rax`/`rbx`/`rbp` (no REX.B needed), but `HW_FRAME`
 (`r12`) and other r8–r15 args are safe if pushed later.
 
-### 4.2 [P3] `load_hw_imm()` always emits 10-byte movabs
+### 4.2 [P3] ~~`load_hw_imm()` always emits 10-byte movabs~~ — **FIXED** (2026-07-16)
 
-**File**: `x86.cpp:393-405`
+**File**: `x86.cpp` — `load_hw_imm()`
 
-Every immediate load is a 10-byte `movabs r, imm64`.  Opportunities missed:
-- `imm == 0`: `xor eax, eax` (2 bytes)
-- `imm` fits in 32 bits unsigned: `mov eax, imm32` (5 bytes)
-- Small constants: significant code bloat for the common case
+Prefer short encodings on x86-64 (i386 still truncates to 32 bits):
+
+| Value | Encoding | Size |
+|-------|----------|------|
+| `0` | `xor r32, r32` | 2–3 B |
+| `0 … 2³²−1` | `mov r32, imm32` (zero-extends) | 5–6 B |
+| signed `imm32` (e.g. `-1`) | `mov r64, imm32` (sign-extends) | 7 B |
+| otherwise | `movabs r64, imm64` | 10 B |
 
 ### 4.3 [P3] No short (rel8) branch encoding
 
