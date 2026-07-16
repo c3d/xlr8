@@ -201,10 +201,12 @@ static inline float frame_float(stack_p frame, byte n)
 
 #define REG(n)          byte n = *pc++                  TRC(#n "%u", n)
 #define RALL(n)         frame[n]
-#ifndef BIG_ENDIAN
-# define RTYPE(T, n)    (*((T *) &(RALL(n))))
-#else
+// Do not use #ifdef BIG_ENDIAN: system headers define BIG_ENDIAN as 4321
+// on little-endian hosts too.  Test the actual byte order.
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 # define RTYPE(T, n)    (*((T*) ((byte*)&(RALL(n))+sizeof(*frame)-sizeof(T))))
+#else
+# define RTYPE(T, n)    (*((T *) &(RALL(n))))
 #endif
 #define RNAT(n)         RTYPE(uvalue_t,n)
 #define RINT(n)         RTYPE(value_t,n)
