@@ -190,16 +190,17 @@ it encoded `NEG Xd, X0` for every `d`.
 `tests/bytecode/neg.xlr8` now uses local 3 (not x0) so the old encoding cannot
 pass silently.
 
-### 3.2 [P0] `emit_lds()` does not load from memory
+### 3.2 [P0] ~~`emit_lds()` does not load from memory~~ — **FIXED** (already in tree)
 
-**File**: `arm64-emit.cpp:1175-1184`
+**File**: `arm64-emit.cpp:1185-1192`
 
-The interpreter semantics are `DALL = sign_extend(*(u64*)(SNAT), kshift)` -- load
-from the address in local s, then sign-extend.  The JIT just copies s to d and
-sign-extends the register value, skipping the memory dereference entirely.
+Previously the JIT copied local `s` to `d` and sign-extended the register value,
+skipping the memory dereference.
 
-**Fix**: Call `load_signext(d, s, w)` which already exists at `arm64.cpp:915-922`
-and does the correct load-then-sign-extend.
+**Fix**: `emit_lds()` and `emit_ldos()` delegate to `load_signext()` /
+`load_signext_off()`, which load through the address in `s` then sign-extend.
+Validated by `tests/bytecode/ld1s.xlr8`, `ld2s.xlr8`, `ld4s.xlr8`, and
+`ld8s.xlr8` (interpreter and `-O`).
 
 ### 3.3 [P1] Operations assume d < 16 without bounds checking
 
