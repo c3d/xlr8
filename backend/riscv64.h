@@ -257,7 +257,7 @@ protected:
     //   Encode slti rd, rs1, imm
     // ------------------------------------------------------------------------
     {
-        return 0x00001013u | ((uint32_t(imm) & 0xfffu) << 20) | (rs1 << 15) | (rd << 7);
+        return 0x00002013u | ((uint32_t(imm) & 0xfffu) << 20) | (rs1 << 15) | (rd << 7);
     }
 
     static inline uint sltiu(uint rd, uint rs1, uint imm)

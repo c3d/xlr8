@@ -471,12 +471,12 @@ Base was `0xc2200253` (rd=4 in bits 11:7).  Corrected to `0xc2200053` so
 `rd << 7` sets the destination cleanly.  (Unused after §5.2’s `fmv` path;
 kept correct for real numeric conversions.)
 
-### 5.6 [P2] `slti` encoding uses wrong funct3
+### 5.6 [P2] ~~`slti` encoding uses wrong funct3~~ — **FIXED** (2026-07-16)
 
-**File**: `riscv64.h:254-260`
+**File**: `riscv64.h` — `slti()`
 
-Base `0x00001013` has funct3=1 (SLLI), should be funct3=2 (SLTI).  Currently
-unused but will silently generate shifts instead of comparisons if ever called.
+Base was `0x00001013` (funct3=1 = SLLI).  Corrected to `0x00002013` (funct3=2 =
+SLTI).  Currently unused; prevents silent wrong codegen if wired later.
 
 ### 5.7 [P3] Shift-by-immediate uses register-register path
 
@@ -755,7 +755,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | 35 | ~~Remove dead arm64.h helpers~~ — done via §3.7 (fixed + wired) | — |
 | 36 | ~~Fix stale HW_ANCHOR comments (x20 -> x27)~~ — done via §3.8 | — |
 | 37 | Remove/fix dead VFP helpers in arm.h | 15min |
-| 38 | Fix `slti` encoding in riscv64.h | 5min |
+| 38 | ~~Fix `slti` encoding in riscv64.h~~ — §5.6 | — |
 
 ---
 
