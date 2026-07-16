@@ -193,6 +193,8 @@ protected:
     //  ends up calling modrm_rr(src, dest).
     // =========================================================================
 
+    static constexpr byte JCC_JC  = 0x82;   // jb / jc
+    static constexpr byte JCC_JNC = 0x83;   // jae / jnc
     static constexpr byte JCC_JZ  = 0x84;   // je / jz
     static constexpr byte JCC_JNZ = 0x85;   // jne / jnz
     static constexpr byte JCC_JL  = 0x8c;   // jl / jnge
@@ -578,31 +580,40 @@ protected:
     size_t reserve_pc_in_rax();
     void patch_pc_rel(size_t disp_at, uintptr_t target);
 
-    void emit_pred_clear_bit(byte p)
+    void emit_btx_imm8(uint r, byte ext, byte bit)
     // ------------------------------------------------------------------------
-    //   Clear predicate bit p in HW_FLAGS (r15)
+    //   Emit 0f ba /ext r, imm8 (BT/BTS/BTR/BTC); sets CF from the bit
     // ------------------------------------------------------------------------
     {
-        load_hw_imm(HW_RAX, ~(1ULL << p));
-        emit_and_rr(hw_flags(), HW_RAX);
+        byte mask = ptr_size() == 8 ? 63 : 31;
+        orex(1, 0, r, 0x0f);
+        g(0xba);
+        g(byte(0xc0 | (ext << 3) | reg_value(r)));
+        g(byte(bit & mask));
+    }
+
+    void emit_pred_clear_bit(byte p)
+    // ------------------------------------------------------------------------
+    //   Clear predicate bit p in HW_FLAGS (BTR; CF = old bit)
+    // ------------------------------------------------------------------------
+    {
+        emit_btx_imm8(hw_flags(), /*BTR*/ 6, p);
     }
 
     void emit_pred_set_bit(byte p)
     // ------------------------------------------------------------------------
-    //   Set predicate bit p in HW_FLAGS (r15)
+    //   Set predicate bit p in HW_FLAGS (BTS; CF = old bit)
     // ------------------------------------------------------------------------
     {
-        load_hw_imm(HW_RAX, 1ULL << p);
-        emit_or_rr(hw_flags(), HW_RAX);
+        emit_btx_imm8(hw_flags(), /*BTS*/ 5, p);
     }
 
     void emit_pred_test_bit(byte p)
     // ------------------------------------------------------------------------
-    //   Test predicate bit p in HW_FLAGS (r15) without modifying r15
+    //   Test predicate bit p in HW_FLAGS (BT; CF = bit, register unchanged)
     // ------------------------------------------------------------------------
     {
-        load_hw_imm(HW_RAX, 1ULL << p);
-        emit_test_rr(hw_flags(), HW_RAX);
+        emit_btx_imm8(hw_flags(), /*BT*/ 4, p);
     }
 
     byte setcc_from_rel(cstring rel)

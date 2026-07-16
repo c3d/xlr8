@@ -1142,8 +1142,8 @@ void x86::cond_mov_local(byte p, byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(x86, "cond_mov_local(%u, %u, %u)", p, d, s);
-    emit_pred_test_bit(p);
-    size_t pos = emit_jcc_rel8(JCC_JZ);
+    emit_pred_test_bit(p);              // BT -> CF
+    size_t pos = emit_jcc_rel8(JCC_JNC); // skip if bit clear
     mov_local(d, s);
     patch_branch_site(pos, cursor());
 }
@@ -1155,11 +1155,11 @@ void x86::select_local(byte p, byte d, byte s, byte x)
 // ----------------------------------------------------------------------------
 {
     record(x86, "select_local(%u, %u, %u, %u)", p, d, s, x);
-    emit_pred_test_bit(p);
-    size_t jz_pos = emit_jcc_rel8(JCC_JZ);
+    emit_pred_test_bit(p);                 // BT -> CF
+    size_t jnc_pos = emit_jcc_rel8(JCC_JNC); // bit clear -> pick x
     mov_local(d, s);
     size_t jmp_pos = emit_jmp_rel8();
-    patch_branch_site(jz_pos, cursor());
+    patch_branch_site(jnc_pos, cursor());
     mov_local(d, x);
     patch_branch_site(jmp_pos, cursor());
 }
@@ -1535,8 +1535,8 @@ void x86::bra_pred(byte p, broff_t b, bool sense)
 // ----------------------------------------------------------------------------
 {
     record(x86, "bra_pred(%u, %lld, %d)", p, b, sense);
-    emit_pred_test_bit(p);
-    size_t pos = emit_jcc_rel32(sense ? JCC_JNZ : JCC_JZ);
+    emit_pred_test_bit(p);                              // BT -> CF
+    size_t pos = emit_jcc_rel32(sense ? JCC_JC : JCC_JNC);
     record_branch(b, uint(pos));
 }
 

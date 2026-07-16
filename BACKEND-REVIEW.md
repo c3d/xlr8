@@ -392,12 +392,14 @@ Validated on macOS / turbo / torpille (226/0) with commit `8795932`.
 the count is 1) instead of loading rcx and shifting by `cl`.  Same helper used
 for the generic `sext_reg` shift pair.
 
-### 4.5 [P3] Predicate set/clear/test are 30-44 bytes each
+### 4.5 [P3] ~~Predicate set/clear/test are 30-44 bytes each~~ — **FIXED** (2026-07-16)
 
-**File**: `x86.cpp:952-966`, `x86.h:454-478`
+**File**: `x86.h` — `emit_pred_*_bit` / `emit_btx_imm8`
 
-Each predicate operation loads a 64-bit mask via movabs.  Using `BT`/`BTS`/`BTR`
-instructions would reduce each to 5-7 bytes.
+Previously each predicate op loaded a 64-bit mask via `movabs` + AND/OR/TEST
+(~30–44 bytes).  Now emits a single `BT`/`BTS`/`BTR` with imm8 bit index
+(`0F BA /ext ib`, 5–6 bytes).  Consumers of `emit_pred_test_bit` branch on **CF**
+(`JC`/`JNC`) instead of ZF.
 
 ### 4.6 [P3] No memory-destination ALU operations
 
@@ -745,7 +747,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 |---|-------------|-----------|--------|
 | 22 | ~~Use TBZ/TBNZ for predicate branches~~ — §3.4 | arm64 | — |
 | 23 | ~~Use MOVN for negative immediates~~ — §3.5 | arm64 | — |
-| 24 | Use BT/BTS/BTR for predicates | x86-64 | -8 bytes/predicate op |
+| 24 | ~~Use BT/BTS/BTR for predicates~~ — §4.5 | x86-64 | — |
 | 25 | ~~Use rel8 short branches~~ — §4.3 | x86-64 | — |
 | 26 | ~~Use imm8 shifts instead of movabs+cl~~ — §4.4 | x86-64 | — |
 | 27 | ~~Optimize `load_hw_imm` for small values~~ — §4.2 | x86-64 | — |
