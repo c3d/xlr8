@@ -60,8 +60,10 @@
 //  ===========================================================================
 
 #include "backend.h"
-#include "regmap.h"
 #include "recorder.h"
+#include "regmap.h"
+
+#include <cstring>
 
 
 struct arm : backend
