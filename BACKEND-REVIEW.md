@@ -238,15 +238,25 @@ Previously always used MOVZ + up to 3 MOVK.  Value `-1` cost 4 instructions.
 `tests/bytecode/movn-minus-one.xlr8` (output `m1=-1`); JIT dump disassembles to
 a single `mov x0, #-0x1` (MOVN), not four MOVZ/MOVK words.
 
-### 3.6 [P3] Linux float binops go through C helper (~8x slower)
+### 3.6 [P3] ~~Linux float binops go through C helper (~8x slower)~~ — **FIXED** (2026-07-16)
 
-**File**: `arm64.cpp:485-497` vs `arm64.cpp:498-511`
+**Files**: `arm64.cpp` — `binop_local` float ops; `store_float_local`
 
-macOS uses direct FMOV+FOP (6 instructions).  Linux routes through `xlr8_float_binop`
-with full spill/reload (~47 instructions).
+**Root cause (torpille)**: Not the FP ops themselves.  Early inline float results
+were written with 32-bit `str_w_off`, which left garbage in the upper half of
+each 8-byte frame slot.  The next `emit_sys` spills/reloads full 64-bit slots
+and then crashed or misbehaved.  Bisect notes from Jul 2026: failure was the
+first `sys` after a float binop.
 
-**Action**: Investigate why direct FP register operations were disabled on Linux
-(likely a frame store width issue) and fix the root cause.
+**Workaround that was in place**: Linux routed `fadd`/`fsub`/`fmul`/`fdiv` through
+`xlr8_float_binop` (C), which wrote `frame[d] = uint64_t(bits)`.
+
+**Real fix (already in `store_float_local`)**: `uxtw` + 64-bit `str` so the frame
+slot matches integer locals.  With that in place, the Linux `#ifdef` C helper is
+unnecessary.
+
+**Change**: Use the same inline FMOV+FOP sequence on all hosts.  Validated on
+macOS and torpille (`float-add` and full suite, interpreter and `-O`).
 
 ### 3.7 [P4] Dead helper functions with encoding bugs
 

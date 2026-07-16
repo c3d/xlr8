@@ -525,20 +525,9 @@ void arm64::binop_local(byte d, byte s, cstring op)
     else if (!strcmp(op, "fadd") || !strcmp(op, "fsub")
           || !strcmp(op, "fmul") || !strcmp(op, "fdiv"))
     {
-#if defined(__linux__) && !defined(__ANDROID__)
-        unsigned opc = 0;
-        if (!strcmp(op, "fsub")) opc = 1;
-        else if (!strcmp(op, "fmul")) opc = 2;
-        else if (!strcmp(op, "fdiv")) opc = 3;
-        spill_frame();
-        load_imm64(0, uint64_t(opc));
-        load_imm64(1, uint64_t(d));
-        load_imm64(2, uint64_t(s));
-        call_abs(xlr8_runtime_fn("xlr8_float_binop"));
-        reload_shadows();
-        touch_local(d);
-        return;
-#else
+        // Inline FP.  Results must land in zero-extended 64-bit frame slots
+        // (store_float_local); a 32-bit STR left stale high halves that
+        // corrupted spill/reload before the next emit_sys on Linux arm64.
         uint fop = 0x2800;
         if (!strcmp(op, "fsub")) fop = 0x3800;
         else if (!strcmp(op, "fmul")) fop = 0x0800;
@@ -551,7 +540,6 @@ void arm64::binop_local(byte d, byte s, cstring op)
         emit32le(fmov_w_s(wd, 0));
         store_float_local(d, wd);
         return;
-#endif
     }
     else if (!strcmp(op, "dadd") || !strcmp(op, "dsub")
           || !strcmp(op, "dmul") || !strcmp(op, "ddiv"))
