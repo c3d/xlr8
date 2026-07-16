@@ -253,6 +253,14 @@ protected:
         return 0xd2800000u | ((imm16 & 0xffffu) << 5) | rd;
     }
 
+    static inline uint movn(uint rd, uint imm16, uint shift)
+    // ------------------------------------------------------------------------
+    //   Encode movn rd, #imm16, lsl #shift  (shift = 0, 16, 32, or 48)
+    // ------------------------------------------------------------------------
+    {
+        return 0x92800000u | ((shift / 16) << 21) | ((imm16 & 0xffffu) << 5) | rd;
+    }
+
     static inline uint movk(uint rd, uint imm16, uint shift)
     // ------------------------------------------------------------------------
     //   Encode movk rd, #imm16, lsl #shift  (shift = 16, 32, or 48)

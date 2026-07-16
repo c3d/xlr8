@@ -136,10 +136,45 @@ void arm64::emit32le(uint32_t insn)
 
 void arm64::load_imm64(uint r, uint64_t v)
 // ----------------------------------------------------------------------------
-//   Load a 64-bit constant into AArch64 register r
+//   Load a 64-bit constant into AArch64 register r (MOVZ or MOVN + MOVK)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "load_imm64(%u, %lld)", r, v);
+    uint64_t inv = ~v;
+    int nz = 0, nz_inv = 0;
+    for (int i = 0; i < 4; i++)
+    {
+        if (((v >> (16 * i)) & 0xffffu) != 0)
+            nz++;
+        if (((inv >> (16 * i)) & 0xffffu) != 0)
+            nz_inv++;
+    }
+
+    // Prefer MOVN when fewer halfwords need patching (e.g. -1 → MOVN #0).
+    if (nz_inv < nz)
+    {
+        int start = 0;
+        for (int i = 0; i < 4; i++)
+        {
+            if (((v >> (16 * i)) & 0xffffu) != 0xffffu)
+            {
+                start = i;
+                break;
+            }
+        }
+        uint shift = uint(start) * 16;
+        emit32le(movn(r, uint32_t((inv >> shift) & 0xffffu), shift));
+        for (int i = 0; i < 4; i++)
+        {
+            if (i == start)
+                continue;
+            uint16_t hw = uint16_t((v >> (16 * i)) & 0xffffu);
+            if (hw != 0xffffu)
+                emit32le(movk(r, hw, uint(i) * 16));
+        }
+        return;
+    }
+
     emit32le(movz(r, uint32_t(v) & 0xffffu));
     if ((v >> 16) & 0xffffu)
         emit32le(movk(r, uint32_t(v >> 16), 16));

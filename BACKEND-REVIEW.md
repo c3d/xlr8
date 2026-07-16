@@ -227,13 +227,16 @@ Previously loaded a mask via MOVZ/MOVK, ANDed with `HW_FLAGS`, then CBZ/CBNZ.
 `HW_FLAGS` (x22).  `patch_branch_site()` updated to fix up TBZ/TBNZ immediates.
 Validated by `tests/bytecode/btrue.xlr8` and `bfalse.xlr8` (interpreter and `-O`).
 
-### 3.5 [P3] No MOVN for negative immediates
+### 3.5 [P3] ~~No MOVN for negative immediates~~ — **FIXED** (2026-07-16)
 
-**File**: `arm64.cpp:137-150`
+**File**: `arm64.cpp` — `load_imm64()`
 
-`load_imm64()` always starts with MOVZ + up to 3 MOVK.  Value -1 costs 4
-instructions; `MOVN X, #0` would be 1.  Any value with mostly-1 bits benefits
-from MOVN.
+Previously always used MOVZ + up to 3 MOVK.  Value `-1` cost 4 instructions.
+
+**Fix**: Prefer a MOVN-based sequence when `~v` has fewer non-zero halfwords than
+`v` (e.g. `-1` → single `MOVN Xd, #0`).  Validated by
+`tests/bytecode/movn-minus-one.xlr8` (output `m1=-1`); JIT dump disassembles to
+a single `mov x0, #-0x1` (MOVN), not four MOVZ/MOVK words.
 
 ### 3.6 [P3] Linux float binops go through C helper (~8x slower)
 

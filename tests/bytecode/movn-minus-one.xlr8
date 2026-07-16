@@ -1,0 +1,11 @@
+// Load -1 via immediate — arm64 load_imm64 should emit MOVN, not 4× MOVZ/MOVK.
+
+int 0 -1
+txt 1 "m1="
+
+[STDOUT 1]
+
+sys write_text STDOUT 1
+sys write_integer STDOUT 0
+sys write_newline STDOUT
+end
