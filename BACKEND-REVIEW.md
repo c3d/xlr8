@@ -69,6 +69,84 @@ declarations.  This is clean and prevents signature drift.
 | arm32    | arm         | turbo-arm               |
 | riscv64  | riscv64     | risky (`fedora-riscv`)  |
 
+### 1.4 Parallel Baseline (2026-07-16)
+
+**Commit**: `0282055` — *Update backend review register map and platform table.*
+
+**Protocol**: Per `PLATFORM-ENABLEMENT.md` — on each machine,
+`git fetch mac && git reset --hard mac/xlr8`, `git submodule update --init
+--recursive`, `make`, then `make tests` (interpreter) and `make tests
+OPTLEVEL=-O` (JIT).  On platforms where both pass, `make perf` and `make perf
+OPTLEVEL=-O`.
+
+#### Functional test results
+
+| Machine     | Platform | Reference          | JIT (`-O`)         | Status |
+|-------------|----------|--------------------|--------------------|--------|
+| macOS       | arm64    | 224 / 0 failed     | 224 / 0 failed     | Green  |
+| turbo       | x86-64   | 224 / 0 failed     | 224 / 0 failed     | Green  |
+| torpille    | arm64    | 224 / 0 failed     | 224 / 0 failed     | Green  |
+| risky       | riscv64  | 224 / 0 failed     | 2 / 222 failed     | Red    |
+| turbo-x86   | x86-32   | 210 / 14 failed    | incomplete (abort) | Red    |
+| turbo-arm   | arm32    | 210 / 14 failed    | incomplete (abort) | Red    |
+
+Expected baseline: 224 functional tests per run (Jul 2026).
+
+#### Performance suite (`make perf`)
+
+Runs 230 tests (224 functional + 6 `performance/` benchmarks).
+
+| Machine  | Reference          | JIT (`-O`)         | Notes |
+|----------|--------------------|--------------------|-------|
+| macOS    | 230 / 0 failed     | 230 / 0 failed     | All six benchmarks pass |
+| turbo    | 224 / 6 failed     | 224 / 6 failed     | All six `performance/` tests fail: `timeout: invalid time interval './time'` (harness issue, not codegen) |
+| torpille | 227 / 3 failed     | incomplete         | `millions`, `millions-addi`, `millions-incr` fail in reference perf run |
+| risky    | not run            | not run            | Functional JIT red |
+| turbo-x86 | not run           | not run            | Functional tests red |
+| turbo-arm | not run           | not run            | Functional tests red |
+
+#### Embedded timing (from `make tests` summary table)
+
+Selected benchmark times in seconds (lower is better).  `-O` column shows JIT
+speedup vs stored reference baseline.
+
+| Machine   | Mode | fibonacci | millions | millions-incr | tokenization |
+|-----------|------|-----------|----------|---------------|--------------|
+| macOS     | ref  | 6.41      | 5.98     | 5.96          | 0.86         |
+| macOS     | `-O` | 3.02      | 0.77     | 0.85          | 3.34         |
+| turbo     | ref  | 7.87      | 7.00     | 6.78          | 1.94         |
+| turbo     | `-O` | 3.61      | 0.97     | 0.81          | 1.91         |
+| torpille  | ref  | 52.92     | —        | —             | —            |
+| torpille  | `-O` | 9.24      | 12.46    | 12.07         | 16.17        |
+| risky     | ref  | 5.05      | —        | —             | —            |
+| risky     | `-O` | 0.09      | 27.65    | 27.17         | 0.09         |
+
+Note: risky `-O` timings are not meaningful — only 2 of 224 functional tests
+pass in JIT mode (see below).
+
+#### Known failures (non-green platforms)
+
+**turbo-x86 and turbo-arm** share the same 14 interpreter failures:
+
+- Sign-extended loads: `ld2s`, `ld4s`, `ld8s`
+- Sign/zero extension: `sext`, `sext32`, `zext`, `zext32`
+- Recursion / re-entry: `recursive-factorial`, `recursive-fibonacci`,
+  `repeated-execution`
+- Stack: `sys-alloca`
+- Scanner / LLVM: `expressions`, `printf-style-formatting-in-expression`,
+  `llvm/e2e-factorial`
+
+JIT (`-O`) runs abort early on the same `ld*s` failures (sign-extended load
+returns `-1` instead of expected value).  Example from turbo-x86:
+`ld2s` expected `-32768`, got `-1`.
+
+**risky (riscv64)**: interpreter fully green (224/224).  JIT nearly completely
+broken (2/222).  Only passing JIT tests:
+`bootstrap/infix-prefix-postfix-block.xlr8` and
+`bytecode/constant-redefinition.xlr8`.  Typical failure mode: correct
+interpreter output concatenated with `Test FAILED` on the next test, indicating
+broad codegen breakage rather than isolated opcode bugs.
+
 ---
 
 ## 2. Cross-Platform Bugs (All Backends)
