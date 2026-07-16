@@ -257,8 +257,7 @@ void x86::emit_leave()
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_leave()");
-    emit_runtime_call("xlr8_leave");
-    reload_frame_reg();
+    emit_runtime_call("xlr8_leave");  // reloads frame from rax
     reload_flags_reg();
 }
 

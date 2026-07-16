@@ -1837,7 +1837,11 @@ void x86::emit_runtime_call(cstring fn)
 {
     record(x86, "emit_runtime_call(%s)", fn);
     call_ptr(xlr8_runtime_fn(fn));
-    reload_rt_regs();
+    // xlr8_leave returns the new frame in rax (xlr8_enter is byte-arg only)
+    if (!strcmp(fn, "xlr8_leave") || !strcmp(fn, "xlr8_enter"))
+        reload_frame_reg();
+    else
+        reload_rt_regs();
     if (ptr_size() == 8)
         reload_shadows();
 }

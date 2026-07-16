@@ -409,12 +409,15 @@ Non-shadow `incr`/`decr` now emit `inc`/`dec [frame+disp]` (`FF /0`/`/1`).
 Non-shadow `addi`/`subi` emit `add`/`sub [frame+disp], imm` (`83 ib` or `81 id`).
 Shadow locals keep the register INC/DEC + frame store path.
 
-### 4.7 [P3] `emit_leave()` generates redundant frame reload
+### 4.7 [P3] ~~`emit_leave()` generates redundant frame reload~~ — **FIXED** (2026-07-16)
 
-**File**: `x86-emit.cpp:254-263` combined with `x86.cpp:1636`
+**File**: `x86-emit.cpp` / `x86.cpp` — `emit_leave`, `emit_runtime_call`
 
-`emit_runtime_call("xlr8_leave")` internally calls `reload_frame_reg()` (via the
-strcmp match), and then `emit_leave()` calls it again.
+`emit_leave` used the zero-arg `emit_runtime_call`, which always ran
+`reload_rt_regs()` (no-op on x86-64; on i386 it re-fetched frame/flags and left
+`eax` holding flags), then called `reload_frame_reg()` again.  Zero-arg
+`emit_runtime_call` now special-cases `xlr8_leave`/`xlr8_enter` like the byte-arg
+overload (`mov` frame from `rax`), and `emit_leave` only reloads flags afterward.
 
 ### 4.8 [P1] No Windows x64 calling convention support
 
