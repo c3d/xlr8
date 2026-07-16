@@ -152,6 +152,29 @@ protected:
         return 0xE1800000u | (rd << 12) | (rn << 16) | rm;
     }
 
+    static inline uint orr_rrr_cond(byte cond, uint rd, uint rn, uint rm)
+    // ------------------------------------------------------------------------
+    //   Encode orr{cond} rd, rn, rm
+    // ------------------------------------------------------------------------
+    {
+        return (uint32_t(cond) << 28) | 0x01800000u
+             | (rd << 12) | (rn << 16) | rm;
+    }
+
+    static inline byte cond_from_op(cstring op)
+    // ------------------------------------------------------------------------
+    //   Map comparison name to ARM condition code
+    // ------------------------------------------------------------------------
+    {
+        if (!strcmp(op, "eq")) return 0;
+        if (!strcmp(op, "ne")) return 1;
+        if (!strcmp(op, "lt")) return 11;
+        if (!strcmp(op, "le")) return 13;
+        if (!strcmp(op, "ltu")) return 3;
+        if (!strcmp(op, "leu")) return 9;
+        return 0;
+    }
+
     static inline uint eor_rrr(uint rd, uint rn, uint rm)
     // ------------------------------------------------------------------------
     //   Encode eor rd, rn, rm
@@ -356,6 +379,7 @@ protected:
     void cmp_imm(byte p, byte d, value_t v, cstring op);
     void cmp_uimm(byte p, byte d, uvalue_t v, cstring op);
     void set_pred(byte p, bool on);
+    void set_pred_cmp(byte p, byte cond);
     void cond_mov_local(byte p, byte d, byte s);
     void select_local(byte p, byte d, byte s, byte x);
     void neg_local(byte d);

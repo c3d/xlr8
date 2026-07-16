@@ -507,19 +507,12 @@ Bases were `0xE5100000` / `0xE5000000` (U=0: subtract offset).  Corrected to
 `0xE5900000` / `0xE5800000` (U=1: add offset) so frame/local accesses use
 `[rn, #+off]`.
 
-### 6.2 [P0] Comparisons always produce false
+### 6.2 [P0] ~~Comparisons always produce false~~ — **FIXED** (2026-07-16)
 
-**File**: `arm.cpp:455-489`
+**File**: `arm.cpp` / `arm.h` — `set_pred_cmp()`, `cond_from_op()`
 
-```cpp
-set_pred(p, !strcmp(op, "cmpeq"));  // op is "eq", not "cmpeq" --> always false
-```
-
-The comparison instruction sets CPSR flags via `cmp_rr()`, but `set_pred()` ignores
-the CPSR entirely and unconditionally clears the predicate bit.
-
-**Action**: Implement proper condition-code reading, e.g., using conditional
-`ORR` with the ARM condition field.
+`cmp_local` / `cmp_imm` now map `"eq"`/`"ne"`/`"lt"`/… to ARM condition codes,
+clear the predicate bit with flag-preserving `AND`, then `ORR{cond}` from CPSR.
 
 ### 6.3 [P0] `gsym_addr()` missing -8 pipeline offset
 
@@ -703,7 +696,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | 6 | ~~Fix double-precision `fcvt` -> `fmv`~~ — §5.2 | riscv64 | — |
 | 7 | Register `xlr8_switch` or implement inline | All 4 | 1h |
 | 8 | ~~Fix `ldr_off`/`str_off` U-bit~~ — §6.1 | arm32 | — |
-| 9 | Fix comparison string mismatch | arm32 | 30min |
+| 9 | ~~Fix comparison string mismatch~~ — §6.2 | arm32 | — |
 | 10 | Fix `gsym_addr` pipeline offset (-8) | arm32 | 5min |
 
 ### Phase 2 -- Correctness Hardening

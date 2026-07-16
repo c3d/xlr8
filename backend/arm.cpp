@@ -463,6 +463,20 @@ void arm::set_pred(byte p, bool on)
 }
 
 
+void arm::set_pred_cmp(byte p, byte cond)
+// ----------------------------------------------------------------------------
+//   Set predicate bit p from CPSR after a prior CMP (preserves NZCV)
+// ----------------------------------------------------------------------------
+{
+    record(arm, "set_pred_cmp(%u, %u)", p, cond);
+    // AND without S keeps CMP flags for the conditional ORR below.
+    load_imm32(HW_SCR_ADDR, ~(1u << p));
+    emit32le(and_rrr(HW_FLAGS, HW_FLAGS, HW_SCR_ADDR));
+    load_imm32(HW_SCR_ADDR, 1u << p);
+    emit32le(orr_rrr_cond(cond, HW_FLAGS, HW_FLAGS, HW_SCR_ADDR));
+}
+
+
 void arm::cmp_local(byte p, byte d, byte s, cstring op)
 // ----------------------------------------------------------------------------
 //   Compare two locals and set predicate p
@@ -472,8 +486,7 @@ void arm::cmp_local(byte p, byte d, byte s, cstring op)
     load_local(d, HW_SCR_VAL);
     load_local(s, HW_SCR_OFF);
     emit32le(cmp_rr(HW_SCR_VAL, HW_SCR_OFF));
-    set_pred(p, !strcmp(op, "cmpeq"));
-    (void) op;
+    set_pred_cmp(p, cond_from_op(op));
 }
 
 
@@ -485,8 +498,7 @@ void arm::cmp_imm(byte p, byte d, value_t v, cstring op)
     record(arm, "cmp_imm(%u, %u, %lld, %s)", p, d, v, op);
     load_local(d, HW_SCR_VAL);
     emit32le(cmp_r_imm(HW_SCR_VAL, uint32_t(v)));
-    set_pred(p, !strcmp(op, "cmpeqi"));
-    (void) op;
+    set_pred_cmp(p, cond_from_op(op));
 }
 
 
