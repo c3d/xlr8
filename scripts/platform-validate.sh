@@ -6,9 +6,13 @@ set -euo pipefail
 MODE="${1:-both}"
 cd ~/Work/xlr8
 
-git fetch mac
-git reset --hard mac/xlr8
-git submodule update --init --recursive
+# Remotes sync from Mac via the "mac" git remote.  On the Mac itself that
+# remote does not exist — stay on the current commit and just build/test.
+if git remote get-url mac >/dev/null 2>&1; then
+    git fetch mac
+    git reset --hard mac/xlr8
+    git submodule update --init --recursive
+fi
 
 make -s 2>&1 | tail -3
 
