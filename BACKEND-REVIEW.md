@@ -71,7 +71,7 @@ declarations.  This is clean and prevents signature drift.
 
 ### 1.4 Parallel Baseline (2026-07-16)
 
-**Commit**: `f2c95aa` — *Fix arm64 codegen for bytecode locals >= 16.*
+**Commit**: `df4c77d` — *runtime: Fix endianness detection for `RTYPE`.*
 
 **Protocol**: Per `PLATFORM-ENABLEMENT.md` — on each machine,
 `git fetch mac && git reset --hard mac/xlr8`, `git submodule update --init
@@ -83,35 +83,37 @@ OPTLEVEL=-O`.
 
 | Machine     | Platform | Reference          | JIT (`-O`)         | Status |
 |-------------|----------|--------------------|--------------------|--------|
-| macOS       | arm64    | 225 / 0 failed     | 225 / 0 failed     | Green  |
-| turbo       | x86-64   | 225 / 0 failed     | 225 / 0 failed     | Green  |
-| torpille    | arm64    | 225 / 0 failed     | 225 / 0 failed     | Green  |
-| risky       | riscv64  | 224 / 0 failed\*   | 2 / 222 failed\*   | Red    |
-| turbo-x86   | x86-32   | 210 / 14 failed\*  | incomplete\*       | Red    |
-| turbo-arm   | arm32    | 210 / 14 failed\*  | incomplete\*       | Red    |
+| macOS       | arm64    | 226 / 0 failed     | 226 / 0 failed     | Green  |
+| turbo       | x86-64   | 226 / 0 failed     | 226 / 0 failed     | Green  |
+| torpille    | arm64    | 226 / 0 failed     | 226 / 0 failed     | Green  |
+| risky       | riscv64  | 226 / 0 failed     | in progress\*      | Yellow |
+| turbo-x86   | x86-32   | 223 / 3 failed     | not run†           | Red    |
+| turbo-arm   | arm32    | 224 / 2 failed     | not run†           | Red    |
 
-\* Red-platform counts from earlier same-day baseline at `0282055` (suite was
-224 tests then; +1 is `high-local.xlr8`).  Not re-run at `f2c95aa`.
+\* risky `-O` was still running when this table was updated; interpreter is green.
+† `platform-validate.sh` uses `set -e`, so the `-O` suite is skipped after a
+failed reference run.
 
-Expected baseline: **225** functional tests per run (Jul 2026).
+Expected baseline: **226** functional tests per run (Jul 2026).
 
 #### Performance suite (`make perf`)
 
-Runs 231 tests (225 functional + 6 `performance/` benchmarks).
+Runs 232 tests (226 functional + 6 `performance/` benchmarks).  Perf numbers
+below are from earlier same-day green runs (not re-measured at `df4c77d`).
 
 | Machine  | Reference          | JIT (`-O`)         | Notes |
 |----------|--------------------|--------------------|-------|
-| macOS    | 230 / 0 failed\*   | 230 / 0 failed\*   | Measured at `0282055` (224 functional); all six benchmarks pass |
+| macOS    | 230 / 0 failed\*   | 230 / 0 failed\*   | Earlier run; all six benchmarks pass |
 | turbo    | 224 / 6 failed\*   | 224 / 6 failed\*   | All six `performance/` tests fail: `timeout: invalid time interval './time'` (harness issue, not codegen) |
 | torpille | 227 / 3 failed\*   | incomplete\*       | `millions`, `millions-addi`, `millions-incr` fail in reference perf run |
-| risky    | not run            | not run            | Functional JIT red |
-| turbo-x86 | not run           | not run            | Functional tests red |
-| turbo-arm | not run           | not run            | Functional tests red |
+| risky    | not run            | not run            | Waiting on full `-O` functional pass |
+| turbo-x86 | not run           | not run            | Functional reference still red |
+| turbo-arm | not run           | not run            | Functional reference still red |
 
 #### Embedded timing (from `make tests` summary table)
 
-Selected benchmark times in seconds (lower is better).  From green-platform
-validation at `f2c95aa` where available; risky/`-O` timings from earlier run.
+Selected benchmark times in seconds (lower is better).  From earlier
+green-platform validation; not refreshed at `df4c77d`.
 
 | Machine   | Mode | fibonacci | millions | millions-incr | tokenization |
 |-----------|------|-----------|----------|---------------|--------------|
@@ -122,33 +124,25 @@ validation at `f2c95aa` where available; risky/`-O` timings from earlier run.
 | torpille  | ref  | 52.92     | —        | —             | —            |
 | torpille  | `-O` | 9.24      | 12.46    | 12.07         | 16.17        |
 | risky     | ref  | 5.05      | —        | —             | —            |
-| risky     | `-O` | 0.09      | 27.65    | 27.17         | 0.09         |
-
-Note: risky `-O` timings are not meaningful — only 2 of 224 functional tests
-pass in JIT mode (see below).
 
 #### Known failures (non-green platforms)
 
-**turbo-x86 and turbo-arm** share the same 14 interpreter failures:
+**turbo-x86 / turbo-arm (ILP32 interpreter)** — down to a few failures after
+`df4c77d` (`RTYPE` endian fix).  Likely remaining issues are implicit 32-bit
+conversions / narrow value handling in the tests or runtime:
 
-- Sign-extended loads: `ld2s`, `ld4s`, `ld8s`
-- Sign/zero extension: `sext`, `sext32`, `zext`, `zext32`
-- Recursion / re-entry: `recursive-factorial`, `recursive-fibonacci`,
-  `repeated-execution`
-- Stack: `sys-alloca`
-- Scanner / LLVM: `expressions`, `printf-style-formatting-in-expression`,
-  `llvm/e2e-factorial`
+| Test | turbo-x86 | turbo-arm |
+|------|-----------|-----------|
+| `bytecode/ld8s` | fail | pass |
+| `scanner/expressions` | fail | fail |
+| `scanner/printf-style-formatting-in-expression` | fail | fail |
 
-JIT (`-O`) runs abort early on the same `ld*s` failures (sign-extended load
-returns `-1` instead of expected value).  Example from turbo-x86:
-`ld2s` expected `-32768`, got `-1`.
+Shared failures (both hosts): `expressions` (e.g. expected `42.42`, got a
+huge float like `3.6807e+180`) and `printf-style-formatting-in-expression`.
+`ld8s` fails only on x86-32 so far.
 
-**risky (riscv64)**: interpreter fully green (224/224).  JIT nearly completely
-broken (2/222).  Only passing JIT tests:
-`bootstrap/infix-prefix-postfix-block.xlr8` and
-`bytecode/constant-redefinition.xlr8`.  Typical failure mode: correct
-interpreter output concatenated with `Test FAILED` on the next test, indicating
-broad codegen breakage rather than isolated opcode bugs.
+**risky (riscv64)**: interpreter green (226/226) at `df4c77d`.  JIT status
+pending completion of the parallel validate `-O` pass.
 
 ### 1.5 Future Work: Shadow Local Residency Tracking
 
