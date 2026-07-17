@@ -1549,6 +1549,20 @@ void riscv64::pop_local(byte d)
     record(riscv64, "pop_local(%u)", d);
     rtcall("xlr8_pop_value");
     emit32le(mv_rr(HW_SCR_VAL, 10));
+    // pop_value clobbers a0-a7; restore shadow locals from the frame like
+    // arm64 before writing the popped value into d.
+    runtime *rt = xlr8_get_runtime();
+    if (rt && rt->frame)
+    {
+        byte locals = byte(rt->frame[-1]);
+        if (!locals)
+            locals = byte(rt->CALL_CLOBBERED_REGS);
+        if (locals > LOC_SHADOW_COUNT)
+            locals = LOC_SHADOW_COUNT;
+        for (uint r = 1; r < locals; r++)
+            emit32le(ld_off(xreg(byte(r)), HW_FRAME,
+                            int(r) * int(ptr_size())));
+    }
     if (d != 0)
         emit32le(ld_off(xreg(0), HW_FRAME, 0));
     store_local(HW_SCR_VAL, d);
