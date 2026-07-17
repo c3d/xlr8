@@ -298,6 +298,40 @@ protected:
         return 0xE5800000u | (rd << 12) | (rn << 16) | (off & 0xFFFu);
     }
 
+    static inline uint ldrb_off(uint rd, uint rn, uint off)
+    // ------------------------------------------------------------------------
+    //   Encode ldrb rd, [rn, #off]  (zero-extends)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE5D00000u | (rd << 12) | (rn << 16) | (off & 0xFFFu);
+    }
+
+    static inline uint strb_off(uint rd, uint rn, uint off)
+    // ------------------------------------------------------------------------
+    //   Encode strb rd, [rn, #off]
+    // ------------------------------------------------------------------------
+    {
+        return 0xE5C00000u | (rd << 12) | (rn << 16) | (off & 0xFFFu);
+    }
+
+    static inline uint ldrh_off(uint rd, uint rn, uint imm8)
+    // ------------------------------------------------------------------------
+    //   Encode ldrh rd, [rn, #imm8]  (zero-extends; imm8 only)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE1D000B0u | (rn << 16) | (rd << 12)
+             | ((imm8 & 0xF0u) << 4) | (imm8 & 0x0Fu);
+    }
+
+    static inline uint strh_off(uint rd, uint rn, uint imm8)
+    // ------------------------------------------------------------------------
+    //   Encode strh rd, [rn, #imm8]
+    // ------------------------------------------------------------------------
+    {
+        return 0xE1C000B0u | (rn << 16) | (rd << 12)
+             | ((imm8 & 0xF0u) << 4) | (imm8 & 0x0Fu);
+    }
+
     static inline uint movw(uint rd, uint imm16)
     // ------------------------------------------------------------------------
     //   Encode movw rd, #imm16
@@ -458,6 +492,10 @@ protected:
     void sext_reg(uint rd, uint rn, byte w);
     void sext_local(byte d, byte w);
     void zext_local(byte d, byte w);
+    void add_addr_off(uint addr_r, value_t o);
+    void emit_store_sized(uint val_r, uint addr_r, uint sz);
+    void emit_load_sized(uint dst_r, uint addr_r, uint sz);
+    void store_local64(uint lo_r, uint hi_r, byte d);
     void store_mem(byte d, byte s, uint sz);
     void load_mem(byte d, byte s, uint sz);
     void store_mem_off(byte d, byte s, value_t o, uint sz);

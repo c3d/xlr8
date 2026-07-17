@@ -747,16 +747,79 @@ void arm::zext_local(byte d, byte w)
 }
 
 
+void arm::add_addr_off(uint addr_r, value_t o)
+// ----------------------------------------------------------------------------
+//   Add signed byte offset to address register (uses HW_IP as scratch)
+// ----------------------------------------------------------------------------
+{
+    record(arm, "add_addr_off(%u, %lld)", addr_r, o);
+    if (!o)
+        return;
+    load_imm32(HW_IP, uint32_t(int32_t(o)));
+    emit32le(add_rrr(addr_r, addr_r, HW_IP));
+}
+
+
+void arm::emit_store_sized(uint val_r, uint addr_r, uint sz)
+// ----------------------------------------------------------------------------
+//   Store val_r to [addr_r] using access size sz (1/2/4; 8 uses hi in HW_IP)
+// ----------------------------------------------------------------------------
+{
+    record(arm, "emit_store_sized(%u, %u, %u)", val_r, addr_r, sz);
+    switch (sz)
+    {
+    case 1:  emit32le(strb_off(val_r, addr_r, 0)); break;
+    case 2:  emit32le(strh_off(val_r, addr_r, 0)); break;
+    case 4:  emit32le(str_off(val_r, addr_r, 0)); break;
+    default: // 8: lo in val_r, hi already in HW_IP
+        emit32le(str_off(val_r, addr_r, 0));
+        emit32le(str_off(HW_IP, addr_r, 4));
+        break;
+    }
+}
+
+
+void arm::emit_load_sized(uint dst_r, uint addr_r, uint sz)
+// ----------------------------------------------------------------------------
+//   Load [addr_r] into dst_r (1/2/4 zero-extend; 8 leaves hi in HW_IP)
+// ----------------------------------------------------------------------------
+{
+    record(arm, "emit_load_sized(%u, %u, %u)", dst_r, addr_r, sz);
+    switch (sz)
+    {
+    case 1:  emit32le(ldrb_off(dst_r, addr_r, 0)); break;
+    case 2:  emit32le(ldrh_off(dst_r, addr_r, 0)); break;
+    case 4:  emit32le(ldr_off(dst_r, addr_r, 0)); break;
+    default:
+        emit32le(ldr_off(dst_r, addr_r, 0));
+        emit32le(ldr_off(HW_IP, addr_r, 4));
+        break;
+    }
+}
+
+
+void arm::store_local64(uint lo_r, uint hi_r, byte d)
+// ----------------------------------------------------------------------------
+//   Write a full 64-bit ularge_t slot (do not clear the high half)
+// ----------------------------------------------------------------------------
+{
+    record(arm, "store_local64(%u, %u, %u)", lo_r, hi_r, d);
+    uint off = slot_off(d);
+    emit32le(str_off(lo_r, HW_FRAME, off));
+    emit32le(str_off(hi_r, HW_FRAME, off + 4));
+    if (d < ARM_SHADOW_COUNT && lo_r != rreg(d))
+        emit32le(mov_rr(rreg(d), lo_r));
+    touch_local(d);
+}
+
+
 void arm::store_mem(byte d, byte s, uint sz)
 // ----------------------------------------------------------------------------
 //   Store local s to memory addressed by local d
 // ----------------------------------------------------------------------------
 {
     record(arm, "store_mem(%u, %u, %u)", d, s, sz);
-    (void)sz;
-    load_local(s, HW_SCR_VAL);
-    load_local(d, HW_SCR_ADDR);
-    emit32le(str_off(HW_SCR_VAL, HW_SCR_ADDR, 0));
+    store_mem_off(d, s, 0, sz);
 }
 
 
@@ -766,10 +829,7 @@ void arm::load_mem(byte d, byte s, uint sz)
 // ----------------------------------------------------------------------------
 {
     record(arm, "load_mem(%u, %u, %u)", d, s, sz);
-    (void)sz;
-    load_local(s, HW_SCR_ADDR);
-    emit32le(ldr_off(HW_SCR_VAL, HW_SCR_ADDR, 0));
-    store_local(HW_SCR_VAL, d);
+    load_mem_off(d, s, 0, sz);
 }
 
 
@@ -779,10 +839,14 @@ void arm::store_mem_off(byte d, byte s, value_t o, uint sz)
 // ----------------------------------------------------------------------------
 {
     record(arm, "store_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
-    (void)sz;
-    load_local(s, HW_SCR_VAL);
-    load_local(d, HW_SCR_ADDR);
-    emit32le(str_off(HW_SCR_VAL, HW_SCR_ADDR, uint32_t(o)));
+    // Read from frame write-through: HW_SCR_VAL aliases r0 (local 0), so
+    // load_local can see a stale shadow after an intervening store_imm.
+    emit32le(ldr_off(HW_SCR_ADDR, HW_FRAME, slot_off(d)));
+    add_addr_off(HW_SCR_ADDR, o);
+    emit32le(ldr_off(HW_SCR_VAL, HW_FRAME, slot_off(s)));
+    if (sz >= 8)
+        emit32le(ldr_off(HW_IP, HW_FRAME, slot_off(s) + 4));
+    emit_store_sized(HW_SCR_VAL, HW_SCR_ADDR, sz);
 }
 
 
@@ -792,10 +856,13 @@ void arm::load_mem_off(byte d, byte s, value_t o, uint sz)
 // ----------------------------------------------------------------------------
 {
     record(arm, "load_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
-    (void)sz;
-    load_local(s, HW_SCR_ADDR);
-    emit32le(ldr_off(HW_SCR_VAL, HW_SCR_ADDR, uint32_t(o)));
-    store_local(HW_SCR_VAL, d);
+    emit32le(ldr_off(HW_SCR_ADDR, HW_FRAME, slot_off(s)));
+    add_addr_off(HW_SCR_ADDR, o);
+    emit_load_sized(HW_SCR_VAL, HW_SCR_ADDR, sz);
+    if (sz >= 8)
+        store_local64(HW_SCR_VAL, HW_IP, d);
+    else
+        store_local(HW_SCR_VAL, d);
 }
 
 
@@ -805,8 +872,9 @@ void arm::load_signext(byte d, byte s, byte w)
 // ----------------------------------------------------------------------------
 {
     record(arm, "load_signext(%u, %u, %u)", d, s, w);
-    (void)w;
-    load_mem(d, s, 1);
+    uint sz = w <= 8 ? 1u : w <= 16 ? 2u : w <= 32 ? 4u : 8u;
+    load_mem(d, s, sz);
+    sext_local(d, w);
 }
 
 
@@ -816,8 +884,9 @@ void arm::load_signext_off(byte d, byte s, byte w, value_t o)
 // ----------------------------------------------------------------------------
 {
     record(arm, "load_signext_off(%u, %u, %u, %lld)", d, s, w, o);
-    (void)w;
-    load_mem_off(d, s, o, 1);
+    uint sz = w <= 8 ? 1u : w <= 16 ? 2u : w <= 32 ? 4u : 8u;
+    load_mem_off(d, s, o, sz);
+    sext_local(d, w);
 }
 
 

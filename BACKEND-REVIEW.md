@@ -552,12 +552,19 @@ width); `zext_local` ANDs with `(1<<w)-1` for `w < 32`.  Verified on turbo-arm
 `4294967295`).  Note: signed memory loads (`load_signext`) still ignore width
 until §6.7 sized loads land; they can then call `sext_reg`.
 
-### 6.7 [P1] Memory access size ignored -- all loads/stores are 4-byte
+### 6.7 [P1] ~~Memory access size ignored -- all loads/stores are 4-byte~~ ✅ FIXED
 
-**File**: `arm.cpp:593-641`
+**File**: `arm.cpp` (`emit_load_sized` / `emit_store_sized` / `load_mem*` /
+`store_mem*` / `load_signext*`)
 
-`store_mem` and `load_mem` ignore the `sz` parameter.  `st1`, `st2`, `ld1`, `ld2`,
-`ld8`, `st8` all behave as 4-byte operations.
+Was: `store_mem` / `load_mem` ignored `sz` (always word).  `load_signext`
+ignored width.
+
+**Fix**: STRB/LDRB, STRH/LDRH, STR/LDR, and paired word ops for size 8;
+`load_signext` loads `ceil(w/8)` bytes then `sext_local`.  Mem ops read
+address/value from the frame write-through (not shadow regs) so `HW_SCR_VAL`
+aliasing r0 cannot use a stale local 0 as a pointer.  Verified on turbo-arm
+`-O`: `st1`/`st2`/`st4`/`st8`/`ld1s`/`ld2s`/`ld1o` exit 0.
 
 ### 6.8 [P1] `frame_addr` uses wrong shift for slot calculation
 
