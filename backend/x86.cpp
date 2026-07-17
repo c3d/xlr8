@@ -58,6 +58,13 @@ void x86::begin_translation()
     record(x86, "begin_translation()");
     if (ptr_size() == 4)
     {
+        // i386 SysV: ebx/esi/edi/ebp are callee-saved.  We keep frame in edi
+        // and flags in esi for the whole translation (see hw_frame/hw_flags).
+        emit_push_reg(HW_RBX);
+        emit_push_reg(HW_RSI);
+        emit_push_reg(HW_RDI);
+        emit_push_reg(HW_RBP);
+        // 4 pushes = 16 bytes — stack already 16-byte aligned for C calls.
         call_ptr(xlr8_runtime_fn("xlr8_get_frame"));
         emit_mov_frame_rax();
         call_ptr(xlr8_runtime_fn("xlr8_get_flags"));
@@ -87,14 +94,6 @@ void x86::finish_translation()
 // ----------------------------------------------------------------------------
 {
     record(x86, "finish_translation()");
-    if (ptr_size() == 8)
-    {
-        emit_add_rsp_imm8(0x08);
-        emit_pop_reg(HW_R15);
-        emit_pop_reg(HW_R12);
-        emit_pop_reg(HW_RBP);
-        emit_pop_reg(HW_RBX);
-    }
     do_ret();
 }
 
@@ -1802,10 +1801,25 @@ void x86::load_global(byte d, byte s)
 
 void x86::do_ret()
 // ----------------------------------------------------------------------------
-//   Emit return instruction
+//   Emit epilogue (restore callee-saved) and return
 // ----------------------------------------------------------------------------
 {
     record(x86, "do_ret()");
+    if (ptr_size() == 4)
+    {
+        emit_pop_reg(HW_RBP);
+        emit_pop_reg(HW_RDI);
+        emit_pop_reg(HW_RSI);
+        emit_pop_reg(HW_RBX);
+    }
+    else
+    {
+        emit_add_rsp_imm8(0x08);
+        emit_pop_reg(HW_R15);
+        emit_pop_reg(HW_R12);
+        emit_pop_reg(HW_RBP);
+        emit_pop_reg(HW_RBX);
+    }
     emit_insn_ret();
 }
 

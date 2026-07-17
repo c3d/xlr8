@@ -47,10 +47,11 @@
 //    C args (Win64)    rcx, rdx         first two integer helper args
 //    Stack pointer     rsp              native stack (Win64: 32-byte call shadow)
 //
-//  i386 variant: same model, ularge_t slots (8 bytes), nb_regs == 8.
+//  i386 variant: ularge_t slots (8 bytes), no shadow locals (nb_regs == 8).
 //    Frame pointer     edi (HW_RDI)     rt.frame, callee-saved (avoid ebx PIC/GOT)
 //    Flags/predicates  esi (HW_RSI)     rt.flags, callee-saved
 //    Scratch           ecx (HW_RCX)     general temp
+//    Prologue saves    ebx,esi,edi,ebp  (SysV callee-saved); restored in do_ret
 //
 //  Bytecode PC is the translator cursor, not a fixed HW register.  Runtime is
 //  reached via xlr8_get_runtime() in spill/sys paths.
