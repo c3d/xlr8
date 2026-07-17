@@ -1884,10 +1884,11 @@ void x86::emit_runtime_call(cstring fn)
         reload_frame_reg();
     else if (ptr_size() == 4)
     {
-        // i386: reload_rt_regs() calls C helpers that clobber eax/ecx/edx.
-        // Preserve the helper return value (jit_addr, pop_value, …).
+        // Preserve helper return in eax.  Refresh frame only — flags live in
+        // esi until emit_sys syncs them; get_flags would wipe BTS/BTR updates.
         emit_push_reg(HW_RAX);
-        reload_rt_regs();
+        call_ptr(xlr8_runtime_fn("xlr8_get_frame"));
+        emit_mov_frame_rax();
         emit_pop_reg(HW_RAX);
     }
     if (ptr_size() == 8)
@@ -1907,7 +1908,8 @@ void x86::emit_runtime_call(cstring fn, tok_t a)
     if (ptr_size() == 4)
     {
         emit_push_reg(HW_RAX);
-        reload_rt_regs();
+        call_ptr(xlr8_runtime_fn("xlr8_get_frame"));
+        emit_mov_frame_rax();
         emit_pop_reg(HW_RAX);
     }
     if (ptr_size() == 8)
@@ -1929,7 +1931,8 @@ void x86::emit_runtime_call(cstring fn, byte a)
     else if (ptr_size() == 4)
     {
         emit_push_reg(HW_RAX);
-        reload_rt_regs();
+        call_ptr(xlr8_runtime_fn("xlr8_get_frame"));
+        emit_mov_frame_rax();
         emit_pop_reg(HW_RAX);
     }
     if (ptr_size() == 8)
