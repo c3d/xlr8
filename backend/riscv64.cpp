@@ -1375,14 +1375,19 @@ void riscv64::call_tok(tok_t t)
 {
     record(riscv64, "call_tok(%llu)", t);
     spill_frame();
-    size_t ret_at = emit_return_addr_load(10);
+    // Soft-stack return address must be a full 64-bit code pointer.  Absolute
+    // lui+addi (return_link_fixups) only forms a 32-bit value and truncates
+    // mmap'd JIT addresses on LP64 — use PC-relative auipc+addi like arm64 adr.
+    size_t auipc_at = cursor();
+    emit32le(auipc(10, 0));
+    emit32le(addi(10, 10, 0));
     rtcall("xlr8_push_value");
     rtcall("xlr8_sync_args");
     reload_shadows();
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
     uint pos = gjmp(head);
     record_tok_jump(t, pos);
-    fix_return_addr(ret_at, 10, pos + 4);
+    patch_pc_rel(auipc_at, 10, pos + 4);
 }
 
 
@@ -1421,7 +1426,9 @@ void riscv64::icall_local(byte s)
 {
     record(riscv64, "icall_local(%u)", s);
     spill_frame();
-    size_t ret_at = emit_return_addr_load(10);
+    size_t auipc_at = cursor();
+    emit32le(auipc(10, 0));
+    emit32le(addi(10, 10, 0));
     rtcall("xlr8_push_value");
     rtcall("xlr8_sync_args");
     reload_shadows();
@@ -1430,17 +1437,16 @@ void riscv64::icall_local(byte s)
     else
         load_local(s, 10);
     rtcall("xlr8_jit_addr");
-    emit32le(mv_rr(HW_IP, 10));
-    reload_shadows();
-    size_t jalr_at = cursor();
-    emit32le(jalr_ra(HW_IP));
-    fix_return_addr(ret_at, 10, jalr_at + 4);
+    // Soft-stack return (like call_tok / arm32); do not jalr_ra — that would
+    // set hardware ra while emit_ret returns via the soft stack.
+    br_via_ip();
+    patch_pc_rel(auipc_at, 10, cursor());
 }
 
 
 void riscv64::push_pc()
 // ----------------------------------------------------------------------------
-//   Push program counter onto stack
+//   Push continue address onto the bytecode soft stack
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "push_pc()");
@@ -1451,7 +1457,8 @@ void riscv64::push_pc()
     rtcall("xlr8_push_value");
     reload_shadows();
     spill_arg_regs = true;
-    (void) auipc_at;
+    // Continue address is the next insn after this push_pc sequence.
+    patch_pc_rel(auipc_at, 10, cursor());
 }
 
 
