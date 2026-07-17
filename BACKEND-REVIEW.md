@@ -566,12 +566,16 @@ address/value from the frame write-through (not shadow regs) so `HW_SCR_VAL`
 aliasing r0 cannot use a stale local 0 as a pointer.  Verified on turbo-arm
 `-O`: `st1`/`st2`/`st4`/`st8`/`ld1s`/`ld2s`/`ld1o` exit 0.
 
-### 6.8 [P1] `frame_addr` uses wrong shift for slot calculation
+### 6.8 [P1] ~~`frame_addr` uses wrong shift for slot calculation~~ ✅ FIXED
 
-**File**: `arm.cpp:674`
+**File**: `arm.cpp` (`frame_addr`)
 
-Encodes `LSL #1` (r9 + s*2) instead of `LSL #2` (r9 + s*4).  Every indexed
-frame access reads/writes the wrong slot.
+Was: treated `s` as a runtime local value and did `frame + val<<3` (and
+earlier review noted a wrong LSL for 4-byte slots).  `frame d s` must take the
+address of **slot** `s` (`frame + s*8`).
+
+**Fix**: immediate `add` of `slot_off(s)` to `HW_FRAME` (or `mov` when `s==0`),
+matching arm64/x86.
 
 ### 6.9 [P1] Missing callee-saved register save/restore
 

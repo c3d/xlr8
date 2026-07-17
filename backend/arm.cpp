@@ -892,13 +892,24 @@ void arm::load_signext_off(byte d, byte s, byte w, value_t o)
 
 void arm::frame_addr(byte d, byte s)
 // ----------------------------------------------------------------------------
-//   Compute frame-relative address into local d
+//   Compute address of bytecode local slot s into local d (frame + s*8)
 // ----------------------------------------------------------------------------
 {
     record(arm, "frame_addr(%u, %u)", d, s);
-    load_local(s, HW_SCR_OFF);
-    // add r8, r11, r2, lsl #3  (ularge_t slot scale)
-    emit32le(0xE0800180u | (HW_SCR_ADDR << 12) | (HW_FRAME << 16) | HW_SCR_OFF);
+    // `s` is the slot index (immediate), not a runtime value in local s.
+    if (s == 0)
+        emit32le(mov_rr(HW_SCR_ADDR, HW_FRAME));
+    else
+    {
+        uint off = slot_off(s);
+        if (off <= 0xFFu)
+            emit32le(add_imm(HW_SCR_ADDR, HW_FRAME, off));
+        else
+        {
+            load_imm32(HW_SCR_VAL, off);
+            emit32le(add_rrr(HW_SCR_ADDR, HW_FRAME, HW_SCR_VAL));
+        }
+    }
     store_local(HW_SCR_ADDR, d);
 }
 
