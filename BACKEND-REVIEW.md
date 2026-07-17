@@ -589,13 +589,17 @@ Was: prologue only saved LR.
 `pop {r4-r11,pc}`.  Encodings `0xE92D4FF0` / `0xE8BD8FF0` verified.  r9 is
 saved/restored but left unused as `HW_SB` (PIC/sb on some ABIs).
 
-### 6.10 [P1] VFP helper encodings are incorrect
+### 6.10 [P1] ~~VFP helper encodings are incorrect~~ ✅ FIXED
 
-**File**: `arm.h:286-336`
+**File**: `arm.h` (`vmov_*`, `vfp_ss` / `vadd_ss` / …), `arm.cpp` (float binops)
 
-`vadd_ss`, `vsub_ss`, `vmul_ss`, `vdiv_ss` have `sm << 20` (should be bits 3:0).
-`vmov_s_r` and `vmov_r_s` have wrong N-bit placement.  These are dead code
-(hardcoded instruction words are used instead), but they are traps for maintenance.
+Was: `vadd_ss`/`vsub_ss`/`vmul_ss`/`vdiv_ss` put `sm` at bits 20+ and mistook
+the D bit; `vmov_s_r`/`vmov_r_s` put the odd-S bit at 22 instead of N (bit 7).
+Call sites used hardcoded words for the ALU ops, so helpers were traps.
+
+**Fix**: Encode S regs as `V* = Sx[4:1]`, `D/N/M = Sx[0]` at bits 22/7/5;
+VMOV uses N at bit 7.  Checked against `llvm-mc` (`vmov s1,r3` = `EE003A90`,
+`vadd.f32 s0,s0,s1` = `EE300A20`).  Float binops now call the helpers.
 
 ### 6.11 [P2] Scratch register aliases shadow locals
 

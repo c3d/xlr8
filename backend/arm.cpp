@@ -442,28 +442,28 @@ void arm::binop_local(byte d, byte s, cstring op)
     {
         emit32le(vmov_s_r(0, rd));
         emit32le(vmov_s_r(1, rs));
-        emit32le(0xEE300A20u); // vadd.f32 s0, s0, s1
+        emit32le(vadd_ss(0, 0, 1));
         emit32le(vmov_r_s(rd, 0));
     }
     else if (!strcmp(op, "fsub"))
     {
         emit32le(vmov_s_r(0, rd));
         emit32le(vmov_s_r(1, rs));
-        emit32le(0xEE300A60u); // vsub.f32 s0, s0, s1
+        emit32le(vsub_ss(0, 0, 1));
         emit32le(vmov_r_s(rd, 0));
     }
     else if (!strcmp(op, "fmul"))
     {
         emit32le(vmov_s_r(0, rd));
         emit32le(vmov_s_r(1, rs));
-        emit32le(0xEE200A20u); // vmul.f32 s0, s0, s1
+        emit32le(vmul_ss(0, 0, 1));
         emit32le(vmov_r_s(rd, 0));
     }
     else if (!strcmp(op, "fdiv"))
     {
         emit32le(vmov_s_r(0, rd));
         emit32le(vmov_s_r(1, rs));
-        emit32le(0xEE800A20u); // vdiv.f32 s0, s0, s1
+        emit32le(vdiv_ss(0, 0, 1));
         emit32le(vmov_r_s(rd, 0));
     }
     else

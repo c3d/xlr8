@@ -411,18 +411,32 @@ protected:
 
     static inline uint vmov_s_r(uint sn, uint rt)
     // ------------------------------------------------------------------------
-    //   Encode vmov.f32 sn, rt
+    //   Encode vmov Sn, Rt  (ARM core → single). N is bit 7, Vn = Sn[4:1].
     // ------------------------------------------------------------------------
     {
-        return 0xEE000A10u | (rt << 12) | ((sn & 1u) << 22) | ((sn >> 1) << 16);
+        return 0xEE000A10u | (rt << 12)
+             | ((sn >> 1) << 16) | ((sn & 1u) << 7);
     }
 
     static inline uint vmov_r_s(uint rt, uint sn)
     // ------------------------------------------------------------------------
-    //   Encode vmov.f32 rt, sn
+    //   Encode vmov Rt, Sn  (single → ARM core). N is bit 7, Vn = Sn[4:1].
     // ------------------------------------------------------------------------
     {
-        return 0xEE100A10u | (rt << 12) | ((sn & 1u) << 22) | ((sn >> 1) << 16);
+        return 0xEE100A10u | (rt << 12)
+             | ((sn >> 1) << 16) | ((sn & 1u) << 7);
+    }
+
+    static inline uint vfp_ss(uint base, uint sd, uint sn, uint sm)
+    // ------------------------------------------------------------------------
+    //   Encode single-precision VFP 3-operand op (Sd, Sn, Sm).
+    //   Vd/Vn/Vm = Sx[4:1]; D/N/M = Sx[0] at bits 22/7/5.
+    // ------------------------------------------------------------------------
+    {
+        return base
+             | ((sd >> 1) << 12) | ((sd & 1u) << 22)
+             | ((sn >> 1) << 16) | ((sn & 1u) << 7)
+             | ((sm >> 1) << 0)  | ((sm & 1u) << 5);
     }
 
     static inline uint vadd_ss(uint sd, uint sn, uint sm)
@@ -430,8 +444,7 @@ protected:
     //   Encode vadd.f32 sd, sn, sm
     // ------------------------------------------------------------------------
     {
-        return 0xEE300A00u | (sd << 12) | (sn << 16) | (sm << 20)
-             | ((sd & 1u) << 6) | ((sn & 1u) << 7) | ((sm & 1u) << 5);
+        return vfp_ss(0xEE300A00u, sd, sn, sm);
     }
 
     static inline uint vsub_ss(uint sd, uint sn, uint sm)
@@ -439,8 +452,7 @@ protected:
     //   Encode vsub.f32 sd, sn, sm
     // ------------------------------------------------------------------------
     {
-        return 0xEE300A40u | (sd << 12) | (sn << 16) | (sm << 20)
-             | ((sd & 1u) << 6) | ((sn & 1u) << 7) | ((sm & 1u) << 5);
+        return vfp_ss(0xEE300A40u, sd, sn, sm);
     }
 
     static inline uint vmul_ss(uint sd, uint sn, uint sm)
@@ -448,8 +460,7 @@ protected:
     //   Encode vmul.f32 sd, sn, sm
     // ------------------------------------------------------------------------
     {
-        return 0xEE200A00u | (sd << 12) | (sn << 16) | (sm << 20)
-             | ((sd & 1u) << 6) | ((sn & 1u) << 7) | ((sm & 1u) << 5);
+        return vfp_ss(0xEE200A00u, sd, sn, sm);
     }
 
     static inline uint vdiv_ss(uint sd, uint sn, uint sm)
@@ -457,8 +468,7 @@ protected:
     //   Encode vdiv.f32 sd, sn, sm
     // ------------------------------------------------------------------------
     {
-        return 0xEE800A00u | (sd << 12) | (sn << 16) | (sm << 20)
-             | ((sd & 1u) << 6) | ((sn & 1u) << 7) | ((sm & 1u) << 5);
+        return vfp_ss(0xEE800A00u, sd, sn, sm);
     }
 
     void emit32le(uint32_t insn);
