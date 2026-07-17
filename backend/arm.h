@@ -85,6 +85,7 @@ struct arm : backend
     void begin_translation() override;
     void patch_branch_site(size_t insn_pos, size_t target_native) override;
     size_t emit_over_callees_branch() override;
+    void emit_user(op_t op, byte_p &pc) override;
 
 #define OP(op, sig) sig override;
 #include "opover.tbl"
@@ -593,6 +594,7 @@ protected:
     void rtcall(cstring fn, byte a);
 
     bool spill_arg_regs = true;
+    bool frame_memory_touched = false;
 };
 
 RECORDER_DECLARE(arm);

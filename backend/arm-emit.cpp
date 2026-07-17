@@ -44,7 +44,23 @@ void arm::emit_undef(tok_t t)
 // ----------------------------------------------------------------------------
 {
     record(arm_ops, "emit_undef(%llu)", t);
-    rtcall("xlr8_resolve", t);
+    bind(t);
+}
+
+
+void arm::emit_user(op_t op, byte_p &pc)
+// ----------------------------------------------------------------------------
+//   Emit a user-defined opcode (128..255, or registered low opcodes)
+// ----------------------------------------------------------------------------
+{
+    record(arm_ops, "emit_user(%lld, %p)", op, &pc);
+    byte_p args = pc;
+    spill_frame();
+    load_imm32(0, uint32_t(op));
+    load_imm32(1, uint32_t(uintptr_t(args)));
+    rtcall("xlr8_user_op");
+    reload_shadows();
+    xlr8_skip_user_args(op, pc);
 }
 
 

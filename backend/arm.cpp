@@ -187,6 +187,16 @@ void arm::spill_frame(void)
     if (locals > ARM_SHADOW_COUNT)
         locals = ARM_SHADOW_COUNT;
 
+    // Pointer stores may update frame slots without touching shadow registers.
+    // Reload shadows from frame instead of overwriting memory with stale values.
+    if (frame_memory_touched)
+    {
+        for (uint r = 0; r < locals; r++)
+            emit32le(ldr_off(rreg(byte(r)), HW_FRAME, slot_off(byte(r))));
+        frame_memory_touched = false;
+        return;
+    }
+
     for (uint r = 0; r < locals; r++)
     {
         if (r <= 1 && !spill_arg_regs)
@@ -284,6 +294,7 @@ void arm::begin_translation()
 // ----------------------------------------------------------------------------
 {
     record(arm, "begin_translation()");
+    frame_memory_touched = false;
     // invoke_arm only briefly sets r9/r10 in a separate asm blob before a C
     // call to the JIT entry, so those values are not trustworthy here.
     // Frame lives in r11 (not r9): some ARM Linux ABIs treat r9 as PIC/sb.
@@ -883,6 +894,7 @@ void arm::store_mem_off(byte d, byte s, value_t o, uint sz)
     if (sz >= 8)
         emit32le(ldr_off(HW_IP, HW_FRAME, slot_off(s) + 4));
     emit_store_sized(HW_SCR_VAL, HW_SCR_ADDR, sz);
+    frame_memory_touched = true;
 }
 
 
@@ -1108,11 +1120,9 @@ void arm::icall_local(byte s)
     reload_shadows();
     load_local(s, 0);
     rtcall("xlr8_jit_addr");
-    emit32le(mov_rr(HW_IP, 0));
-    reload_shadows();
-    size_t blx_at = cursor();
-    emit32le(blx(HW_IP));
-    int off = int(blx_at + 4) - int(adr_at + 8);
+    // Soft-stack return (like call_tok); do not BLX — that unbalances SP.
+    br_via_ip();
+    int off = int(cursor()) - int(adr_at + 8);
     if (off < 0)
         code().patch32(adr_at, sub_imm(0, 15, uint32_t(-off)));
     else
@@ -1122,11 +1132,23 @@ void arm::icall_local(byte s)
 
 void arm::push_pc()
 // ----------------------------------------------------------------------------
-//   Push link register onto stack
+//   Push continue address onto the bytecode soft stack
 // ----------------------------------------------------------------------------
 {
     record(arm, "push_pc()");
-    emit32le(0xE92D4000u);
+    spill_frame();
+    size_t adr_at = cursor();
+    emit32le(add_imm(0, 15, 0));
+    rtcall("xlr8_push_value");
+    reload_shadows();
+    spill_arg_regs = true;
+    // Continue address is the next insn after this push_pc sequence.
+    size_t after = cursor();
+    int off = int(after) - int(adr_at + 8);
+    if (off < 0)
+        code().patch32(adr_at, sub_imm(0, 15, uint32_t(-off)));
+    else
+        code().patch32(adr_at, add_imm(0, 15, uint32_t(off)));
 }
 
 
