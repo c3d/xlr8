@@ -281,6 +281,8 @@ static void invoke_riscv64(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
 //   Jump to generated RISC-V code; s0 = rt.frame, s1 = rt.flags.
 //   Save ra on the C stack so JIT may use ret after call_abs saves.
+//   Clobber every reg the JIT may touch (shadows x10-x25, scratches) so the
+//   compiler preserves live callee-saved state across the call.
 // ----------------------------------------------------------------------------
 {
     stack_p frame = rt.frame;
@@ -296,7 +298,10 @@ static void invoke_riscv64(runtime &rt, void *code)
         "addi sp, sp, 16"
         :
         : "r"(frame), "r"(flags), "r"(code)
-        : "s0", "s1", "t0", "ra", "memory", "cc");
+        : "s0", "s1", "t0", "t1", "t2", "t3", "t4", "t5", "t6", "ra",
+          "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7",
+          "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11",
+          "memory", "cc");
 }
 #endif
 

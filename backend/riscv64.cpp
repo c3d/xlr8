@@ -323,11 +323,18 @@ void riscv64::gsym_addr(uint t, uint a)
 
 void riscv64::begin_translation()
 // ----------------------------------------------------------------------------
-//   Reload shadow registers at JIT entry
+//   Prime frame/flags from the runtime, then reload shadow locals
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "begin_translation()");
     frame_memory_touched = false;
+    // Match arm/x86: do not rely solely on invoke-primed s0/s1.  Helpers and
+    // syscalls update rt.frame in C; re-read so spills/reloads hit the live
+    // frame (write_token can succeed while write_integer reads a stale local).
+    rtcall("xlr8_get_frame");
+    emit32le(reload_frame());
+    rtcall("xlr8_get_flags");
+    emit32le(mv_rr(HW_FLAGS, 10));
     reload_shadows();
 }
 

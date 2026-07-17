@@ -317,6 +317,10 @@ void riscv64::emit_sys(tok_t t, byte_p args, byte_p next_pc)
     load_imm64(10, uint64_t(t));
     load_imm64(11, uint64_t(uintptr_t(args)));
     call_abs((void *) xlr8_sys);
+    // Linux helpers may move rt.frame (enter/leave/alloca); refresh s0 like
+    // arm64's post-sys xlr8_get_frame path so reload_shadows is not stale.
+    rtcall("xlr8_get_frame");
+    emit32le(reload_frame());
     reload_shadows();
     reload_flags_reg();
     load_imm64(HW_SCR_VAL, uint64_t(uintptr_t(next_pc)));
@@ -324,12 +328,16 @@ void riscv64::emit_sys(tok_t t, byte_p args, byte_p next_pc)
     rtcall("xlr8_after_sys");
     uint bne_at = uint(cursor());
     emit32le(bne_imm(10, 0, 0));
+    rtcall("xlr8_get_frame");
+    emit32le(reload_frame());
     reload_shadows();
     spill_arg_regs = false;
     uint skip_at = uint(cursor());
     emit32le(j_imm(0));
     uint br_at = uint(cursor());
     emit32le(mv_rr(HW_IP, 10));
+    rtcall("xlr8_get_frame");
+    emit32le(reload_frame());
     reload_shadows();
     emit32le(jalr(HW_IP));
     code().patch32(bne_at, bne_imm(10, 0, int(br_at) - int(bne_at)));
