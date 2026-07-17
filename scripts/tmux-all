@@ -1,0 +1,72 @@
+#!/bin/bash
+# Send one command into tmux on every platform host.
+# Usage: scripts/tmux-all [--] command...
+#
+# Same host list as platform-validate-all.sh.  One bare SSH per remote
+# (send-keys only); local macOS uses local tmux.  Pane is already in the
+# xlr8 tree — do not put cd in the command.
+#
+# Examples:
+#   scripts/tmux-all make
+#   scripts/tmux-all git fetch mac '&&' git reset --hard mac/xlr8
+#   scripts/tmux-all 'scripts/platform-validate.sh'
+set -euo pipefail
+
+TMUX_SESSION="${TMUX_SESSION:-xlr8}"
+TMUX_TARGET="${TMUX_TARGET:-${TMUX_SESSION}:0.0}"
+
+# nickname -> ssh host (empty = local).  Keep in sync with
+# platform-validate-all.sh.
+# Slowest first so long-running hosts get kicked earliest.
+HOSTS=(
+  "risky:fedora-riscv"
+  "pi3:pi3"
+  "torpille:torpille"
+  "holy:holy"
+  "turbo:turbo"
+  "macOS:"
+)
+
+if [ "${1:-}" = "--" ]; then
+  shift
+fi
+if [ "$#" -lt 1 ]; then
+  echo "usage: $0 [--] command..." >&2
+  exit 2
+fi
+
+# Join args with spaces; send-keys -l types them literally.
+PANE_CMD="$*"
+
+tmux_send() {
+  local where="$1"
+  local name="$2"
+  local qcmd
+
+  if [ -z "$where" ]; then
+    if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+      echo "error: $name: tmux session '$TMUX_SESSION' not found locally" >&2
+      return 1
+    fi
+    tmux send-keys -t "$TMUX_TARGET" C-c
+    sleep 0.2
+    tmux send-keys -t "$TMUX_TARGET" C-u
+    tmux send-keys -t "$TMUX_TARGET" -l "$PANE_CMD"
+    tmux send-keys -t "$TMUX_TARGET" Enter
+  else
+    qcmd=$(printf %q "$PANE_CMD")
+    ssh "$where" "tmux send-keys -t '$TMUX_TARGET' C-c; sleep 0.2; tmux send-keys -t '$TMUX_TARGET' C-u; tmux send-keys -t '$TMUX_TARGET' -l $qcmd; tmux send-keys -t '$TMUX_TARGET' Enter"
+  fi
+  echo "sent $name (${where:-local}): $PANE_CMD"
+}
+
+fail=0
+for entry in "${HOSTS[@]}"; do
+  name="${entry%%:*}"
+  host="${entry#*:}"
+  if ! tmux_send "$host" "$name"; then
+    echo "failed $name" >&2
+    fail=1
+  fi
+done
+exit "$fail"

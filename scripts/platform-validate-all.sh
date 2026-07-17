@@ -20,14 +20,14 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 OUTDIR="${TMPDIR:-/tmp}/xlr8-validate-${STAMP}"
 mkdir -p "$OUTDIR"
 
-# nickname -> ssh host (empty = local)
+# nickname -> ssh host (empty = local).  Slowest first.
 HOSTS=(
-  "macOS:"
-  "turbo:turbo"
-  "holy:holy"
-  "torpille:torpille"
-  "pi3:pi3"
   "risky:fedora-riscv"
+  "pi3:pi3"
+  "torpille:torpille"
+  "holy:holy"
+  "turbo:turbo"
+  "macOS:"
 )
 
 if [ -n "$MODE" ]; then
