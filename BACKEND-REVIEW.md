@@ -104,17 +104,18 @@ OPTLEVEL=-O`.
 | macOS       | arm64    | 226 / 0 failed     | 226 / 0 failed     | Green  |
 | turbo       | x86-64   | 226 / 0 failed     | 226 / 0 failed     | Green  |
 | torpille    | arm64    | 226 / 0 failed     | 226 / 0 failed     | Green  |
-| risky       | riscv64  | 226 / 0 failed     | **~2 / 224**†      | Red    |
+| risky       | riscv64  | 226 / 0 failed     | **226 / 0 failed** | Green  |
 | holy        | x86-32   | 226 / 0 failed     | **226 / 0 failed** | Green  |
 | pi3         | arm32    | **226 / 0 failed** | **226 / 0 failed** | Green  |
 
-† Last measured JIT on risky was **2 / 224** (most `-O` tests fail).  Do **not**
-treat risky as green; the prior “226 / 0” JIT row was a documentation error.
+risky’s **226 / 0** ref and `-O` were verified on-host after the riscv64 JIT
+fixes (`fc01a85` and parents: soft-stack returns, `jalr` encoding, zero-ext
+loads, `pop_local` shadow reload, far B+J branches).
 
 Expected baseline: **226** functional tests per run (Jul 2026).
 
-LP64 hosts turbo / torpille build and pass the full suite after `9c1e9f9`;
-risky passes **reference** but not JIT.  Do not treat the old `ef61add`-era
+LP64 hosts turbo / torpille / risky build and pass the full suite after
+`9c1e9f9` and the riscv64 JIT fixes.  Do not treat the old `ef61add`-era
 “build failed” rows as current.
 holy’s **226 / 0** at `-O` was verified on-host after the i386 JIT fixes.
 pi3’s **226 / 0** ref and `-O` were verified on-host after the arm32 JIT fixes
@@ -138,7 +139,7 @@ Pass/fail rows below are from earlier green runs on the names then in use
 | macOS    | 230 / 0 failed\*   | 230 / 0 failed\*   | Earlier run; all six benchmarks pass |
 | turbo    | 224 / 6 failed\*   | 224 / 6 failed\*   | All six `performance/` tests fail: `timeout: invalid time interval './time'` (harness issue, not codegen) |
 | torpille | 227 / 3 failed\*   | incomplete\*       | `millions`, `millions-addi`, `millions-incr` fail in reference perf run |
-| risky    | not run            | not run            | Ref green, JIT red; perf not refreshed in this pass |
+| risky    | not run            | not run            | Functional JIT green; perf not refreshed in this pass |
 | holy     | not run            | not run            | Functional JIT green; perf not yet measured on this host |
 | pi3      | not run            | not run            | Functional JIT green; perf not yet measured on this host |
 
@@ -182,9 +183,8 @@ Key fixes along the way: VFP doubles in `binop_local`; `load_pca` /
 callee bodies; frame shadow write-through; `xlr8_get_arg`/`xlr8_set_arg`;
 signed `addi`/`subi` (negative immediates); `shift_rrr` bit 4.
 
-**JIT (`-O`) on risky (riscv64)**: still red (~2 / 224 last measured).  Next
-focus host; do not claim green until a fresh on-host `-O` summary shows
-226 / 0.
+**JIT (`-O`) on risky (riscv64)**: green (**226 / 0** on-host after `fc01a85`
+and parents).  See §1.4 table.
 
 ### 1.5 Future Work: Shadow Local Residency Tracking
 
