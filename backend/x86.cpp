@@ -56,6 +56,7 @@ void x86::begin_translation()
 // ----------------------------------------------------------------------------
 {
     record(x86, "begin_translation()");
+    abs_fixups.clear();
     if (ptr_size() == 4)
     {
         // i386 SysV: ebx/esi/edi/ebp are callee-saved.  We keep frame in edi
@@ -342,7 +343,27 @@ void x86::patch_pc_rel(size_t disp_at, uintptr_t target)
     }
     else
     {
+        // i386: mov eax, imm32 — target is a code-buffer offset; relocate()
+        // rewrites it to base+offset once the mmap address is known.
         code().patch32(disp_at, uint32_t(target));
+        abs_fixups.push_back({ disp_at, target });
+    }
+}
+
+
+void x86::relocate(void *base)
+// ----------------------------------------------------------------------------
+//   Fix i386 absolute return-address immediates after mmap
+// ----------------------------------------------------------------------------
+{
+    record(x86, "relocate(%p)", base);
+    if (ptr_size() != 4 || !base)
+        return;
+    for (abs_fixup &fx : abs_fixups)
+    {
+        uint32_t abs = uint32_t(uintptr_t(byte_p(base) + fx.offset));
+        code().patch32(fx.imm_at, abs);
+        memcpy((byte_p) base + fx.imm_at, &abs, sizeof(abs));
     }
 }
 
@@ -1858,11 +1879,17 @@ void x86::emit_runtime_call(cstring fn)
 {
     record(x86, "emit_runtime_call(%s)", fn);
     call_ptr(xlr8_runtime_fn(fn));
-    // xlr8_leave returns the new frame in rax (xlr8_enter is byte-arg only)
+    // xlr8_leave/enter return the new frame in rax — keep it for the reload.
     if (!strcmp(fn, "xlr8_leave") || !strcmp(fn, "xlr8_enter"))
         reload_frame_reg();
-    else
+    else if (ptr_size() == 4)
+    {
+        // i386: reload_rt_regs() calls C helpers that clobber eax/ecx/edx.
+        // Preserve the helper return value (jit_addr, pop_value, …).
+        emit_push_reg(HW_RAX);
         reload_rt_regs();
+        emit_pop_reg(HW_RAX);
+    }
     if (ptr_size() == 8)
         reload_shadows();
 }
@@ -1877,7 +1904,12 @@ void x86::emit_runtime_call(cstring fn, tok_t a)
     emit_set_arg0_imm(uint64_t(a));
     call_ptr(xlr8_runtime_fn(fn));
     emit_cleanup_call_args(1);
-    reload_rt_regs();
+    if (ptr_size() == 4)
+    {
+        emit_push_reg(HW_RAX);
+        reload_rt_regs();
+        emit_pop_reg(HW_RAX);
+    }
     if (ptr_size() == 8)
         reload_shadows();
 }
@@ -1894,8 +1926,12 @@ void x86::emit_runtime_call(cstring fn, byte a)
     emit_cleanup_call_args(1);
     if (!strcmp(fn, "xlr8_enter") || !strcmp(fn, "xlr8_leave"))
         reload_frame_reg();
-    else
+    else if (ptr_size() == 4)
+    {
+        emit_push_reg(HW_RAX);
         reload_rt_regs();
+        emit_pop_reg(HW_RAX);
+    }
     if (ptr_size() == 8)
         reload_shadows();
 }

@@ -200,10 +200,6 @@ void x86::emit_ret()
 {
     record(x86_ops, "emit_ret()");
     emit_runtime_call("xlr8_pop_value");
-    // i386: reload_rt_regs() clobbers caller-saved regs; keep addr on stack.
-    emit_push_reg(HW_RAX);
-    reload_rt_regs();
-    emit_pop_reg(HW_RAX);
     br_via_ip();
 }
 

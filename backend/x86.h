@@ -151,6 +151,7 @@ struct x86 : backend
     void finish_translation() override;
     size_t emit_over_callees_branch() override;
     void patch_branch_site(size_t insn_pos, size_t target_native) override;
+    void relocate(void *base) override;
 
     void emit_user(op_t op, byte_p &pc) override;
 
