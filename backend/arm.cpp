@@ -120,21 +120,19 @@ void arm::store_local(uint r, byte n)
 // ----------------------------------------------------------------------------
 {
     record(arm, "store_local(%u, %u)", r, n);
+    // ILP32: store the low 32 bits only (cf. i386 movl).  Clearing the high
+    // half here would wipe doubles whose IEEE low word is already zero.
     if (n < ARM_SHADOW_COUNT)
     {
         if (r != rreg(n))
             emit32le(mov_rr(rreg(n), r));
         // Write-through like arm64/riscv: natives read rt.frame, not shadows.
         emit32le(str_off(rreg(n), HW_FRAME, slot_off(n)));
-        emit32le(movw(HW_IP, 0));
-        emit32le(str_off(HW_IP, HW_FRAME, slot_off(n) + 4));
         touch_local(n);
     }
     else
     {
         emit32le(str_off(r, HW_FRAME, slot_off(n)));
-        emit32le(movw(HW_IP, 0));
-        emit32le(str_off(HW_IP, HW_FRAME, slot_off(n) + 4));
     }
 }
 
@@ -193,9 +191,9 @@ void arm::spill_frame(void)
     {
         if (r <= 1 && !spill_arg_regs)
             continue;
+        // Write only the low 32 bits.  Zeroing the high half destroyed
+        // doubles (IEEE 4.0 has a zero low word) before write_double.
         emit32le(str_off(rreg(byte(r)), HW_FRAME, slot_off(byte(r))));
-        emit32le(movw(HW_IP, 0));
-        emit32le(str_off(HW_IP, HW_FRAME, slot_off(byte(r)) + 4));
     }
 }
 
@@ -352,7 +350,12 @@ void arm::store_imm(byte d, value_t v)
         emit32le(str_off(HW_IP, HW_FRAME, slot_off(d) + 4));
     }
     else
-        load_imm32(HW_SCR_VAL, uint32_t(v)), store_local(HW_SCR_VAL, d);
+    {
+        load_imm32(HW_SCR_VAL, uint32_t(v));
+        store_local(HW_SCR_VAL, d);
+        emit32le(movw(HW_IP, 0));
+        emit32le(str_off(HW_IP, HW_FRAME, slot_off(d) + 4));
+    }
     touch_local(d);
 }
 
