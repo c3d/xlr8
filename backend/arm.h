@@ -235,10 +235,12 @@ protected:
 
     static inline uint shift_rrr(uint rd, uint rm, uint rs, uint stype)
     // ------------------------------------------------------------------------
-    //   Encode mov rd, rm, shift-by-rs (LSL=0, LSR=1, ASR=2)
+    //   Encode mov rd, rm, shift-by-rs (LSL=0, LSR=1, ASR=2).  Bit 4 selects
+    //   the register-controlled form; without it this is lsl #imm (rs<<1).
     // ------------------------------------------------------------------------
     {
-        return 0xE1B00000u | (rd << 12) | (rs << 8) | (stype << 5) | rm;
+        return 0xE1A00000u | (rd << 12) | (rs << 8) | (stype << 5)
+             | (1u << 4) | rm;
     }
 
     static inline uint shift_imm(uint rd, uint rm, uint imm, uint stype)

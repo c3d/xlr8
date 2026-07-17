@@ -184,7 +184,9 @@ void arm::emit_ret()
 // ----------------------------------------------------------------------------
 {
     record(arm_ops, "emit_ret()");
-    do_ret();
+    // Bytecode ret: soft-stack return address, not the JIT epilogue (do_ret).
+    rtcall("xlr8_pop_value");
+    br_via_ip();
 }
 
 
