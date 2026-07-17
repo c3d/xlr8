@@ -123,11 +123,15 @@ decision later). Until then, test platforms see new work only via
    ```bash
    scripts/platform-validate-all.sh
    ```
-   The script `tmux send-keys`s `scripts/platform-validate.sh` into session
-   `xlr8` on macOS / turbo / torpille / risky / turbo-x86 / turbo-arm (override
-   name with `TMUX_SESSION=`).  Those sessions must already exist.  The command
-   runs **interactively in the tmux pane** (`git fetch`, `make`, tests) and is
-   also `tee`d to `/tmp` for the Mac to poll.5. **If any already-green platform regresses:** fix on Mac and
+   Per host the controller uses **two SSH sessions only** (none for local
+   macOS): one persistent connection that arms `tmux pipe-pane` and
+   `tail -F`s `/tmp/xlr8-validate-<nickname>.log` into a single local poll
+   file, and one one-shot SSH that only `send-keys`s bare
+   `scripts/platform-validate.sh` (default mode `both`; no `cd` — the pane
+   is already in the tree).  Completion is the pane line
+   `XLR8_VALIDATE_DONE exit=N`.  Do not add BatchMode/timeout SSH options;
+   every extra SSH costs load on slow hosts (especially risky).
+5. **If any already-green platform regresses:** fix on Mac and
    **`git commit --amend`** (same commit). Repeat **parallel** fetch + full
    validation on all test platforms until nothing regresses.
 6. **If the target platform improved and every other platform is unchanged
