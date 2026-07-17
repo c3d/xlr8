@@ -80,15 +80,16 @@ declarations.  This is clean and prevents signature drift.
   must set `BUILDENV=i686` explicitly or the wrong (likely x86_64) config is
   used.
 
-Baseline tables below may still name turbo-x86 / turbo-arm for the
-2026-07-17 snapshot; treat **holy** / **pi3** as the live hosts going forward.
+Baseline functional rows below still mix older snapshot status with current
+hosts; **holy** / **pi3** are the live ILP32 machines.  Do **not** reuse
+QEMU **turbo-x86** / **turbo-arm** timing as a stand-in for those hosts.
 
 
-### 1.4 Parallel Baseline (2026-07-17)
+### 1.4 Parallel Baseline (2026-07-17, refreshed)
 
-**Commit**: `ef61add` — *scanner: Use `large` / `ularge` values for expressions*
-(plus follow-up `9c1e9f9` for Linux LP64 overload collisions — re-validate
-needed on turbo / torpille / risky).
+**Commit**: tip of `xlr8` after holy i386 JIT work (see §1.4 known-fixes note
+below).  The earlier `ef61add` Linux LP64 overload clash was fixed in
+`9c1e9f9` and is **not** a current build blocker.
 
 **Protocol**: Per `PLATFORM-ENABLEMENT.md` — on each machine,
 `git fetch mac && git reset --hard mac/xlr8`, `git submodule update --init
@@ -101,16 +102,12 @@ OPTLEVEL=-O`.
 | Machine     | Platform | Reference          | JIT (`-O`)         | Status |
 |-------------|----------|--------------------|--------------------|--------|
 | macOS       | arm64    | 226 / 0 failed     | 226 / 0 failed     | Green  |
-| turbo       | x86-64   | build failed\*     | —                  | Red    |
-| torpille    | arm64    | build failed\*     | —                  | Red    |
-| risky       | riscv64  | build failed\*     | —                  | Red    |
+| turbo       | x86-64   | 226 / 0 failed     | 226 / 0 failed     | Green  |
+| torpille    | arm64    | 226 / 0 failed     | 226 / 0 failed     | Green  |
+| risky       | riscv64  | 226 / 0 failed     | 226 / 0 failed     | Green  |
 | holy        | x86-32   | 226 / 0 failed     | **226 / 0 failed** | Green  |
-| turbo-arm   | arm32    | 225 / 1 failed†    | not run‡           | Yellow |
+| pi3         | arm32    | 225 / 1 failed†    | not run‡           | Yellow |
 
-\* `ef61add` added `expr(value_t)` / `append(tok_t)` overloads that collide with
-`large_t` / `ularge_t` on Linux LP64 (`value_t`≡`long`≡`int64_t`).  Fixed in
-`9c1e9f9` (keep those overloads only when the types are distinct).  macOS was
-unaffected (`long` ≠ `long long`).
 † Remaining: `scanner/printf-style-formatting-in-expression` (hex of `33`
 prints as `0` instead of `0x21`).
 ‡ `platform-validate.sh` uses `set -e`, so `-O` is skipped after a failed
@@ -118,19 +115,33 @@ reference run.
 
 Expected baseline: **226** functional tests per run (Jul 2026).
 
+LP64 hosts (turbo / torpille / risky) build and pass the full suite after
+`9c1e9f9`; do not treat the old `ef61add`-era “build failed” rows as current.
+holy’s **226 / 0** at `-O` was verified on-host after the i386 JIT fixes.
+pi3 reference status is from the latest parallel fan-out (still one scanner
+failure).
+
 #### Performance suite (`make perf`)
 
-Runs 232 tests (226 functional + 6 `performance/` benchmarks).  Perf numbers
-below are from earlier green runs (not re-measured at `ef61add`).
+Runs 232 tests (226 functional + 6 `performance/` benchmarks).
+
+**Hosts vs profiles:** pass/fail and especially wall-clock times are tied to
+the machine class.  **holy** and **pi3** are physical boxes; the old
+**turbo-x86** / **turbo-arm** entries were QEMU VMs.  Real-metal and VM
+profiles are not interchangeable — re-measure on the current host, do not
+carry QEMU numbers over to holy/pi3 (or the reverse).
+
+Pass/fail rows below are from earlier green runs on the names then in use
+(not re-measured at `ef61add`).  ILP32 rows use the **current** host names.
 
 | Machine  | Reference          | JIT (`-O`)         | Notes |
 |----------|--------------------|--------------------|-------|
 | macOS    | 230 / 0 failed\*   | 230 / 0 failed\*   | Earlier run; all six benchmarks pass |
 | turbo    | 224 / 6 failed\*   | 224 / 6 failed\*   | All six `performance/` tests fail: `timeout: invalid time interval './time'` (harness issue, not codegen) |
 | torpille | 227 / 3 failed\*   | incomplete\*       | `millions`, `millions-addi`, `millions-incr` fail in reference perf run |
-| risky    | not run            | not run            | Waiting on rebuild after `9c1e9f9` |
-| turbo-x86 | not run           | not run            | JIT functional still red |
-| turbo-arm | not run           | not run            | Reference not fully green |
+| risky    | not run            | not run            | Functional green; perf not refreshed in this pass |
+| holy     | not run            | not run            | Functional JIT green; perf not yet measured on this host |
+| pi3      | not run            | not run            | Preferred arm32 host; replace any old turbo-arm QEMU perf data |
 
 #### Embedded timing (from `make tests` summary table)
 
@@ -153,8 +164,8 @@ green-platform validation; not refreshed at `ef61add`.
 
 | Host | Reference | Remaining failures |
 |------|-----------|--------------------|
-| turbo-x86 | 226 / 0 | — |
-| turbo-arm | 225 / 1 | `printf-style-formatting-in-expression` |
+| holy      | 226 / 0 | — |
+| pi3       | 225 / 1 | `printf-style-formatting-in-expression` |
 
 **JIT (`-O`) on holy (i386)**: **226 / 0 failed**.  i386 path is green.
 
@@ -165,9 +176,6 @@ return addresses; store both halves of double immediates; drop spurious
 `0x66` on `movsx eax,m16`.
 
 **arm32 JIT**: iterate on **pi3** (see §6); holy is the live x86-32 bed.
-
-**Linux LP64 build**: blocked on `ef61add` until `9c1e9f9`; re-run parallel
-validate after remotes pick up that commit.
 
 ### 1.5 Future Work: Shadow Local Residency Tracking
 
