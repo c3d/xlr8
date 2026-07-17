@@ -477,7 +477,10 @@ void x86::emit_dispatch(byte s, byte_p table_pc)
     emit_set_arg0_imm(uint64_t(s));
     call_ptr((void *) xlr8_dispatch);
     emit_cleanup_call_args(2);
+    // Preserve continue address across i386 frame reload (see emit_sys).
+    emit_push_reg(HW_RAX);
     reload_rt_regs();
+    emit_pop_reg(HW_RAX);
     br_via_ip();
 }
 

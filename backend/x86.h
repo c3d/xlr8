@@ -580,10 +580,9 @@ protected:
 
     void emit_load_s16_sext_rax()
     // ------------------------------------------------------------------------
-    //   Emit movsx rax/eax, word ptr [rax]
+    //   Emit movsx eax/rax, word ptr [rax] (no 66 — that would target ax only)
     // ------------------------------------------------------------------------
     {
-        g(0x66);
         if (ptr_size() == 8)
             g(0x48);
         g(0x0f);
