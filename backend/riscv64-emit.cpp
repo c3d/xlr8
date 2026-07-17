@@ -326,22 +326,22 @@ void riscv64::emit_sys(tok_t t, byte_p args, byte_p next_pc)
     load_imm64(HW_SCR_VAL, uint64_t(uintptr_t(next_pc)));
     emit32le(mv_rr(10, HW_SCR_VAL));
     rtcall("xlr8_after_sys");
+    // after_sys returns 0 to continue linearly, else a native continue address.
+    // Match x86: skip the indirect jump entirely when the result is 0.
+    // Do not call_abs between mv HW_IP and jalr — call_abs clobbers HW_IP (t0).
     uint bne_at = uint(cursor());
     emit32le(bne_imm(10, 0, 0));
-    rtcall("xlr8_get_frame");
-    emit32le(reload_frame());
     reload_shadows();
     spill_arg_regs = false;
     uint skip_at = uint(cursor());
     emit32le(j_imm(0));
     uint br_at = uint(cursor());
     emit32le(mv_rr(HW_IP, 10));
-    rtcall("xlr8_get_frame");
-    emit32le(reload_frame());
     reload_shadows();
     emit32le(jalr(HW_IP));
+    uint end_at = uint(cursor());
     code().patch32(bne_at, bne_imm(10, 0, int(br_at) - int(bne_at)));
-    code().patch32(skip_at, j_imm(int(br_at + 4) - int(skip_at)));
+    code().patch32(skip_at, j_imm(int(end_at) - int(skip_at)));
 }
 
 
