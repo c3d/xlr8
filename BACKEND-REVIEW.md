@@ -65,9 +65,24 @@ declarations.  This is clean and prevents signature drift.
 |----------|-------------|-------------------------|
 | arm64    | arm64       | macOS (dev), torpille   |
 | x86-64   | x86_64      | turbo                   |
-| x86-32   | i386        | turbo-x86               |
-| arm32    | arm         | turbo-arm               |
+| x86-32   | i386        | **holy** (was turbo-x86)|
+| arm32    | arm         | **pi3** (was turbo-arm) |
 | riscv64  | riscv64     | risky (`fedora-riscv`)  |
+
+**ILP32 hosts (current):**
+
+- **pi3** — physical Raspberry Pi (armv7l / Cortex-A7).  Preferred arm32
+  check machine; much faster than the old QEMU **turbo-arm** box.
+- **holy** — x86 32-bit checks.  Builds must use **`BUILDENV=i686`**.  The
+  `xlr8` tmux pane on holy already has `export BUILDENV=i686`, so the usual
+  protocol (`tmux send-keys` into `xlr8:0.0`, no extra env) picks it up
+  automatically.  Any **direct SSH** `make` / one-off shell outside that pane
+  must set `BUILDENV=i686` explicitly or the wrong (likely x86_64) config is
+  used.
+
+Baseline tables below may still name turbo-x86 / turbo-arm for the
+2026-07-17 snapshot; treat **holy** / **pi3** as the live hosts going forward.
+
 
 ### 1.4 Parallel Baseline (2026-07-17)
 
