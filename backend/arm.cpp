@@ -339,7 +339,10 @@ void arm::mov_local(byte d, byte s)
 {
     record(arm, "mov_local(%u, %u)", d, s);
     if (d < ARM_SHADOW_COUNT && s < ARM_SHADOW_COUNT)
+    {
         emit32le(mov_rr(rreg(d), rreg(s)));
+        emit32le(str_off(rreg(d), HW_FRAME, slot_off(d)));
+    }
     else
         load_local(s, HW_SCR_ADDR), store_local(HW_SCR_ADDR, d);
     touch_local(d);
@@ -517,8 +520,11 @@ void arm::binop_local(byte d, byte s, cstring op)
     }
     else
         trap(op);
+    // Write-through so spill_frame's frame_memory_touched reload stays coherent.
     if (d >= ARM_SHADOW_COUNT)
         store_local(HW_SCR_VAL, d);
+    else
+        emit32le(str_off(rreg(d), HW_FRAME, slot_off(d)));
     touch_local(d);
 }
 
@@ -724,7 +730,10 @@ void arm::incr_local(byte d)
 {
     record(arm, "incr_local(%u)", d);
     if (d < ARM_SHADOW_COUNT)
+    {
         emit32le(add_imm(rreg(d), rreg(d), 1));
+        emit32le(str_off(rreg(d), HW_FRAME, slot_off(d)));
+    }
     else
         load_local(d, HW_SCR_VAL),
         emit32le(add_imm(HW_SCR_VAL, HW_SCR_VAL, 1)),
@@ -740,7 +749,10 @@ void arm::decr_local(byte d)
 {
     record(arm, "decr_local(%u)", d);
     if (d < ARM_SHADOW_COUNT)
+    {
         emit32le(sub_imm(rreg(d), rreg(d), 1));
+        emit32le(str_off(rreg(d), HW_FRAME, slot_off(d)));
+    }
     else
         load_local(d, HW_SCR_VAL),
         emit32le(sub_imm(HW_SCR_VAL, HW_SCR_VAL, 1)),
@@ -1177,21 +1189,30 @@ void arm::load_pca(byte d, broff_t b)
 
 void arm::get_arg(byte d, byte s)
 // ----------------------------------------------------------------------------
-//   Copy argument local s into d
+//   Copy argument local s into d (from caller frame via runtime)
 // ----------------------------------------------------------------------------
 {
     record(arm, "get_arg(%u, %u)", d, s);
-    mov_local(d, s);
+    spill_frame();
+    load_imm32(0, uint32_t(d));
+    load_imm32(1, uint32_t(s));
+    rtcall("xlr8_get_arg");
+    reload_shadows();
+    touch_local(d);
 }
 
 
 void arm::set_arg(byte d, byte s)
 // ----------------------------------------------------------------------------
-//   Copy local d into argument slot s
+//   Copy local s into argument slot d (OP set: args[d] = local[s])
 // ----------------------------------------------------------------------------
 {
     record(arm, "set_arg(%u, %u)", d, s);
-    mov_local(s, d);
+    spill_frame();
+    load_imm32(0, uint32_t(d));
+    load_imm32(1, uint32_t(s));
+    rtcall("xlr8_set_arg");
+    frame_memory_touched = true;
 }
 
 
