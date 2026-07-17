@@ -363,7 +363,7 @@ void x86::relocate(void *base)
     {
         uint32_t abs = uint32_t(uintptr_t(byte_p(base) + fx.offset));
         code().patch32(fx.imm_at, abs);
-        memcpy((byte_p) base + fx.imm_at, &abs, sizeof(abs));
+        memcpy((void *) ((byte_p) base + fx.imm_at), &abs, sizeof(abs));
     }
 }
 
