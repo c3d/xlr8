@@ -309,6 +309,18 @@ void arm::finish_translation()
 }
 
 
+size_t arm::emit_over_callees_branch()
+// ----------------------------------------------------------------------------
+//   Emit a forward branch over callee bodies to the epilogue
+// ----------------------------------------------------------------------------
+{
+    record(arm, "emit_over_callees_branch()");
+    size_t pos = cursor();
+    emit32le(b_imm(0));
+    return pos;
+}
+
+
 void arm::mov_local(byte d, byte s)
 // ----------------------------------------------------------------------------
 //   Copy value between bytecode locals

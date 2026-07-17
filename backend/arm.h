@@ -84,6 +84,7 @@ struct arm : backend
     void finish_translation() override;
     void begin_translation() override;
     void patch_branch_site(size_t insn_pos, size_t target_native) override;
+    size_t emit_over_callees_branch() override;
 
 #define OP(op, sig) sig override;
 #include "opover.tbl"
