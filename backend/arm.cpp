@@ -700,14 +700,34 @@ void arm::decr_local(byte d)
 }
 
 
+void arm::sext_reg(uint rd, uint rn, byte w)
+// ----------------------------------------------------------------------------
+//   Sign-extend register rn from w bits into rd (shared by sext / signed loads)
+// ----------------------------------------------------------------------------
+{
+    record(arm, "sext_reg(%u, %u, %u)", rd, rn, w);
+    // ILP32 ALU is 32-bit; store_local keeps the high ularge half clear.
+    if (w >= 32)
+    {
+        if (rd != rn)
+            emit32le(mov_rr(rd, rn));
+        return;
+    }
+    uint sh = 32u - w;
+    emit32le(shift_imm(rd, rn, sh, 0)); // LSL
+    emit32le(shift_imm(rd, rd, sh, 2)); // ASR
+}
+
+
 void arm::sext_local(byte d, byte w)
 // ----------------------------------------------------------------------------
 //   Sign-extend local d from w bits
 // ----------------------------------------------------------------------------
 {
     record(arm, "sext_local(%u, %u)", d, w);
-    (void)w;
-    touch_local(d);
+    load_local(d, HW_SCR_VAL);
+    sext_reg(HW_SCR_VAL, HW_SCR_VAL, w);
+    store_local(HW_SCR_VAL, d);
 }
 
 
@@ -717,8 +737,13 @@ void arm::zext_local(byte d, byte w)
 // ----------------------------------------------------------------------------
 {
     record(arm, "zext_local(%u, %u)", d, w);
-    (void)w;
-    touch_local(d);
+    load_local(d, HW_SCR_VAL);
+    if (w < 32)
+    {
+        load_imm32(HW_SCR_ADDR, (1u << w) - 1u);
+        emit32le(and_rrr(HW_SCR_VAL, HW_SCR_VAL, HW_SCR_ADDR));
+    }
+    store_local(HW_SCR_VAL, d);
 }
 
 

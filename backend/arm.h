@@ -455,6 +455,7 @@ protected:
     void not_local(byte d);
     void incr_local(byte d);
     void decr_local(byte d);
+    void sext_reg(uint rd, uint rn, byte w);
     void sext_local(byte d, byte w);
     void zext_local(byte d, byte w);
     void store_mem(byte d, byte s, uint sz);
