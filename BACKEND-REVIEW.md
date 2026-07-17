@@ -104,7 +104,7 @@ OPTLEVEL=-O`.
 | turbo       | x86-64   | build failed\*     | —                  | Red    |
 | torpille    | arm64    | build failed\*     | —                  | Red    |
 | risky       | riscv64  | build failed\*     | —                  | Red    |
-| holy        | x86-32   | 226 / 0 failed     | **224 / 2 failed** | Yellow |
+| holy        | x86-32   | 226 / 0 failed     | **226 / 0 failed** | Green  |
 | turbo-arm   | arm32    | 225 / 1 failed†    | not run‡           | Yellow |
 
 \* `ef61add` added `expr(value_t)` / `append(tok_t)` overloads that collide with
@@ -156,16 +156,13 @@ green-platform validation; not refreshed at `ef61add`.
 | turbo-x86 | 226 / 0 | — |
 | turbo-arm | 225 / 1 | `printf-style-formatting-in-expression` |
 
-**JIT (`-O`) on holy (i386)**: **224 / 2 failed** (was 151 / 75 on
-turbo-x86, then 181 / 45).  Recent i386 fixes:
+**JIT (`-O`) on holy (i386)**: **226 / 0 failed**.  i386 path is green.
 
-- Callee-saved prologue/epilogue (`ebx`/`esi`/`edi`/`ebp`)
-- Preserve helper return values / `after_sys` across C reloads
-- Do not reload live flags from `rt.flags` after helpers (BTS/BTR in `esi`)
-- Relocate i386 `mov eax,imm32` return addresses after mmap
-- Store both 32-bit halves of double immediates
-
-Remaining: `dispatch`, `ld2s`.
+Key fixes along the way: callee-saved prologue; preserve helper /
+`after_sys` / `dispatch` return values across C reloads; keep live flags
+in `esi` (do not `get_flags` after helpers); relocate `mov eax,imm32`
+return addresses; store both halves of double immediates; drop spurious
+`0x66` on `movsx eax,m16`.
 
 **arm32 JIT**: iterate on **pi3** (see §6); holy is the live x86-32 bed.
 
