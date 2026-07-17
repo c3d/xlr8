@@ -200,9 +200,10 @@ void x86::emit_ret()
 {
     record(x86_ops, "emit_ret()");
     emit_runtime_call("xlr8_pop_value");
-    emit_mov_rr(hw_scr(), HW_RAX);
+    // i386: reload_rt_regs() clobbers caller-saved regs; keep addr on stack.
+    emit_push_reg(HW_RAX);
     reload_rt_regs();
-    emit_mov_rr(HW_RAX, hw_scr());
+    emit_pop_reg(HW_RAX);
     br_via_ip();
 }
 
@@ -324,13 +325,14 @@ void x86::emit_sys(tok_t t, byte_p args, byte_p next_pc)
     emit_set_arg0_imm(uint64_t(uintptr_t(next_pc)));
     call_ptr((void *) xlr8_after_sys);
     emit_cleanup_call_args(1);
-    // after_sys returns a continue address in rax; i386 reload_rt_regs()
-    // clobbers it (last helper leaves flags in eax).  Save like emit_ret.
-    emit_mov_rr(hw_scr(), HW_RAX);
+    // after_sys returns a continue address in rax.  i386 reload_rt_regs()
+    // calls C helpers that clobber caller-saved regs (eax/ecx/edx), so
+    // keep the result on the stack — not in hw_scr()/ecx.
+    emit_push_reg(HW_RAX);
     reload_rt_regs();
     if (ptr_size() == 8)
         reload_shadows();
-    emit_mov_rr(HW_RAX, hw_scr());
+    emit_pop_reg(HW_RAX);
     orex(1, HW_RAX, 0, 0x85);
     g(modrm_rr(HW_RAX, HW_RAX));
     g(0x74);
