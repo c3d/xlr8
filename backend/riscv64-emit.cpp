@@ -321,8 +321,9 @@ void riscv64::emit_sys(tok_t t, byte_p args, byte_p next_pc)
     // arm64's post-sys xlr8_get_frame path so reload_shadows is not stale.
     rtcall("xlr8_get_frame");
     emit32le(reload_frame());
-    reload_shadows();
+    // get_flags clobbers a0-a7 (shadow locals 0-7); reload shadows after it.
     reload_flags_reg();
+    reload_shadows();
     load_imm64(HW_SCR_VAL, uint64_t(uintptr_t(next_pc)));
     emit32le(mv_rr(10, HW_SCR_VAL));
     rtcall("xlr8_after_sys");
