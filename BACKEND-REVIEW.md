@@ -13,8 +13,8 @@ table-driven architecture: `.tbl` files define opcodes once, and per-platform
 `emit_*` virtual methods implement each opcode for every target.  The design is
 sound, but all four backends share a set of cross-cutting correctness bugs
 (`switch`), and each platform has its own encoding or semantic
-errors.  The arm64 backend is the most mature; arm32 is an early prototype with
-show-stopping issues in fundamental operations.
+errors.  The arm64 backend is the most mature; arm32 and i386 now pass the full
+functional suite on **pi3** and **holy** (ref and `-O`).
 
 ### Severity Legend
 
@@ -87,9 +87,9 @@ QEMU **turbo-x86** / **turbo-arm** timing as a stand-in for those hosts.
 
 ### 1.4 Parallel Baseline (2026-07-17, refreshed)
 
-**Commit**: tip of `xlr8` after holy i386 JIT work (see §1.4 known-fixes note
-below).  The earlier `ef61add` Linux LP64 overload clash was fixed in
-`9c1e9f9` and is **not** a current build blocker.
+**Commit**: tip of `xlr8` after pi3 arm32 JIT work (`ae4317b` and parents; see
+§1.4 known-fixes notes below).  The earlier `ef61add` Linux LP64 overload clash
+was fixed in `9c1e9f9` and is **not** a current build blocker.
 
 **Protocol**: Per `PLATFORM-ENABLEMENT.md` — on each machine,
 `git fetch mac && git reset --hard mac/xlr8`, `git submodule update --init
@@ -106,20 +106,15 @@ OPTLEVEL=-O`.
 | torpille    | arm64    | 226 / 0 failed     | 226 / 0 failed     | Green  |
 | risky       | riscv64  | 226 / 0 failed     | 226 / 0 failed     | Green  |
 | holy        | x86-32   | 226 / 0 failed     | **226 / 0 failed** | Green  |
-| pi3         | arm32    | 225 / 1 failed†    | not run‡           | Yellow |
-
-† Remaining: `scanner/printf-style-formatting-in-expression` (hex of `33`
-prints as `0` instead of `0x21`).
-‡ `platform-validate.sh` uses `set -e`, so `-O` is skipped after a failed
-reference run.
+| pi3         | arm32    | **226 / 0 failed** | **226 / 0 failed** | Green  |
 
 Expected baseline: **226** functional tests per run (Jul 2026).
 
 LP64 hosts (turbo / torpille / risky) build and pass the full suite after
 `9c1e9f9`; do not treat the old `ef61add`-era “build failed” rows as current.
 holy’s **226 / 0** at `-O` was verified on-host after the i386 JIT fixes.
-pi3 reference status is from the latest parallel fan-out (still one scanner
-failure).
+pi3’s **226 / 0** ref and `-O` were verified on-host after the arm32 JIT fixes
+(tmux `xlr8:0.0`, mirror `/tmp/xlr8-pi3-local.log`).
 
 #### Performance suite (`make perf`)
 
@@ -141,7 +136,7 @@ Pass/fail rows below are from earlier green runs on the names then in use
 | torpille | 227 / 3 failed\*   | incomplete\*       | `millions`, `millions-addi`, `millions-incr` fail in reference perf run |
 | risky    | not run            | not run            | Functional green; perf not refreshed in this pass |
 | holy     | not run            | not run            | Functional JIT green; perf not yet measured on this host |
-| pi3      | not run            | not run            | Preferred arm32 host; replace any old turbo-arm QEMU perf data |
+| pi3      | not run            | not run            | Functional JIT green; perf not yet measured on this host |
 
 #### Embedded timing (from `make tests` summary table)
 
@@ -160,12 +155,13 @@ green-platform validation; not refreshed at `ef61add`.
 
 #### Known failures (non-green platforms)
 
-**Interpreter (ILP32)** — largely fixed by `ef61add` / `76157a3` / `df4c77d`:
+**Interpreter (ILP32)** — fixed by `ef61add` / `76157a3` / `df4c77d` plus
+ILP32 `snprintf` casting for scanner printf-style formatting:
 
 | Host | Reference | Remaining failures |
 |------|-----------|--------------------|
 | holy      | 226 / 0 | — |
-| pi3       | 225 / 1 | `printf-style-formatting-in-expression` |
+| pi3       | 226 / 0 | — |
 
 **JIT (`-O`) on holy (i386)**: **226 / 0 failed**.  i386 path is green.
 
@@ -175,7 +171,12 @@ in `esi` (do not `get_flags` after helpers); relocate `mov eax,imm32`
 return addresses; store both halves of double immediates; drop spurious
 `0x66` on `movsx eax,m16`.
 
-**arm32 JIT**: iterate on **pi3** (see §6); holy is the live x86-32 bed.
+**JIT (`-O`) on pi3 (arm32)**: **226 / 0 failed**.  arm32 path is green.
+
+Key fixes along the way: VFP doubles in `binop_local`; `load_pca` /
+`pending_branch_target`; soft-stack push/pop/ret/globals; branch over
+callee bodies; frame shadow write-through; `xlr8_get_arg`/`xlr8_set_arg`;
+signed `addi`/`subi` (negative immediates); `shift_rrr` bit 4.
 
 ### 1.5 Future Work: Shadow Local Residency Tracking
 
