@@ -104,7 +104,7 @@ OPTLEVEL=-O`.
 | turbo       | x86-64   | build failed\*     | —                  | Red    |
 | torpille    | arm64    | build failed\*     | —                  | Red    |
 | risky       | riscv64  | build failed\*     | —                  | Red    |
-| turbo-x86   | x86-32   | 226 / 0 failed     | 151 / 75 failed    | Yellow |
+| holy        | x86-32   | 226 / 0 failed     | **181 / 45 failed** | Yellow |
 | turbo-arm   | arm32    | 225 / 1 failed†    | not run‡           | Yellow |
 
 \* `ef61add` added `expr(value_t)` / `append(tok_t)` overloads that collide with
@@ -156,15 +156,20 @@ green-platform validation; not refreshed at `ef61add`.
 | turbo-x86 | 226 / 0 | — |
 | turbo-arm | 225 / 1 | `printf-style-formatting-in-expression` |
 
-**JIT (`-O`) on turbo-x86 (i386)**: **151 / 75 failed**.  Large clusters:
+**JIT (`-O`) on holy (i386)**: **181 / 45 failed** (was 151 / 75 on
+turbo-x86).  Progress since the ILP32 host switch:
 
-- Integer compares / branches: `cmpeq`, `cmplt`, `cmple`, … and immediates
-- Float/double math and compares: `dmul`, `ddiv`, `dcmpeq`, …
-- Control / misc: `btrue`, `branch_on_eof`, `dispatch`, …
+- Callee-saved prologue/epilogue (`ebx`/`esi`/`edi`/`ebp`)
+- Preserve `after_sys` / `ret` continue addresses on the stack across
+  `reload_rt_regs()` (ecx is caller-saved on i386)
 
-**arm32 JIT**: not measured in this validate pass (reference still had one
-scanner failure).  Next focus after `addi` smoke: the same compare/predicate
-path as on i386.
+Remaining clusters (45 unique):
+
+- Float/double: `double-add`, `dmul`, `ddiv`, `d2i`, `dacos`, …
+- Control / calls: `jmp`, `ijmp`, `icall`, `dispatch`, recursion
+- Text / sys / misc: `high-local`, `sys-alloca`, symbol/text tests, …
+
+**arm32 JIT**: iterate on **pi3** (see §6); holy is the live x86-32 bed.
 
 **Linux LP64 build**: blocked on `ef61add` until `9c1e9f9`; re-run parallel
 validate after remotes pick up that commit.
