@@ -568,7 +568,9 @@ protected:
     //   Encode jalr x0, rs1, 0
     // ------------------------------------------------------------------------
     {
-        return 0x00008067u | (rs1 << 15);
+        // Must not use 0x00008067 as a base: that hard-codes rs1=x1, and
+        // OR-ing (rs1<<15) sets the low bit of any even rs1 (e.g. x28 -> x29).
+        return 0x00000067u | (rs1 << 15);
     }
 
     static inline uint jalr_ra(uint rs1)
