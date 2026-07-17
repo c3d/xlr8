@@ -1096,20 +1096,30 @@ static inline text format(text fmt, const scanner::expr &e)
 
             case 'u':
             case 'x':
-            case 'p':
             case 'X':
             case 'o':
             case 'b':
+                // %X/%x/… expect unsigned (promoted int).  ularge_t is
+                // uint64_t; passing it through varargs is UB on ILP32 ARM
+                // (wrong register half → garbage like 00E73008 for 33).
                 if (e.type == scanner::expr::NAT ||
                     e.type == scanner::expr::BYTE)
-                    result += format(style, e.xnat);
+                    result += format(style, unsigned(e.xnat));
+                done = true;
+                break;
+
+            case 'p':
+                if (e.type == scanner::expr::NAT ||
+                    e.type == scanner::expr::BYTE)
+                    result += format(style,
+                                    reinterpret_cast<void *>(uintptr_t(e.xnat)));
                 done = true;
                 break;
 
             case 'd':
             case 'i':
                 if (e.type == scanner::expr::INT)
-                    result += format(style, e.xint);
+                    result += format(style, int(e.xint));
                 done = true;
                 break;
 
@@ -1130,7 +1140,7 @@ static inline text format(text fmt, const scanner::expr &e)
                 if (e.type == scanner::expr::BYTE ||
                     e.type == scanner::expr::NAT ||
                     e.type == scanner::expr::INT)
-                    result += format(style, e.xint);
+                    result += format(style, int(e.xint));
                 else if (e.type == scanner::expr::TXT && e.xtxt->length() > 0)
                     result += format(style, (*e.xtxt)[0]);
                 done = true;
