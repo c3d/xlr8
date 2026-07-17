@@ -380,6 +380,15 @@ protected:
                | (rs1 << 15) | (rd << 7);
     }
 
+    static inline uint lwu_off(uint rd, uint rs1, int off)
+    // ------------------------------------------------------------------------
+    //   Encode lwu rd, off(rs1) — zero-extend word on RV64
+    // ------------------------------------------------------------------------
+    {
+        return 0x00006003u | ((uint32_t(off) & 0xfffu) << 20)
+               | (rs1 << 15) | (rd << 7);
+    }
+
     static inline uint lb_off(uint rd, uint rs1, int off)
     // ------------------------------------------------------------------------
     //   Encode lb rd, off(rs1)
@@ -458,12 +467,36 @@ protected:
         return lh_off(rd, rs1, 0);
     }
 
+    static inline uint lhu_idx(uint rd, uint rs1)
+    // ------------------------------------------------------------------------
+    //   Encode lhu rd, 0(rs1)
+    // ------------------------------------------------------------------------
+    {
+        return lhu_off(rd, rs1, 0);
+    }
+
+    static inline uint lwu_idx(uint rd, uint rs1)
+    // ------------------------------------------------------------------------
+    //   Encode lwu rd, 0(rs1)
+    // ------------------------------------------------------------------------
+    {
+        return lwu_off(rd, rs1, 0);
+    }
+
     static inline uint lb_idx(uint rd, uint rs1)
     // ------------------------------------------------------------------------
     //   Encode lb rd, 0(rs1)
     // ------------------------------------------------------------------------
     {
         return lb_off(rd, rs1, 0);
+    }
+
+    static inline uint lbu_idx(uint rd, uint rs1)
+    // ------------------------------------------------------------------------
+    //   Encode lbu rd, 0(rs1)
+    // ------------------------------------------------------------------------
+    {
+        return lbu_off(rd, rs1, 0);
     }
 
     static inline uint sh_idx(uint rs2, uint rs1)

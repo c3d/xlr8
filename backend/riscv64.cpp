@@ -987,9 +987,9 @@ void riscv64::load_mem(byte d, byte s, uint sz)
     {
         switch (sz)
         {
-        case 1: emit32le(lb_idx(xreg(d), HW_SCR_ADDR)); break;
-        case 2: emit32le(lh_idx(xreg(d), HW_SCR_ADDR)); break;
-        case 4: emit32le(lw_idx(xreg(d), HW_SCR_ADDR)); break;
+        case 1: emit32le(lbu_idx(xreg(d), HW_SCR_ADDR)); break;
+        case 2: emit32le(lhu_idx(xreg(d), HW_SCR_ADDR)); break;
+        case 4: emit32le(lwu_idx(xreg(d), HW_SCR_ADDR)); break;
         default: emit32le(ld_idx(xreg(d), HW_SCR_ADDR)); break;
         }
         emit32le(sd_off(xreg(d), HW_FRAME, int(d) * int(ptr_size())));
@@ -998,9 +998,9 @@ void riscv64::load_mem(byte d, byte s, uint sz)
     {
         switch (sz)
         {
-        case 1: emit32le(lb_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
-        case 2: emit32le(lh_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
-        case 4: emit32le(lw_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        case 1: emit32le(lbu_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        case 2: emit32le(lhu_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        case 4: emit32le(lwu_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
         default: emit32le(ld_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
         }
         store_local(HW_SCR_VAL, d);
@@ -1049,9 +1049,9 @@ void riscv64::load_mem_off(byte d, byte s, value_t o, uint sz)
     {
         switch (sz)
         {
-        case 1: emit32le(lb_idx(xreg(d), HW_SCR_ADDR)); break;
-        case 2: emit32le(lh_idx(xreg(d), HW_SCR_ADDR)); break;
-        case 4: emit32le(lw_idx(xreg(d), HW_SCR_ADDR)); break;
+        case 1: emit32le(lbu_idx(xreg(d), HW_SCR_ADDR)); break;
+        case 2: emit32le(lhu_idx(xreg(d), HW_SCR_ADDR)); break;
+        case 4: emit32le(lwu_idx(xreg(d), HW_SCR_ADDR)); break;
         default: emit32le(ld_idx(xreg(d), HW_SCR_ADDR)); break;
         }
         emit32le(sd_off(xreg(d), HW_FRAME, int(d) * int(ptr_size())));
@@ -1060,9 +1060,9 @@ void riscv64::load_mem_off(byte d, byte s, value_t o, uint sz)
     {
         switch (sz)
         {
-        case 1: emit32le(lb_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
-        case 2: emit32le(lh_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
-        case 4: emit32le(lw_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        case 1: emit32le(lbu_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        case 2: emit32le(lhu_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+        case 4: emit32le(lwu_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
         default: emit32le(ld_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
         }
         store_local(HW_SCR_VAL, d);
