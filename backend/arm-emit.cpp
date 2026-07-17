@@ -454,8 +454,11 @@ void arm::emit_dispatch(byte s, byte_p table_pc)
 // ----------------------------------------------------------------------------
 {
     record(arm_ops, "emit_dispatch(%u, %p)", s, table_pc);
-    (void) table_pc;
-    rtcall("xlr8_dispatch", s);
+    spill_frame();
+    load_imm32(0, uint32_t(s));
+    load_imm32(1, uint32_t(uintptr_t(table_pc)));
+    rtcall("xlr8_dispatch");
+    br_via_ip();
 }
 
 

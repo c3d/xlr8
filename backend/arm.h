@@ -471,6 +471,55 @@ protected:
         return vfp_ss(0xEE800A00u, sd, sn, sm);
     }
 
+    static inline uint vldr_d(uint dd, uint rn, uint byte_off)
+    // ------------------------------------------------------------------------
+    //   Encode vldr dd, [rn, #byte_off]  (byte_off multiple of 4, 0..1020)
+    // ------------------------------------------------------------------------
+    {
+        return 0xED900B00u | (rn << 16) | ((dd & 0xFu) << 12)
+             | ((dd & 0x10u) << 18) | ((byte_off >> 2) & 0xFFu);
+    }
+
+    static inline uint vstr_d(uint dd, uint rn, uint byte_off)
+    // ------------------------------------------------------------------------
+    //   Encode vstr dd, [rn, #byte_off]
+    // ------------------------------------------------------------------------
+    {
+        return 0xED800B00u | (rn << 16) | ((dd & 0xFu) << 12)
+             | ((dd & 0x10u) << 18) | ((byte_off >> 2) & 0xFFu);
+    }
+
+    static inline uint vfp_dd(uint base, uint dd, uint dn, uint dm)
+    // ------------------------------------------------------------------------
+    //   Encode double-precision VFP 3-operand op (Dd, Dn, Dm), Dd/Dn/Dm < 16
+    // ------------------------------------------------------------------------
+    {
+        return base
+             | ((dd & 0xFu) << 12) | ((dd & 0x10u) << 18)
+             | ((dn & 0xFu) << 16) | ((dn & 0x10u) << 3)
+             | ((dm & 0xFu) << 0)  | ((dm & 0x10u) << 1);
+    }
+
+    static inline uint vadd_dd(uint dd, uint dn, uint dm)
+    {
+        return vfp_dd(0xEE300B00u, dd, dn, dm);
+    }
+
+    static inline uint vsub_dd(uint dd, uint dn, uint dm)
+    {
+        return vfp_dd(0xEE300B40u, dd, dn, dm);
+    }
+
+    static inline uint vmul_dd(uint dd, uint dn, uint dm)
+    {
+        return vfp_dd(0xEE200B00u, dd, dn, dm);
+    }
+
+    static inline uint vdiv_dd(uint dd, uint dn, uint dm)
+    {
+        return vfp_dd(0xEE800B00u, dd, dn, dm);
+    }
+
     void emit32le(uint32_t insn);
     void load_local(byte n, uint r);
     void store_local(uint r, byte n);

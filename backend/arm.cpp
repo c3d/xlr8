@@ -466,6 +466,29 @@ void arm::binop_local(byte d, byte s, cstring op)
         emit32le(vdiv_ss(0, 0, 1));
         emit32le(vmov_r_s(rd, 0));
     }
+    else if (!strcmp(op, "dadd") || !strcmp(op, "dsub")
+          || !strcmp(op, "dmul") || !strcmp(op, "ddiv"))
+    {
+        // Doubles live in full 64-bit frame slots; GPRs only shadow the low half.
+        // Operate via VFP load/store so high halves stay intact (unlike store_local).
+        uint off_d = slot_off(d);
+        uint off_s = slot_off(s);
+        emit32le(vldr_d(0, HW_FRAME, off_d));
+        emit32le(vldr_d(1, HW_FRAME, off_s));
+        if (!strcmp(op, "dadd"))
+            emit32le(vadd_dd(0, 0, 1));
+        else if (!strcmp(op, "dsub"))
+            emit32le(vsub_dd(0, 0, 1));
+        else if (!strcmp(op, "dmul"))
+            emit32le(vmul_dd(0, 0, 1));
+        else
+            emit32le(vdiv_dd(0, 0, 1));
+        emit32le(vstr_d(0, HW_FRAME, off_d));
+        if (d < ARM_SHADOW_COUNT)
+            emit32le(ldr_off(rreg(d), HW_FRAME, off_d));
+        touch_local(d);
+        return;
+    }
     else
         trap(op);
     if (d >= ARM_SHADOW_COUNT)
@@ -1104,11 +1127,14 @@ void arm::load_pc(byte d)
 
 void arm::load_pca(byte d, broff_t b)
 // ----------------------------------------------------------------------------
-//   Load PC plus offset into local d
+//   Load bytecode PC plus offset into local d (interpreter semantics)
 // ----------------------------------------------------------------------------
 {
     record(arm, "load_pca(%u, %lld)", d, b);
-    store_imm(d, value_t(cursor() + size_t(b)));
+    (void) b;
+    // pending_branch_target is the bytecode address set by set_branch_target
+    // before emit_pca; xlr8_jit_addr maps it to the mmap'd native entry.
+    store_imm(d, value_t(pending_branch_target));
 }
 
 
