@@ -38,18 +38,18 @@
 //  32-bit ARM (arm / AArch32)
 //  ---------------------------------------------------------------------------
 //
-//     Shadow locals     r0 .. r7      frame[0] .. frame[7] when valid
+//     Shadow locals     r0 .. r3      frame[0] .. frame[3] when valid
+//     Scratch value     r4            temps (not a shadow)
+//     Scratch offset    r5            temps (not a shadow)
 //     Scratch address   r8            address formation
-//     Frame pointer     r9            rt.frame, primed at entry
-//     Flags/predicates  r10           rt.flags (64-bit), primed at entry
-//     Saved link        r11           LR across runtime calls
+//     Frame pointer     r11           rt.frame, callee-saved, primed at entry
+//     Flags/predicates  r10           rt.flags (low 32), primed at entry
 //     Intra-call IP     r12           load target for call_abs (AAPCS IP)
 //     Stack pointer     r13 (sp)      native stack
-//     Link register     r14 (lr)      restored from r11 on return
 //
-//     Locals 8..15 and >= 16: ldr/str via [r9, #local*4] using scratch regs.
-//     Follows TinyCC ARM mode: r0-r3 and r12 are caller-saved temps in TCC;
-//     this JIT shadows r0-r7 for the first eight locals (enter(8)).
+//     Locals >= 4: ldr/str via [r11, #local*8] using scratch regs.
+//     Shadows are limited to r0-r3 so r4-r7 stay dedicated scratches
+//     (BACKEND-REVIEW §6.11).  Prologue still saves r4-r11,lr.
 //
 //
 //  ---------------------------------------------------------------------------

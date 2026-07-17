@@ -48,16 +48,16 @@ declarations.  This is clean and prevents signature drift.
 
 | Role              | arm64         | x86-64            | x86-32       | arm32        | riscv64       |
 |-------------------|---------------|-------------------|--------------|--------------|---------------|
-| Shadow locals     | x0-x15        | r8,r9,r10,rbx     | (none)       | r0-r7        | x10-x25       |
-| Frame pointer     | x19           | r12               | edi          | r9           | x8 (s0)       |
+| Shadow locals     | x0-x15        | r8,r9,r10,rbx     | (none)       | r0-r3        | x10-x25       |
+| Frame pointer     | x19           | r12               | edi          | r11          | x8 (s0)       |
 | Flags/predicates  | x22           | r15               | esi          | r10          | x9 (s1)       |
-| Scratch value     | x23           | r11               | ecx          | r0 (alias!)  | x28 (t3)      |
+| Scratch value     | x23           | r11               | ecx          | r4           | x28 (t3)      |
 | Scratch address   | x24           | --                | --           | r8           | x29           |
-| Scratch offset    | x25           | --                | --           | r2 (alias!)  | x30           |
+| Scratch offset    | x25           | --                | --           | r5           | x30           |
 | Intra-call IP     | x16           | --                | --           | r12          | x5 (t0)       |
 | Saved link        | x28           | --                | --           | r11          | --            |
 | Frame slot size   | 8 bytes       | 8 bytes           | 8 bytes      | 4 bytes      | 8 bytes       |
-| Max shadow locals | 16            | 4                 | 0            | 8            | 16            |
+| Max shadow locals | 16            | 4                 | 0            | 4            | 16            |
 
 ### 1.3 Platforms and Test Machines
 
@@ -561,10 +561,11 @@ Was: `store_mem` / `load_mem` ignored `sz` (always word).  `load_signext`
 ignored width.
 
 **Fix**: STRB/LDRB, STRH/LDRH, STR/LDR, and paired word ops for size 8;
-`load_signext` loads `ceil(w/8)` bytes then `sext_local`.  Mem ops read
-address/value from the frame write-through (not shadow regs) so `HW_SCR_VAL`
-aliasing r0 cannot use a stale local 0 as a pointer.  Verified on turbo-arm
-`-O`: `st1`/`st2`/`st4`/`st8`/`ld1s`/`ld2s`/`ld1o` exit 0.
+`load_signext` loads `ceil(w/8)` bytes then `sext_local`.  Verified on
+turbo-arm `-O`: `st1`/`st2`/`st4`/`st8`/`ld1s`/`ld2s`/`ld1o` exit 0.
+(Early memops briefly read from frame to dodge §6.11 scratch/shadow
+aliasing; §6.11 now uses dedicated r4/r5 scratches, so memops use
+`load_local` again.)
 
 ### 6.8 [P1] ~~`frame_addr` uses wrong shift for slot calculation~~ ✅ FIXED
 
@@ -601,12 +602,17 @@ Call sites used hardcoded words for the ALU ops, so helpers were traps.
 VMOV uses N at bit 7.  Checked against `llvm-mc` (`vmov s1,r3` = `EE003A90`,
 `vadd.f32 s0,s0,s1` = `EE300A20`).  Float binops now call the helpers.
 
-### 6.11 [P2] Scratch register aliases shadow locals
+### 6.11 [P2] ~~Scratch register aliases shadow locals~~ ✅ FIXED
 
-**File**: `arm.h:55`, `arm.cpp` (various)
+**File**: `arm.h` (register map / `ARM_SHADOW_COUNT`), `regmap.h`, `arm.cpp`
 
-`HW_SCR_VAL` aliases r0 (frame[0]) and `HW_SCR_OFF` aliases r2 (frame[2]).
-Operations that use these as scratch can corrupt locals 0 and 2 without spilling.
+Was: `HW_SCR_VAL`/`HW_SCR_OFF` were r0/r2, aliasing shadow locals 0 and 2.
+Temps (e.g. `store_imm`) could leave a stale shadow while the frame still
+held the true value — classic `st1` SEGV at `si_addr=0x2a`.
+
+**Fix**: Shadow only **r0–r3** (`ARM_SHADOW_COUNT = 4`).  Dedicated scratches
+`HW_SCR_VAL = r4`, `HW_SCR_OFF = r5` (still callee-saved in the prologue pack).
+Locals ≥ 4 always live in the frame.  Same shadow depth as x86-64.
 
 ---
 

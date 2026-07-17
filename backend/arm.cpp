@@ -492,7 +492,7 @@ void arm::binop_imm(byte d, value_t v, cstring op)
           || !strcmp(op, "idiv_imm") || !strcmp(op, "div_imm")
           || !strcmp(op, "idiv_mod_imm") || !strcmp(op, "div_mod_imm"))
     {
-        // r8 scratch avoids clobbering rd when rd aliases HW_SCR_VAL (r0).
+        // HW_SCR_ADDR (r8) holds the immediate; avoids clobbering rd.
         load_imm32(HW_SCR_ADDR, uint32_t(v));
         if (!strcmp(op, "imul"))
             emit32le(mul_rrr(rd, rd, HW_SCR_ADDR));
@@ -839,11 +839,9 @@ void arm::store_mem_off(byte d, byte s, value_t o, uint sz)
 // ----------------------------------------------------------------------------
 {
     record(arm, "store_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
-    // Read from frame write-through: HW_SCR_VAL aliases r0 (local 0), so
-    // load_local can see a stale shadow after an intervening store_imm.
-    emit32le(ldr_off(HW_SCR_ADDR, HW_FRAME, slot_off(d)));
+    load_local(d, HW_SCR_ADDR);
     add_addr_off(HW_SCR_ADDR, o);
-    emit32le(ldr_off(HW_SCR_VAL, HW_FRAME, slot_off(s)));
+    load_local(s, HW_SCR_VAL);
     if (sz >= 8)
         emit32le(ldr_off(HW_IP, HW_FRAME, slot_off(s) + 4));
     emit_store_sized(HW_SCR_VAL, HW_SCR_ADDR, sz);
@@ -856,7 +854,7 @@ void arm::load_mem_off(byte d, byte s, value_t o, uint sz)
 // ----------------------------------------------------------------------------
 {
     record(arm, "load_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
-    emit32le(ldr_off(HW_SCR_ADDR, HW_FRAME, slot_off(s)));
+    load_local(s, HW_SCR_ADDR);
     add_addr_off(HW_SCR_ADDR, o);
     emit_load_sized(HW_SCR_VAL, HW_SCR_ADDR, sz);
     if (sz >= 8)

@@ -33,25 +33,25 @@
 //  REGISTER ALLOCATION CONVENTIONS (32-bit ARM / AArch32)
 //  ===========================================================================
 //
-//  Bytecode locals are frame[n] slots (ularge_t, 8 bytes).  Locals 0..7 live
-//  in shadow registers r0..r7 while valid; locals >= 8 use frame memory only
+//  Bytecode locals are frame[n] slots (ularge_t, 8 bytes).  Locals 0..3 live
+//  in shadow registers r0..r3 while valid; locals >= 4 use frame memory only
 //  (ldr/str via [r11, #local*8]).  See regmap.h.
 //
-//  TinyCC allocates r0-r3 and r12 for expression temps; this backend keeps
-//  r0-r7 as shadows for the first eight locals (matching enter(8)) and still
-//  uses r0-r1 as syscall argument registers before sys.
+//  TinyCC allocates r0-r3 and r12 for expression temps; this backend shadows
+//  only r0-r3 (syscall/arg regs) and keeps r4-r7 as dedicated scratches so
+//  temps never silently clobber live locals (BACKEND-REVIEW §6.11).
 //
 //  Register map:
-//    Shadow locals     r0 .. r7      frame[0] .. frame[7] when valid
+//    Shadow locals     r0 .. r3      frame[0] .. frame[3] when valid
+//    Scratch value     r4  (HW_SCR_VAL)
+//    Scratch offset    r5  (HW_SCR_OFF)
+//    (free callee-saved r6, r7 — reserved for future temps)
 //    Scratch address   r8  (HW_SCR_ADDR)
 //    Frame pointer     r11 (HW_FRAME)  rt.frame (reloaded in prologue)
 //    Flags/predicates  r10 (HW_FLAGS)   rt.flags low half (reloaded in prologue)
 //    Callee-saved pack  r4-r11, lr      pushed in prologue; pop {r4-r11,pc}
 //    Intra-call IP     r12 (HW_IP)      call_abs target (AAPCS IP)
 //    Stack pointer     r13 (sp)         native stack (8-byte aligned at calls)
-//
-//  Scratch value/offset reuse r0-r3 during operations that do not clobber live
-//  shadow locals (HW_SCR_VAL = r0, HW_SCR_OFF = r2).
 //
 //  Bytecode PC is the translator cursor, not a fixed HW register.  Runtime is
 //  reached via xlr8_get_runtime() today.
@@ -92,18 +92,18 @@ struct arm : backend
 protected:
     enum hwreg_t : uint
     {
-        HW_LOC0  = 0,       // shadow frame[0] .. frame[7]
-        HW_LOC7  = 7,
+        HW_LOC0  = 0,       // shadow frame[0] .. frame[3]
+        HW_LOC3  = 3,
+        HW_SCR_VAL  = 4,    // dedicated scratch (not a shadow)
+        HW_SCR_OFF  = 5,    // dedicated scratch (not a shadow)
         HW_SCR_ADDR = 8,
         HW_SB    = 9,       // leave r9 alone (platform/PIC sb on some ABIs)
         HW_FLAGS = 10,      // callee-saved, rt.flags (low 32 of predicates)
         HW_FRAME = 11,      // callee-saved fp, rt.frame base for spill
         HW_IP    = 12,      // intra-procedure call scratch (AAPCS IP)
-        HW_SCR_VAL  = 0,    // shares r0 with local 0 / syscall arg
-        HW_SCR_OFF  = 2,    // shares r2 with local 2
     };
 
-    static const uint ARM_SHADOW_COUNT = 8;
+    static const uint ARM_SHADOW_COUNT = 4;
     static const uint ARM_SLOT_SIZE = 8; // sizeof(ularge_t)
 
     static inline uint slot_off(byte n)
