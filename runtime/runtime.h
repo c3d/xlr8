@@ -43,6 +43,21 @@
 
 struct scanner;
 
+#if RUNTIME_CHECKS
+#warning "Runtime checks mode active"
+#  define CHECK(condition, message, errval) \
+      do                                    \
+      {                                     \
+          if (condition)                    \
+          {                                 \
+              error(message);               \
+              return errval;                \
+          }                                 \
+      } while (0)
+#else // !DEBUG
+#  define CHECK(condition, messsage, errval)
+#endif // DEBUG
+
 
 struct runtime
 // ----------------------------------------------------------------------------
@@ -53,11 +68,10 @@ struct runtime
     runtime(size_t sz, size_t argc, char *argv[]);
     runtime(const runtime &rt);
     ~runtime();
-    void setup();
+    void       setup();
 
     // Regs in the caller that a callee is allowed to clobber
     const uint CALL_CLOBBERED_REGS = 8;
-
 
 
     // ========================================================================
@@ -121,11 +135,9 @@ struct runtime
     //   Allocate bytes on the heap
     // ------------------------------------------------------------------------
     {
-        if (heap + sz >= (byte_p) stack)
-        {
-            error("No free space on the heap to allocate memory");
-            return nullptr;
-        }
+        CHECK(heap + sz >= (byte_p) stack,
+              "No free space on the heap to allocate memory",
+              nullptr);
         byte *result = (byte *) heap;
         heap += sz;
         return result;
@@ -137,11 +149,8 @@ struct runtime
     //   Free bytes from the heap
     // ------------------------------------------------------------------------
     {
-        if (heap - sz <= memory)
-        {
-            error("Attempting to free unallocated memory");
-            return false;
-        }
+        CHECK(heap - sz <= memory,
+              "Attempting to free unallocated memory", false);
         heap -= sz;
         return true;
     }
@@ -149,43 +158,16 @@ struct runtime
 
     stack_p alloca(intptr_t size)
     // ------------------------------------------------------------------------
-    //   Allocate (size>0) or free (size<0) the number of bytes, rounded up
+    //   Allocate (size>0) or free (size<0) the number of bytes (rounded)
     // ------------------------------------------------------------------------
     {
-        if (size > 0)
-        {
-            size = ((size + 7) & ~7LL) / 8;
-            if (stack - size <= (stack_p) heap)
-            {
-                error("Stack allocation below heap");
-                return nullptr;
-            }
-        }
-        else
-        {
-            size = -((-size + 7) & ~7LL) / 8;
-            if (stack - size > histack)
-            {
-                error("Stack deallocation is outside of stack");
-                return nullptr;
-            }
-        }
+        size = ((size > 0 ? size + 7 : size) & ~intptr_t(7)) >> 3;
+        CHECK(size > 0 && stack - size <= (stack_p) heap,
+              "Stack allocation below heap", nullptr);
+        CHECK(size < 0 && stack - size > histack,
+              "Stack deallocation is outside of stack", nullptr);
         stack -= size;
         return stack;
-    }
-
-
-    bool args(size_t count, cstring msg)
-    // ------------------------------------------------------------------------
-    //   Check if we can take count args
-    // ------------------------------------------------------------------------
-    {
-        if (stack + count > histack)
-        {
-            error(msg);
-            return false;
-        }
-        return true;
     }
 
 
@@ -195,11 +177,7 @@ struct runtime
     //   Push an value_t sized value on the stack
     // ------------------------------------------------------------------------
     {
-        if (stack - 1 <= (stack_p) heap)
-        {
-            error("Out of stack space");
-            return false;
-        }
+        CHECK(stack - 1 <= (stack_p) heap, "Out of stack space", false);
         *--stack = value;
         return true;
     }
@@ -211,11 +189,7 @@ struct runtime
     //   Pop an value_t sized value from the stack
     // ------------------------------------------------------------------------
     {
-        if (stack + 1 > histack)
-        {
-            error("Popping outside of stack");
-            return 0;
-        }
+        CHECK(stack + 1 > histack, "Popping outside of stack", 0);
         return *stack++;
     }
 
@@ -225,11 +199,8 @@ struct runtime
     //   Pop an value_t sized value from the stack
     // ------------------------------------------------------------------------
     {
-        if (stack + n > histack)
-        {
-            error("Dropping too many entries from stack");
-            return false;
-        }
+        CHECK(stack + n > histack,
+              "Dropping too many entries from stack", false);
         stack += n;
         return true;
     }
@@ -240,11 +211,8 @@ struct runtime
     //   Swap element at index n with top of stack
     // ------------------------------------------------------------------------
     {
-        if (stack + n + 1 > histack)
-        {
-            error("Swapping element outside of stack");
-            return false;
-        }
+        CHECK(stack + n + 1 > histack,
+              "Swapping element outside of stack", false);
         std::swap(stack[0], stack[n]);
         return true;
     }
@@ -255,11 +223,8 @@ struct runtime
     //   Duplicate n elements from the stack
     // ------------------------------------------------------------------------
     {
-        if (stack - n  <= (stack_p) heap)
-        {
-            error("Duplicating items on a full stack");
-            return false;
-        }
+        CHECK(stack - n <= (stack_p) heap,
+              "Duplicating items on a full stack", false);
         stack -= n;
         memcpy(stack, stack + n, n * sizeof(*stack));
         return true;
@@ -272,11 +237,8 @@ struct runtime
     //   Return top of stack in writable form
     // ------------------------------------------------------------------------
     {
-        if (stack + 1 > histack)
-        {
-            error("Can't return top of empty stack");
-            return nullptr;
-        }
+        CHECK(stack + 1 > histack,
+              "Can't return top of empty stack", nullptr);
         return (stack_t *) stack;
     }
 
@@ -287,10 +249,9 @@ struct runtime
     //   Return stack pointer at given index
     // ------------------------------------------------------------------------
     {
-        if (stack + index < histack)
-            return (stack_t *) (stack + index);
-        error("Stack index is out of range");
-        return nullptr;
+        CHECK(stack + index >= histack,
+              "Stack index is out of range", nullptr);
+        return (stack_t *) (stack + index);
     }
 
 
@@ -330,16 +291,10 @@ struct runtime
     //    Set the frame pointer at the current locals
     // ------------------------------------------------------------------------
     {
-        if (stack > frame)
-        {
-            error("Cannot allocate locals, stack is above frame");
-            return nullptr;
-        }
-        if (stack - locals - 1 <= (stack_p) heap)
-        {
-            error("Out of stack space entering frame");
-            return nullptr;
-        }
+        CHECK(stack > frame,
+              "Cannot allocate locals, stack is above frame", nullptr);
+        CHECK(stack - locals - 1 <= (stack_p) heap,
+              "Out of stack space entering frame", nullptr);
         stack -= locals;
         size_t finfo = ((frame - stack) << 16) | (byte(flags) << 8) | locals;
         frame = stack;
@@ -357,11 +312,7 @@ struct runtime
     //    Free the number of locals and return to previous frame
     // ------------------------------------------------------------------------
     {
-        if (stack + 1 > frame)
-        {
-            error("Stack is above frame pointer");
-            return nullptr;
-        }
+        CHECK (stack + 1 > frame, "Stack is above frame pointer", nullptr);
         size_t finfo  = frame[-1];
         size_t locals = byte(finfo);
         flags = byte(finfo >> 8) | ((flags >> 8) << 8);
@@ -387,10 +338,8 @@ struct runtime
     //   Return stack pointer for local at given index
     // ------------------------------------------------------------------------
     {
-        if (frame + index < histack)
-            return (stack_t *) (frame + index);
-        error("Local index is out of range");
-        return nullptr;
+        CHECK(frame + index >= histack, "Local index is out of range", nullptr);
+        return (stack_t *) (frame + index);
     }
 
 
