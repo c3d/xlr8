@@ -1163,47 +1163,55 @@ void arm::set_arg(byte d, byte s)
 
 void arm::push_local(byte s)
 // ----------------------------------------------------------------------------
-//   Push local s onto stack
+//   Push local s onto the bytecode soft stack
 // ----------------------------------------------------------------------------
 {
     record(arm, "push_local(%u)", s);
-    load_local(s, HW_SCR_VAL);
-    emit32le(0xE92D0000u | (1u << HW_SCR_VAL));
+    spill_frame();
+    load_local(s, 0);
+    rtcall("xlr8_push_value");
+    reload_shadows();
+    spill_arg_regs = true;
 }
 
 
 void arm::pop_local(byte d)
 // ----------------------------------------------------------------------------
-//   Pop stack value into local d
+//   Pop soft-stack value into local d
 // ----------------------------------------------------------------------------
 {
     record(arm, "pop_local(%u)", d);
-    uint r = d < ARM_SHADOW_COUNT ? rreg(d) : HW_SCR_ADDR;
-    emit32le(0xE8BD0000u | (1u << r));
-    if (d >= ARM_SHADOW_COUNT)
-        store_local(r, d);
-    else
-        touch_local(d);
+    rtcall("xlr8_pop_value");
+    store_local(0, d);
+    // Frame may move; keep r11 in sync after stack ops (cf. arm64).
+    rtcall("xlr8_get_frame");
+    emit32le(mov_rr(HW_FRAME, 0));
+    reload_shadows();
+    touch_local(d);
 }
 
 
 void arm::push_flags()
 // ----------------------------------------------------------------------------
-//   Push flags register onto stack
+//   Push flags register onto the bytecode soft stack
 // ----------------------------------------------------------------------------
 {
     record(arm, "push_flags()");
-    emit32le(0xE92D0400u);
+    emit32le(mov_rr(0, HW_FLAGS));
+    emit32le(movw(1, 0));
+    rtcall("xlr8_push_flags_val");
+    spill_arg_regs = true;
 }
 
 
 void arm::pop_flags()
 // ----------------------------------------------------------------------------
-//   Pop stack value into flags register
+//   Pop soft-stack value into flags register
 // ----------------------------------------------------------------------------
 {
     record(arm, "pop_flags()");
-    emit32le(0xE8BD0400u);
+    rtcall("xlr8_pop_flags_val");
+    emit32le(mov_rr(HW_FLAGS, 0));
 }
 
 
@@ -1213,7 +1221,11 @@ void arm::store_global(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(arm, "store_global(%u, %u)", d, s);
-    mov_local(d, s);
+    spill_frame();
+    load_imm32(0, uint32_t(d));
+    load_imm32(1, uint32_t(s));
+    rtcall("xlr8_store_global");
+    reload_shadows();
 }
 
 
@@ -1223,7 +1235,12 @@ void arm::load_global(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(arm, "load_global(%u, %u)", d, s);
-    mov_local(d, s);
+    spill_frame();
+    load_imm32(0, uint32_t(d));
+    load_imm32(1, uint32_t(s));
+    rtcall("xlr8_load_global");
+    reload_shadows();
+    touch_local(d);
 }
 
 

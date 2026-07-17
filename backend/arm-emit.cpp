@@ -226,8 +226,15 @@ void arm::emit_enter(byte d)
 // ----------------------------------------------------------------------------
 {
     record(arm_ops, "emit_enter(%u)", d);
-    rtcall("xlr8_enter", d);
+    spill_arg_regs = true;
+    spill_frame();
+    emit32le(mov_rr(0, HW_FLAGS));
+    emit32le(movw(1, 0));
+    rtcall("xlr8_set_flags");
+    load_imm32(0, uint32_t(d));
+    rtcall("xlr8_enter");
     reload_frame_reg();
+    reload_shadows();
 }
 
 
@@ -239,6 +246,8 @@ void arm::emit_leave()
     record(arm_ops, "emit_leave()");
     rtcall("xlr8_leave");
     reload_frame_reg();
+    reload_flags_reg();
+    reload_shadows();
 }
 
 
