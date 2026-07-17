@@ -734,8 +734,25 @@ void x86::store_double(byte d, double v)
     record(x86, "store_double(%u, %g)", d, v);
     uint64_t bits = 0;
     memcpy(&bits, &v, sizeof(bits));
-    load_hw_imm(HW_RAX, bits);
-    store_local(HW_RAX, d);
+    if (ptr_size() == 8)
+    {
+        load_hw_imm(HW_RAX, bits);
+        store_local(HW_RAX, d);
+        return;
+    }
+    // i386: load_hw_imm truncates to 32 bits — write both halves of the slot.
+    int disp = local_disp(d);
+    uint frame = hw_frame();
+    load_hw_imm(HW_RAX, uint32_t(bits));
+    g(0x89);
+    g(byte((2 << 6) | (reg_value(HW_RAX) << 3) | 4));
+    g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
+    emit32(uint32_t(disp));
+    load_hw_imm(HW_RAX, uint32_t(bits >> 32));
+    g(0x89);
+    g(byte((2 << 6) | (reg_value(HW_RAX) << 3) | 4));
+    g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
+    emit32(uint32_t(disp + 4));
 }
 
 
