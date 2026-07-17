@@ -24,11 +24,12 @@ mkdir -p "$OUTDIR"
 HOSTS=(
   "macOS:"
   "turbo:turbo"
+  "holy:holy"
   "torpille:torpille"
   "pi3:pi3"
   "risky:fedora-riscv"
-  "turbo-x86:turbo-x86"
-  "turbo-arm:turbo-arm"
+#  "turbo-x86:turbo-x86"
+#  "turbo-arm:turbo-arm"
 )
 
 echo "outdir=$OUTDIR"
