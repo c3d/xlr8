@@ -46,9 +46,9 @@
 //    Scratch address   r8  (HW_SCR_ADDR)
 //    Frame pointer     r11 (HW_FRAME)  rt.frame (reloaded in prologue)
 //    Flags/predicates  r10 (HW_FLAGS)   rt.flags low half (reloaded in prologue)
-//    Callee-save / LR  r11, lr         pushed in prologue, popped on return
+//    Callee-saved pack  r4-r11, lr      pushed in prologue; pop {r4-r11,pc}
 //    Intra-call IP     r12 (HW_IP)      call_abs target (AAPCS IP)
-//    Stack pointer     r13 (sp)         native stack
+//    Stack pointer     r13 (sp)         native stack (8-byte aligned at calls)
 //
 //  Scratch value/offset reuse r0-r3 during operations that do not clobber live
 //  shadow locals (HW_SCR_VAL = r0, HW_SCR_OFF = r2).

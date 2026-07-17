@@ -577,12 +577,17 @@ address of **slot** `s` (`frame + s*8`).
 **Fix**: immediate `add` of `slot_off(s)` to `HW_FRAME` (or `mov` when `s==0`),
 matching arm64/x86.
 
-### 6.9 [P1] Missing callee-saved register save/restore
+### 6.9 [P1] ~~Missing callee-saved register save/restore~~ ✅ FIXED
 
-**File**: `arm.cpp:261-278`
+**File**: `arm.cpp` (`begin_translation` / `do_ret`), `arm.h` (`push_callee_lr` /
+`pop_callee_pc`)
 
-`begin_translation` only saves LR.  r4-r11 are clobbered without being saved,
-violating the AAPCS.
+Was: prologue only saved LR.
+
+**Fix** (in `a8df381`): `push {r4-r11,lr}` then `sub sp,#4` (9 words → keep
+8-byte SP align for AAPCS C calls); epilogue `add sp,#4` then
+`pop {r4-r11,pc}`.  Encodings `0xE92D4FF0` / `0xE8BD8FF0` verified.  r9 is
+saved/restored but left unused as `HW_SB` (PIC/sb on some ABIs).
 
 ### 6.10 [P1] VFP helper encodings are incorrect
 
