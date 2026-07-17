@@ -539,9 +539,29 @@ void arm::binop_imm(byte d, value_t v, cstring op)
     if (d >= ARM_SHADOW_COUNT)
         load_local(d, rd);
     if (!strcmp(op, "add") || !strcmp(op, "addi"))
-        emit32le(add_imm(rd, rd, uint32_t(v)));
+    {
+        if (v >= 0 && v < 4096)
+            emit32le(add_imm(rd, rd, uint32_t(v)));
+        else if (v < 0 && v > -4096)
+            emit32le(sub_imm(rd, rd, uint32_t(-v)));
+        else
+        {
+            load_imm32(HW_SCR_ADDR, uint32_t(v));
+            emit32le(add_rrr(rd, rd, HW_SCR_ADDR));
+        }
+    }
     else if (!strcmp(op, "sub") || !strcmp(op, "subi"))
-        emit32le(sub_imm(rd, rd, uint32_t(v)));
+    {
+        if (v >= 0 && v < 4096)
+            emit32le(sub_imm(rd, rd, uint32_t(v)));
+        else if (v < 0 && v > -4096)
+            emit32le(add_imm(rd, rd, uint32_t(-v)));
+        else
+        {
+            load_imm32(HW_SCR_ADDR, uint32_t(v));
+            emit32le(sub_rrr(rd, rd, HW_SCR_ADDR));
+        }
+    }
     else if (!strcmp(op, "imul")
           || !strcmp(op, "and") || !strcmp(op, "or") || !strcmp(op, "xor")
           || !strcmp(op, "idiv_imm") || !strcmp(op, "div_imm")
