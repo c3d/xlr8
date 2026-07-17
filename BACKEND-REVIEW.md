@@ -48,16 +48,43 @@ declarations.  This is clean and prevents signature drift.
 
 | Role              | arm64         | x86-64            | x86-32       | arm32        | riscv64       |
 |-------------------|---------------|-------------------|--------------|--------------|---------------|
-| Shadow locals     | x0-x15        | r8,r9,r10,rbx     | (none)       | r0-r3        | x10-x25       |
+| Shadow locals     | x0–x15        | r8,r9,r10,rbx     | (none)       | r0–r3        | x10–x25       |
 | Frame pointer     | x19           | r12               | edi          | r11          | x8 (s0)       |
+| Frame anchor      | x27           | --                | --           | --           | --            |
 | Flags/predicates  | x22           | r15               | esi          | r10          | x9 (s1)       |
-| Scratch value     | x23           | r11               | ecx          | r4           | x28 (t3)      |
-| Scratch address   | x24           | --                | --           | r8           | x29           |
-| Scratch offset    | x25           | --                | --           | r5           | x30           |
+| Scratch value     | x23           | r11; rax,rcx,rdx  | ecx; eax,edx  | r4           | x28 (t3)      |
+| Scratch address   | x24           | --                | --           | r8           | x29 (t4)      |
+| Scratch offset    | x25           | --                | --           | r5           | x30 (t5)      |
 | Intra-call IP     | x16           | --                | --           | r12          | x5 (t0)       |
-| Saved link        | x28           | --                | --           | r11          | --            |
-| Frame slot size   | 8 bytes       | 8 bytes           | 8 bytes      | 4 bytes      | 8 bytes       |
+| Saved link        | x28           | --                | --           | --           | --            |
+| Frame slot size   | 8 bytes       | 8 bytes           | 8 bytes      | 8 bytes†     | 8 bytes       |
 | Max shadow locals | 16            | 4                 | 0            | 4            | 16            |
+
+† arm32 frame slots are `ularge_t` (8 bytes) even though the ABI is ILP32;
+  pointers and most integers still occupy a full slot.
+
+**ABI / shadow overlap (important for sys and C helpers):**
+
+- **arm64**: locals 0–1 are also AAPCS argument registers (x0–x1).  Locals
+  0–15 are caller-saved; every `rtcall` must spill/reload (or otherwise
+  preserve) live shadows.
+- **riscv64**: locals 0–7 are a0–a7 (`x10`–`x17`) by design.  JIT code is not
+  a normal RV callee: helpers clobber those registers, so paths like
+  `emit_sys`, `push_local`/`pop_local`, and `reload_flags_reg` must restore
+  shadows from the frame after the call (see §1.4 riscv64 fixes).
+- **arm32**: only r0–r3 are shadowed (arg regs); r4–r5/r8 are dedicated
+  scratches so temps never silently overwrite live locals (§6.11).
+- **x86-64**: four shadows in callee-saved / extra regs (r8–r10, rbx).
+  Dedicated scratch is **r11** (`HW_SCR`); opcode helpers also use **rax,
+  rcx, rdx** as caller-saved value temps (div, immediates, returns).
+  **i386** keeps all locals in the frame only; dedicated scratch is **ecx**,
+  with **eax** / **edx** as the usual value-temp pair (e.g. `idiv` uses
+  `edx:eax`).
+
+**arm64 frame anchor**: x27 (`HW_ANCHOR`) holds a stable copy of `rt.frame`
+across syscalls; `restore_frame_ptr()` is `mov x19, x27` (no C call).
+**riscv64** has no anchor — after helpers that may move the frame it reloads
+`s0` via `xlr8_get_frame` (same idea as Linux arm64’s post-sys path).
 
 ### 1.3 Platforms and Test Machines
 
