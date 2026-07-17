@@ -38,7 +38,7 @@ static runtime *xlr8_current_rt = nullptr;
 static byte_p   xlr8_sys_args_pc = nullptr;
 
 
-static void skip_reg(byte_p &pc)
+static inline void skip_reg(byte_p &pc)
 // ----------------------------------------------------------------------------
 //   Skip one bytecode register index
 // ----------------------------------------------------------------------------
@@ -47,7 +47,7 @@ static void skip_reg(byte_p &pc)
 }
 
 
-static void skip_ostream(byte_p &pc)
+static inline void skip_ostream(byte_p &pc)
 // ----------------------------------------------------------------------------
 //   Skip an output stream token
 // ----------------------------------------------------------------------------
@@ -56,7 +56,7 @@ static void skip_ostream(byte_p &pc)
 }
 
 
-static void skip_istream(byte_p &pc)
+static inline void skip_istream(byte_p &pc)
 // ----------------------------------------------------------------------------
 //   Skip an input stream token
 // ----------------------------------------------------------------------------
@@ -65,7 +65,7 @@ static void skip_istream(byte_p &pc)
 }
 
 
-static void skip_klen(byte_p &pc)
+static inline void skip_klen(byte_p &pc)
 // ----------------------------------------------------------------------------
 //   Skip a LEB128-encoded length
 // ----------------------------------------------------------------------------
@@ -74,7 +74,7 @@ static void skip_klen(byte_p &pc)
 }
 
 
-static void skip_kint(byte_p &pc)
+static inline void skip_kint(byte_p &pc)
 // ----------------------------------------------------------------------------
 //   Skip a LEB128-encoded signed integer
 // ----------------------------------------------------------------------------
@@ -83,7 +83,7 @@ static void skip_kint(byte_p &pc)
 }
 
 
-static void skip_knat(byte_p &pc)
+static inline void skip_knat(byte_p &pc)
 // ----------------------------------------------------------------------------
 //   Skip a LEB128-encoded natural
 // ----------------------------------------------------------------------------
@@ -92,7 +92,7 @@ static void skip_knat(byte_p &pc)
 }
 
 
-static void skip_broff(byte_p &pc)
+static inline void skip_broff(byte_p &pc)
 // ----------------------------------------------------------------------------
 //   Skip a LEB128-encoded branch offset
 // ----------------------------------------------------------------------------
@@ -155,15 +155,14 @@ static size_t collect_native_branch_targets(cstring pattern, byte_p &pc,
 }
 
 
-static void skip_native_args(cstring pattern, byte_p &pc)
+static inline void skip_native_args(cstring pattern, byte_p &pc)
 // ----------------------------------------------------------------------------
 //   Advance pc past syscall arguments using a compact pattern string
-//
+// ----------------------------------------------------------------------------
 //   D = destination register, S = source register, X = extra register,
 //   L = length register, I = immediate register, P = predicate register,
 //   o = output stream, i = input stream, K = klen, J = kint, N = knat,
 //   B = branch offset, T = token
-// ----------------------------------------------------------------------------
 {
     for (cstring p = pattern; *p; p++)
     {
@@ -199,6 +198,9 @@ static void skip_native_args(cstring pattern, byte_p &pc)
 
 
 struct native_skip_entry
+// ----------------------------------------------------------------------------
+//   Description of an entry to skip for a given native call
+// ----------------------------------------------------------------------------
 {
     cstring     name;
     cstring     pattern;
@@ -206,6 +208,9 @@ struct native_skip_entry
 
 
 static const native_skip_entry native_skip_table[] =
+// ----------------------------------------------------------------------------
+//   Description of the arguments for each native entry
+// ----------------------------------------------------------------------------
 {
     { "globals",         "K" },
     { "malloc",          "DS" },
