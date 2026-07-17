@@ -280,28 +280,47 @@ static void invoke_arm(runtime &rt, void *code)
 static void invoke_riscv64(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
 //   Jump to generated RISC-V code; s0 = rt.frame, s1 = rt.flags.
-//   Save ra on the C stack so JIT may use ret after call_abs saves.
-//   Clobber every reg the JIT may touch (shadows x10-x25, scratches) so the
-//   compiler preserves live callee-saved state across the call.
+//   Save ra and s2-s11 around the call: JIT uses x18-x25 as shadow locals
+//   (callee-saved under the ABI).  Do not list s2-s11 as clobbers — that
+//   starves GCC of registers for the three "r" inputs.
 // ----------------------------------------------------------------------------
 {
     stack_p frame = rt.frame;
     uint64_t flags = rt.flags;
     asm volatile(
-        "mv s0, %0\n\t"
-        "mv s1, %1\n\t"
-        "addi sp, sp, -16\n\t"
-        "sd ra, 0(sp)\n\t"
-        "mv t0, %2\n\t"
+        "mv s0, %[frame]\n\t"
+        "mv s1, %[flags]\n\t"
+        "mv t0, %[code]\n\t"
+        "addi sp, sp, -96\n\t"
+        "sd s2, 0(sp)\n\t"
+        "sd s3, 8(sp)\n\t"
+        "sd s4, 16(sp)\n\t"
+        "sd s5, 24(sp)\n\t"
+        "sd s6, 32(sp)\n\t"
+        "sd s7, 40(sp)\n\t"
+        "sd s8, 48(sp)\n\t"
+        "sd s9, 56(sp)\n\t"
+        "sd s10, 64(sp)\n\t"
+        "sd s11, 72(sp)\n\t"
+        "sd ra, 80(sp)\n\t"
         "jalr ra, t0, 0\n\t"
-        "ld ra, 0(sp)\n\t"
-        "addi sp, sp, 16"
+        "ld s2, 0(sp)\n\t"
+        "ld s3, 8(sp)\n\t"
+        "ld s4, 16(sp)\n\t"
+        "ld s5, 24(sp)\n\t"
+        "ld s6, 32(sp)\n\t"
+        "ld s7, 40(sp)\n\t"
+        "ld s8, 48(sp)\n\t"
+        "ld s9, 56(sp)\n\t"
+        "ld s10, 64(sp)\n\t"
+        "ld s11, 72(sp)\n\t"
+        "ld ra, 80(sp)\n\t"
+        "addi sp, sp, 96"
         :
-        : "r"(frame), "r"(flags), "r"(code)
-        : "s0", "s1", "t0", "t1", "t2", "t3", "t4", "t5", "t6", "ra",
+        : [frame] "r"(frame), [flags] "r"(flags), [code] "r"(code)
+        : "s0", "s1", "t0", "t1", "t2", "t3", "t4", "t5", "t6",
           "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7",
-          "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11",
-          "memory", "cc");
+          "ra", "memory", "cc");
 }
 #endif
 
