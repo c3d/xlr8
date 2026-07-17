@@ -540,11 +540,17 @@ Handles `imul`/`idiv`/`div`/`idiv_mod`/`div_mod`, shift-imm (`SLL`/`ASR`/`LSR`),
 and bitwise/mul/div immediates.  Encodings checked with
 `scripts/check-arm32-binop-encodings.sh` (`llvm-objdump --triple=arm`).
 
-### 6.6 [P1] `sext_local` and `zext_local` are no-ops
+### 6.6 [P1] ~~`sext_local` and `zext_local` are no-ops~~ ✅ FIXED
 
-**File**: `arm.cpp:571-589`
+**File**: `arm.cpp` (`sext_reg` / `sext_local` / `zext_local`)
 
-Both ignore the width parameter.  Sign/zero extension after narrow loads is broken.
+Was: both ignored the width parameter.
+
+**Fix** (`3b74449`): `sext_reg` does LSL+ASR for `w < 32` (no-op at 32-bit
+width); `zext_local` ANDs with `(1<<w)-1` for `w < 32`.  Verified on turbo-arm
+`-O`: `sext`/`sext32`/`zext`/`zext32` match ref (`-128`, `-2147483648`, `255`,
+`4294967295`).  Note: signed memory loads (`load_signext`) still ignore width
+until §6.7 sized loads land; they can then call `sext_reg`.
 
 ### 6.7 [P1] Memory access size ignored -- all loads/stores are 4-byte
 
