@@ -1206,11 +1206,13 @@ void riscv64::bra_zero(byte s, broff_t b, bool eq)
 {
     record(riscv64, "bra_zero(%u, %lld, %d)", s, b, eq);
     load_local(s, HW_SCR_VAL);
-    uint pos = uint(cursor());
+    // Far form: inverted short B over a J (±1MiB). Plain B is only ±4KiB.
     if (eq)
-        emit32le(beq_imm(HW_SCR_VAL, 0, 0));
+        emit32le(bne_imm(HW_SCR_VAL, 0, 8));
     else
-        emit32le(bne_imm(HW_SCR_VAL, 0, 0));
+        emit32le(beq_imm(HW_SCR_VAL, 0, 8));
+    uint pos = uint(cursor());
+    emit32le(j_imm(0));
     record_branch(b, pos);
 }
 
@@ -1223,11 +1225,12 @@ void riscv64::bra_pred(byte p, broff_t b, bool sense)
     record(riscv64, "bra_pred(%u, %lld, %d)", p, b, sense);
     load_imm64(HW_SCR_VAL, uint64_t(1) << p);
     emit32le(and_rr(HW_SCR_VAL, HW_FLAGS, HW_SCR_VAL));
-    uint pos = uint(cursor());
     if (sense)
-        emit32le(bne_imm(HW_SCR_VAL, 0, 0));
+        emit32le(beq_imm(HW_SCR_VAL, 0, 8));
     else
-        emit32le(beq_imm(HW_SCR_VAL, 0, 0));
+        emit32le(bne_imm(HW_SCR_VAL, 0, 8));
+    uint pos = uint(cursor());
+    emit32le(j_imm(0));
     record_branch(b, pos);
 }
 
@@ -1239,15 +1242,17 @@ void riscv64::bra_signed(byte s, broff_t b, byte cond)
 {
     record(riscv64, "bra_signed(%u, %lld, %u)", s, b, cond);
     load_local(s, HW_SCR_VAL);
-    uint pos = uint(cursor());
+    // Invert the condition into a short skip over a far J.
     switch (cond)
     {
-    case 0xb: emit32le(blt_imm(HW_SCR_VAL, 0, 0)); break;       // LT
-    case 0xc: emit32le(blt_imm(0, HW_SCR_VAL, 0)); break;       // GT
-    case 0xd: emit32le(bge_imm(0, HW_SCR_VAL, 0)); break;       // LE
-    case 0xa: emit32le(bge_imm(HW_SCR_VAL, 0, 0)); break;       // GE
-    default:  emit32le(beq_imm(0, 0, 0)); break;
+    case 0xb: emit32le(bge_imm(HW_SCR_VAL, 0, 8)); break;      // LT -> skip if GE
+    case 0xc: emit32le(bge_imm(0, HW_SCR_VAL, 8)); break;      // GT -> skip if LE (bge zero, val)
+    case 0xd: emit32le(blt_imm(0, HW_SCR_VAL, 8)); break;      // LE -> skip if GT (blt zero, val)
+    case 0xa: emit32le(blt_imm(HW_SCR_VAL, 0, 8)); break;      // GE -> skip if LT
+    default:  emit32le(bne_imm(0, 0, 8)); break;
     }
+    uint pos = uint(cursor());
+    emit32le(j_imm(0));
     record_branch(b, pos);
 }
 
