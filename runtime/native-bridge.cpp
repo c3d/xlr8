@@ -551,7 +551,7 @@ byte_p xlr8_resolve_impl(tok_t t, tok_t *impl_tok)
         return nullptr;
     runtime &rt = *xlr8_current_rt;
     byte_p pc = nullptr;
-    if (rt.resolve(t, t, pc))
+    if (rt.resolve(t, t, pc, false))
     {
         if (impl_tok)
         {
@@ -565,7 +565,7 @@ byte_p xlr8_resolve_impl(tok_t t, tok_t *impl_tok)
     {
         byte_p ucp = tp + 1;
         tok_t name = leb128<tok_t>(ucp);
-        if (rt.resolve(name, name, pc))
+        if (rt.resolve(name, name, pc, false))
         {
             if (impl_tok)
             {

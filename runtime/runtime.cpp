@@ -474,7 +474,7 @@ tok_t runtime::tok(utf8 text, size_t len, bool clone)
 }
 
 
-bool runtime::resolve(tok_t id, tok_t called, byte_p &pc)
+bool runtime::resolve(tok_t id, tok_t called, byte_p &pc, bool err)
 // ----------------------------------------------------------------------------
 //   Check if we have resolved the given external
 // ----------------------------------------------------------------------------
@@ -500,6 +500,8 @@ bool runtime::resolve(tok_t id, tok_t called, byte_p &pc)
             return true;
         }
     }
+    if (err)
+        error("Undefined operation");
     return false;
 }
 
