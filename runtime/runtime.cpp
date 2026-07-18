@@ -199,7 +199,7 @@ static inline float frame_float(stack_p frame, byte n)
     return v;
 }
 
-#define REG(n)          byte n = *pc++                  TRC(#n "%u", n)
+#define REG(n)          byte n = *pc++;                 TRC(#n "%u", n)
 #define RALL(n)         frame[n]
 // Do not use #ifdef BIG_ENDIAN: system headers define BIG_ENDIAN as 4321
 // on little-endian hosts too.  Test the actual byte order.
@@ -271,15 +271,15 @@ static inline float frame_float(stack_p frame, byte n)
 
 #define OTYPE(T, X, O)  (*((T *) (byte_p(X) + intptr_t(O))))
 
-#define ARG(type, name) type name = rt.arg<type>(pc)
+#define ARG(type, name) type name = rt.arg<type>(pc);
 #define TOK             ARG(tok_t, t)                   TRC("T%zu",t)
 #define JMP_TOK         (pc = byte_p(tok(t)))           TRC("=%p", pc)
-#define BR_OFF          byte_p bpc = pc; ARG(broff_t,b) TRC("O%ld",long(b))
+#define BRA             byte_p bpc = pc; ARG(broff_t,b) TRC("O%ld",long(b))
 #define BRANCH          (pc = bpc + b)                  TRC(">%p", pc)
 #define KINT            ARG(value_t,  kint)             TRC("I%d",int (kint))
 #define KNAT            ARG(uvalue_t, knat)             TRC("N%u",uint(knat))
 #define KLEN            ARG(size_t, klen)               TRC("L%zu",size_t(klen))
-#define KSHIFT          byte kshift = *pc++             TRC("#%u", kshift)
+#define KSHIFT          byte kshift = *pc++;            TRC("#%u", kshift)
 #define FLUSH           this->flags = flags;            \
                         this->pc    = pc;               \
                         this->frame = frame
@@ -292,8 +292,8 @@ static inline float frame_float(stack_p frame, byte n)
 #define NATIVE_PC       byte_p &pc = rt.pc
 #define NATIVE_FRAME    stack_p &frame = rt.frame
 #define NATIVE_ARGS     stack_p args = rt.arguments()
-#define ISTREAM         TOK; std::istream *in  = rt.istream(t)
-#define OSTREAM         TOK; std::ostream *out = rt.ostream(t)
+#define ISTREAM         KNAT; std::istream *in  = rt.istream(knat);
+#define OSTREAM         KNAT; std::ostream *out = rt.ostream(knat);
 #define ISTREAM_RD(t,v) t value; if (in && ((*in) >> value)) v = value
 #define OSTREAM_WR(val) (out && ((*out) << (val)))
 
@@ -359,7 +359,7 @@ bool runtime::run()
         op_t op = op_t(*pc++);
         switch (op)
         {
-#define OP(op, code)    case op_##op: { code; } break;
+#define OP(op, decl, code)    case op_##op: { decl code; } break;
 #include "opcodes.tbl"
         default:
             // Check if we have a user-defined op that matches
@@ -387,7 +387,7 @@ bool runtime::run()
 //
 // ============================================================================
 
-#define NATIVE(op, code)                      \
+#define NATIVE(op, decl, code)                \
     static bool xlr8_native_##op(runtime &rt) \
     {                                         \
         byte_p   &pc    = rt.pc;              \
@@ -398,6 +398,7 @@ bool runtime::run()
         (void) flags;                         \
         (void) frame;                         \
         (void) done;                          \
+        decl;                                 \
         code;                                 \
         return !done;                         \
     }
@@ -410,11 +411,11 @@ void runtime::setup()
 // ----------------------------------------------------------------------------
 {
     // Initialize the opcode tokens (must come first so that tok == op_##op
-#define OP(op, code)            tok(text(#op));
+#define OP(op, decl, code)            tok(text(#op));
 #include "opcodes.tbl"
 
     // Initialize the native tokens
-#define NATIVE(op, code)        { native(tok(text(#op)), xlr8_native_##op); }
+#define NATIVE(op, decl, code)        { native(tok(text(#op)), xlr8_native_##op); }
 #include "native.tbl"
 }
 
@@ -516,7 +517,7 @@ bool runtime::resolve(tok_t id, tok_t called, byte_p &pc, bool err)
 #undef TRC
 #define TRC(format, arg)                                                \
     ;                                                                   \
-    toffs += snprintf(tbuffer + toffs, tsize - toffs, " " format, arg)
+    toffs += snprintf(tbuffer + toffs, tsize - toffs, " " format, arg);
 
 
 bool runtime::trace()
@@ -539,7 +540,7 @@ bool runtime::trace()
     char          tbuffer[256];
     const size_t  tsize = sizeof(tbuffer);
     static const cstring op_names[] = {
-#define OP(op, code) #op,
+#define OP(op, decl, code) #op,
 #include "opcodes.tbl"
     };
 
@@ -556,7 +557,7 @@ bool runtime::trace()
         record(runtime, "%p: %02X %6s", ppc, op, opname);
         switch (op)
         {
-#define OP(op, code)    case op_##op: { code; } break;
+#define OP(op, decl, code)    case op_##op: { decl; code; } break;
 #include "opcodes.tbl"
         default:
             // Check if we have a user-defined op that matches

@@ -88,7 +88,7 @@ struct runtime
     //   Represent all the opcodes
     // ------------------------------------------------------------------------
     {
-#define OP(op, code) op_##op,
+#define OP(op, decl, code) op_##op,
 #include "opcodes.tbl"
         OP_COUNT
     };

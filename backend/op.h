@@ -34,7 +34,7 @@
 
 enum op_t : byte
 {
-#define OP(op, code) op_##op,
+#define OP(op, decl, code) op_##op,
 #include "opcodes.tbl"
     OP_COUNT
 };
