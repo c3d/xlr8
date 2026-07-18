@@ -315,7 +315,7 @@ struct runtime
         CHECK (stack + 1 > frame, "Stack is above frame pointer", nullptr);
         size_t finfo  = frame[-1];
         size_t locals = byte(finfo);
-        flags = byte(finfo >> 8) | ((flags >> 8) << 8);
+        flags = byte(finfo >> 8);
         stack = frame + locals;
         frame += finfo >> 16;
         return frame;

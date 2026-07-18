@@ -1,0 +1,55 @@
+// This checks that flags are cleared by enter / leave
+
+=foo
+enter 8
+true 2
+true 17
+leave
+ret
+;
+
+[STDOUT 1]
+[Msg[msg]
+ sys write_token   STDOUT msg
+ sys write_newline STDOUT]
+
+true 2
+true 3
+true 18
+
+bfalse 2 :problem
+  Msg "Flags 2 is set, OK"
+.problem
+btrue 3 :ok1
+  Msg "Flag 3 is clear, BAD!"
+.ok1
+
+nat 0 #42
+cmpequ 4 0 #4242
+
+pushf
+pop 0
+sys write_token   STDOUT "Flags  Pre-Call="
+sys write_integer STDOUT 0
+sys write_newline STDOUT
+
+
+call *foo
+
+bfalse 4 :ok2
+  Msg "Flag 2 is set, BAD!"
+.ok2
+bfalse 18 :ok3
+  Msg "Flag 18 has not been cleared, BAD!"
+.ok3
+bfalse 17 :ok4
+  Msg "Flag 17 has not been cleared, BAD!"
+.ok4
+
+pushf
+pop 0
+sys write_token   STDOUT "Flags Post-Call="
+sys write_integer STDOUT 0
+sys write_newline STDOUT
+
+end
