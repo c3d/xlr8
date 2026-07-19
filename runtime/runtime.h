@@ -163,7 +163,8 @@ struct runtime
     //   Allocate (size>0) or free (size<0) the number of bytes (rounded)
     // ------------------------------------------------------------------------
     {
-        size = ((size > 0 ? size + 7 : size) & ~intptr_t(7)) >> 3;
+        enum { ALIGN=8, MASK=ALIGN-1 };
+        size = ((size > 0 ? size + MASK : size) & ~intptr_t(MASK)) / ALIGN;
         CHECK(size > 0 && stack - size <= (stack_p) heap,
               "Stack allocation below heap", nullptr);
         CHECK(size < 0 && stack - size > histack,
