@@ -279,7 +279,7 @@ static inline float frame_float(stack_p frame, byte n)
 #define KINT            ARG(value_t,  kint)             TRC("I%d",int (kint))
 #define KNAT            ARG(uvalue_t, knat)             TRC("N%u",uint(knat))
 #define KLEN            ARG(size_t, klen)               TRC("L%zu",size_t(klen))
-#define KSHIFT          byte kshift = *pc++;            TRC("#%u", kshift)
+#define KSHIFT          REG(kshift)
 #define FLUSH           this->flags = flags;            \
                         this->pc    = pc;               \
                         this->frame = frame
@@ -401,8 +401,10 @@ bool runtime::run()
         decl;                                 \
         code;                                 \
         return !done;                         \
-    }
+    }                                         \
+    tok_t runtime::sys_##op;
 #include "native.tbl"
+
 
 
 void runtime::setup()
@@ -415,10 +417,10 @@ void runtime::setup()
 #include "opcodes.tbl"
 
     // Initialize the native tokens
-#define NATIVE(op, decl, code)        { native(tok(text(#op)), xlr8_native_##op); }
+#define NATIVE(op, decl, code)          sys_##op = tok(text(#op));           \
+                                        native(sys_##op, xlr8_native_##op);
 #include "native.tbl"
 }
-
 
 
 

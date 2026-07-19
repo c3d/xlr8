@@ -64,9 +64,6 @@ uintptr_t  xlr8_dispatch(byte s, uintptr_t table_pc);
 int        xlr8_user_op(byte op, uintptr_t args_pc);
 void       xlr8_skip_user_args(byte op, byte_p &pc);
 void       xlr8_push_value(uintptr_t v);
-#if defined(__riscv)
-void       xlr8_note_return();
-#endif
 uintptr_t  xlr8_pop_value();
 void       xlr8_push_flags_val(uint64_t flags);
 uint64_t   xlr8_pop_flags_val();

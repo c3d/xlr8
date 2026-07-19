@@ -38,326 +38,6 @@ static runtime *xlr8_current_rt = nullptr;
 static byte_p   xlr8_sys_args_pc = nullptr;
 
 
-static inline void skip_reg(byte_p &pc)
-// ----------------------------------------------------------------------------
-//   Skip one bytecode register index
-// ----------------------------------------------------------------------------
-{
-    pc++;
-}
-
-
-static inline void skip_ostream(byte_p &pc)
-// ----------------------------------------------------------------------------
-//   Skip an output stream token
-// ----------------------------------------------------------------------------
-{
-    leb128<tok_t>(pc);
-}
-
-
-static inline void skip_istream(byte_p &pc)
-// ----------------------------------------------------------------------------
-//   Skip an input stream token
-// ----------------------------------------------------------------------------
-{
-    leb128<tok_t>(pc);
-}
-
-
-static inline void skip_klen(byte_p &pc)
-// ----------------------------------------------------------------------------
-//   Skip a LEB128-encoded length
-// ----------------------------------------------------------------------------
-{
-    leb128<size_t>(pc);
-}
-
-
-static inline void skip_kint(byte_p &pc)
-// ----------------------------------------------------------------------------
-//   Skip a LEB128-encoded signed integer
-// ----------------------------------------------------------------------------
-{
-    leb128<value_t>(pc);
-}
-
-
-static inline void skip_knat(byte_p &pc)
-// ----------------------------------------------------------------------------
-//   Skip a LEB128-encoded natural
-// ----------------------------------------------------------------------------
-{
-    leb128<uvalue_t>(pc);
-}
-
-
-static inline void skip_broff(byte_p &pc)
-// ----------------------------------------------------------------------------
-//   Skip a LEB128-encoded branch offset
-// ----------------------------------------------------------------------------
-{
-    leb128<broff_t>(pc);
-}
-
-
-static size_t note_broff(byte_p &pc, uintptr_t *out, size_t max, size_t n)
-// ----------------------------------------------------------------------------
-//   Record a branch target and advance pc past the offset
-// ----------------------------------------------------------------------------
-{
-    byte_p bpc = pc;
-    broff_t b = leb128<broff_t>(pc);
-    if (n < max)
-        out[n++] = uintptr_t(bpc + b);
-    return n;
-}
-
-
-static size_t collect_native_branch_targets(cstring pattern, byte_p &pc,
-                                            uintptr_t *out, size_t max)
-// ----------------------------------------------------------------------------
-//   Walk syscall args and collect bytecode branch targets (B in pattern)
-// ----------------------------------------------------------------------------
-{
-    size_t n = 0;
-    for (cstring p = pattern; *p; p++)
-    {
-        switch (*p)
-        {
-        case 'D': case 'S': case 'X': case 'L': case 'I': case 'P':
-            skip_reg(pc);
-            break;
-        case 'o':
-            skip_ostream(pc);
-            break;
-        case 'i':
-            skip_istream(pc);
-            break;
-        case 'K':
-            skip_klen(pc);
-            break;
-        case 'J':
-            skip_kint(pc);
-            break;
-        case 'N':
-            skip_knat(pc);
-            break;
-        case 'B':
-            n = note_broff(pc, out, max, n);
-            break;
-        case 'T':
-            leb128<tok_t>(pc);
-            break;
-        }
-    }
-    return n;
-}
-
-
-static inline void skip_native_args(cstring pattern, byte_p &pc)
-// ----------------------------------------------------------------------------
-//   Advance pc past syscall arguments using a compact pattern string
-// ----------------------------------------------------------------------------
-//   D = destination register, S = source register, X = extra register,
-//   L = length register, I = immediate register, P = predicate register,
-//   o = output stream, i = input stream, K = klen, J = kint, N = knat,
-//   B = branch offset, T = token
-{
-    for (cstring p = pattern; *p; p++)
-    {
-        switch (*p)
-        {
-        case 'D': case 'S': case 'X': case 'L': case 'I': case 'P':
-            skip_reg(pc);
-            break;
-        case 'o':
-            skip_ostream(pc);
-            break;
-        case 'i':
-            skip_istream(pc);
-            break;
-        case 'K':
-            skip_klen(pc);
-            break;
-        case 'J':
-            skip_kint(pc);
-            break;
-        case 'N':
-            skip_knat(pc);
-            break;
-        case 'B':
-            skip_broff(pc);
-            break;
-        case 'T':
-            leb128<tok_t>(pc);
-            break;
-        }
-    }
-}
-
-
-struct native_skip_entry
-// ----------------------------------------------------------------------------
-//   Description of an entry to skip for a given native call
-// ----------------------------------------------------------------------------
-{
-    cstring     name;
-    cstring     pattern;
-};
-
-
-static const native_skip_entry native_skip_table[] =
-// ----------------------------------------------------------------------------
-//   Description of the arguments for each native entry
-// ----------------------------------------------------------------------------
-{
-    { "globals",         "K" },
-    { "malloc",          "DS" },
-    { "kmalloc",         "DK" },
-    { "realloc",         "DS" },
-    { "free",            "D" },
-    { "alloca",          "DJ" },
-    { "valloca",         "DS" },
-    { "memcpy",          "DSL" },
-    { "memmove",         "DSL" },
-    { "memset",          "DSL" },
-    { "kmemcpy",         "DSK" },
-    { "kmemmove",        "DSK" },
-    { "kmemset",         "DSK" },
-    { "memkset",         "DJS" },
-    { "kmemkset",        "DJK" },
-    { "memcmp",          "DSXL" },
-    { "kmemcmp",         "DSXK" },
-    { "memchr",          "DSIL" },
-    { "kmemchr",         "DSIK" },
-    { "memkchr",         "DSJL" },
-    { "kmemkchr",        "DSJK" },
-    { "strlen",          "DS" },
-    { "strnlen",         "DSL" },
-    { "kstrnlen",        "DSK" },
-    { "strcpy",          "DS" },
-    { "strncpy",         "DSL" },
-    { "kstrncpy",        "DSK" },
-    { "strcat",          "DS" },
-    { "strncat",         "DSL" },
-    { "kstrncat",        "DSK" },
-    { "strcmp",          "DSX" },
-    { "strncmp",         "DSXL" },
-    { "kstrncmp",        "DSXK" },
-    { "strchr",          "DSI" },
-    { "kstrchr",         "DSJ" },
-    { "strrchr",         "DSI" },
-    { "kstrrchr",        "DSJ" },
-    { "strstr",          "DSX" },
-    { "strcasestr",      "DSX" },
-    { "strdup",          "DS" },
-    { "strndup",         "DSL" },
-    { "kstrndup",        "DSK" },
-    { "cmdline",         "DS" },
-    { "env",             "DS" },
-    { "branch_on_eof",   "Bi" },
-    { "branch_on_bad",   "Bi" },
-    { "read_char",       "Di" },
-    { "read_integer",    "Di" },
-    { "read_natural",    "Di" },
-    { "read_float",      "Di" },
-    { "read_double",     "Di" },
-    { "read_scanner",    "Di" },
-    { "write_char",      "oS" },
-    { "write_integer",   "oS" },
-    { "write_natural",   "oS" },
-    { "write_float",     "oS" },
-    { "write_double",    "oS" },
-    { "write_text",      "oS" },
-    { "write_token",     "oN" },
-    { "write_newline",   "o" },
-    { "nat",             "So" },
-    { "int",             "So" },
-    { "flt",             "So" },
-    { "dbl",             "So" },
-    { "print_error",     "o" },
-    { "trap_error",      "B" },
-    { "i2f",             "DS" },
-    { "i2d",             "DS" },
-    { "u2f",             "DS" },
-    { "u2d",             "DS" },
-    { "f2i",             "DS" },
-    { "d2i",             "DS" },
-    { "f2u",             "DS" },
-    { "d2u",             "DS" },
-    { "f2d",             "DS" },
-    { "d2f",             "DS" },
-    { "fpush",           "S" },
-    { "dpush",           "S" },
-    { "fpop",            "D" },
-    { "dpop",            "D" },
-    { "fmod",            "DS" },
-    { "dmod",            "DS" },
-    { "ffloor",          "DS" },
-    { "dfloor",          "DS" },
-    { "fceil",           "DS" },
-    { "dceil",           "DS" },
-    { "fsqrt",           "DS" },
-    { "dsqrt",           "DS" },
-    { "fcbrt",           "DS" },
-    { "dcbrt",           "DS" },
-    { "fsin",            "DS" },
-    { "dsin",            "DS" },
-    { "fcos",            "DS" },
-    { "dcos",            "DS" },
-    { "ftan",            "DS" },
-    { "dtan",            "DS" },
-    { "fasin",           "DS" },
-    { "dasin",           "DS" },
-    { "facos",           "DS" },
-    { "dacos",           "DS" },
-    { "fatan",           "DS" },
-    { "datan",           "DS" },
-    { "fexp",            "DS" },
-    { "dexp",            "DS" },
-    { "flog",            "DS" },
-    { "dlog",            "DS" },
-    { "fexp2",           "DS" },
-    { "dexp2",           "DS" },
-    { "flog2",           "DS" },
-    { "dlog2",           "DS" },
-    { "fcmpeq",          "PDS" },
-    { "dcmpeq",          "PDS" },
-    { "fcmpne",          "PDS" },
-    { "dcmpne",          "PDS" },
-    { "fcmplt",          "PDS" },
-    { "dcmplt",          "PDS" },
-    { "fcmpgt",          "PDS" },
-    { "dcmpgt",          "PDS" },
-    { "fcmple",          "PDS" },
-    { "dcmple",          "PDS" },
-    { "fcmpge",          "PDS" },
-    { "dcmpge",          "PDS" },
-    { "stack",           "D" },
-    { "st8v",            "DS" },
-    { "st4v",            "DS" },
-    { "st2v",            "DS" },
-    { "st1v",            "DS" },
-    { "ld8v",            "DS" },
-    { "ld4v",            "DS" },
-    { "ld2v",            "DS" },
-    { "ld1v",            "DS" },
-    { "ld8vs",           "DS" },
-    { "ld4vs",           "DS" },
-    { "ld2vs",           "DS" },
-    { "ld1vs",           "DS" },
-    { "tok",             "DS" },
-    { "leb2i",           "DS" },
-    { "leb2u",           "DS" },
-    { "i2leb",           "DS" },
-    { "u2leb",           "DS" },
-    { "i2lebsz",         "DS" },
-    { "u2lebsz",         "DS" },
-    { "cstring",         "DT" },
-};
-
-
 void xlr8_set_runtime(runtime *rt)
 // ----------------------------------------------------------------------------
 //   Select the runtime used by native helper calls
@@ -447,9 +127,6 @@ void *xlr8_runtime_fn(cstring name)
         { "xlr8_float_binop",       (void *) xlr8_float_binop },
         { "xlr8_push_value",      (void *) xlr8_push_value },
         { "xlr8_pop_value",       (void *) xlr8_pop_value },
-#if defined(__riscv)
-        { "xlr8_note_return",     (void *) xlr8_note_return },
-#endif
         { "xlr8_push_flags_val",  (void *) xlr8_push_flags_val },
         { "xlr8_pop_flags_val",   (void *) xlr8_pop_flags_val },
         { "xlr8_save_jit_link",   (void *) xlr8_save_jit_link },
@@ -632,16 +309,6 @@ uintptr_t xlr8_pop_value()
         return xlr8_current_rt->pop();
     return 0;
 }
-
-
-#if defined(__riscv)
-void xlr8_note_return()
-// ----------------------------------------------------------------------------
-//   No-op hook after mv to s11 (RISC-V JIT ret path debugging)
-// ----------------------------------------------------------------------------
-{
-}
-#endif
 
 
 void xlr8_store_global(byte g, byte s)
@@ -869,45 +536,48 @@ void xlr8_skip_user_args(byte op, byte_p &pc)
 }
 
 
+#define REG(n)          pc++;
+#define DST             REG(d)
+#define SRC             REG(s)
+#define XTRA            REG(x)
+#define LEN             REG(l)
+#define IVAL            REG(i)
+#define UVAL            REG(u)
+#define PRED            REG(p)
+#define KSHIFT          REG(k)
+#define ARG(type, name) leb128<type>(pc);
+#define TOK             ARG(tok_t, t)
+#define BRA             ARG(broff_t,b)
+#define KINT            ARG(value_t,  kint)
+#define KNAT            ARG(uvalue_t, knat)
+#define KLEN            ARG(size_t, klen)
+#define ISTREAM         KNAT;
+#define OSTREAM         KNAT;
+
 void xlr8_skip_sys_args(tok_t t, byte_p &pc)
 // ----------------------------------------------------------------------------
 //   Advance pc past the arguments of a sys call during translation
 // ----------------------------------------------------------------------------
 {
-    if (!xlr8_current_rt)
-        return;
-
-    runtime &rt = *xlr8_current_rt;
-    text name = rt.as_text(t);
-    if (name.empty())
-        return;
-
-    for (const native_skip_entry &entry : native_skip_table)
-        if (name == entry.name)
-        {
-            skip_native_args(entry.pattern, pc);
-            return;
-        }
+#define NATIVE(name, decl, code)        if (t == runtime::sys_##name) { decl; }
+#include "native.tbl"
 }
 
 
-size_t xlr8_sys_branch_targets(tok_t t, byte_p args,
-                               uintptr_t *out, size_t max)
+size_t xlr8_sys_branch_targets(tok_t t, byte_p pc, uintptr_t *out, size_t max)
 // ----------------------------------------------------------------------------
 //   Return bytecode branch targets referenced in a sys call's arguments
 // ----------------------------------------------------------------------------
 {
-    if (!xlr8_current_rt || !out || !max)
-        return 0;
+    size_t branches = 0;
+#undef  BRA
+#define BRA                                     \
+    byte_p bpc = pc;                            \
+    broff_t b = leb128<broff_t>(pc);            \
+    if (branches < max)                         \
+        out[branches++] = uintptr_t(bpc + b);
 
-    runtime &rt = *xlr8_current_rt;
-    text name = rt.as_text(t);
-    if (name.empty())
-        return 0;
-
-    byte_p pc = args;
-    for (const native_skip_entry &entry : native_skip_table)
-        if (name == entry.name)
-            return collect_native_branch_targets(entry.pattern, pc, out, max);
-    return 0;
+#define NATIVE(name, decl, code)        if (t == runtime::sys_##name) { decl; }
+#include "native.tbl"
+    return branches;
 }

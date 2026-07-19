@@ -88,11 +88,13 @@ struct runtime
     //   Represent all the opcodes
     // ------------------------------------------------------------------------
     {
-#define OP(op, decl, code) op_##op,
+#define OP(op, decl, code)              op_##op,
 #include "opcodes.tbl"
         OP_COUNT
     };
 
+#define NATIVE(op, decl, code)          static tok_t sys_##op;
+#include "native.tbl"
 
 
     // ========================================================================
