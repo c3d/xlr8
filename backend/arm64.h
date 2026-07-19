@@ -713,7 +713,6 @@ protected:
              | (rt & 0x1fu);
     }
 
-    void emit32le(uint32_t insn);
     void load_local(byte n, uint r);
     void store_local(uint r, byte n);
     void load_imm64(uint r, uint64_t v);

@@ -524,7 +524,6 @@ protected:
         return vfp_dd(0xEE800B00u, dd, dn, dm);
     }
 
-    void emit32le(uint32_t insn);
     void load_local(byte n, uint r);
     void store_local(uint r, byte n);
     void load_imm32(uint r, uint32_t v);

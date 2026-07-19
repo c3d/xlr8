@@ -72,24 +72,12 @@ void backend::g(byte c)
 }
 
 
-void backend::o(uint c)
-// ----------------------------------------------------------------------------
-//   Emit a little-endian multi-byte value
-// ----------------------------------------------------------------------------
-{
-    while (c)
-    {
-        g(byte(c));
-        c >>= 8;
-    }
-}
-
-
-void backend::emit32(uint32_t c)
+void backend::emit32le(uint32_t c)
 // ----------------------------------------------------------------------------
 //   Emit a 32-bit little-endian value
 // ----------------------------------------------------------------------------
 {
+    record(backend, "emit32le(0x%llX)", c);
     g(byte(c));
     g(byte(c >> 8));
     g(byte(c >> 16));

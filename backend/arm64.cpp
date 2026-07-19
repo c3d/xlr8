@@ -124,16 +124,6 @@ uint arm64::reg_iret() const
     return 0;
 }
 
-void arm64::emit32le(uint32_t insn)
-// ----------------------------------------------------------------------------
-//   Emit a 32-bit instruction word
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "emit32le(%lld)", insn);
-    emit32(insn);
-}
-
-
 void arm64::load_imm64(uint r, uint64_t v)
 // ----------------------------------------------------------------------------
 //   Load a 64-bit constant into AArch64 register r (MOVZ or MOVN + MOVK)
@@ -1539,4 +1529,3 @@ void arm64::rtcall(cstring fn, byte a)
 
 
 #include "arm64-emit.cpp"
-

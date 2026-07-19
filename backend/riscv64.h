@@ -772,7 +772,6 @@ protected:
         return 0xc2200053u | (fs << 15) | (rd << 7);
     }
 
-    void emit32le(uint32_t insn);
     void load_local(byte n, uint r);
     void store_local(uint r, byte n);
     void load_uimm32(uint r, uint32_t v);

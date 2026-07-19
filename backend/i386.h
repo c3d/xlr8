@@ -57,7 +57,7 @@ struct i386_be : x86
     {
         g(0xe9);
         uint pos = uint(cursor());
-        emit32(t);
+        emit32le(t);
         return pos;
     }
 

@@ -86,16 +86,6 @@ uint arm::reg_iret() const
     return 0;
 }
 
-void arm::emit32le(uint32_t insn)
-// ----------------------------------------------------------------------------
-//   Emit a 32-bit ARM instruction word
-// ----------------------------------------------------------------------------
-{
-    record(arm, "emit32le(%lld)", insn);
-    emit32(insn);
-}
-
-
 void arm::load_local(byte n, uint r)
 // ----------------------------------------------------------------------------
 //   Load bytecode local n into hardware register r
@@ -1375,4 +1365,3 @@ void arm::rtcall(cstring fn, byte a)
 
 
 #include "arm-emit.cpp"
-

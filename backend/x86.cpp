@@ -320,12 +320,12 @@ size_t x86::reserve_pc_in_rax()
         g(0x8d);
         g(0x05);
         size_t pos = cursor();
-        emit32(0);
+        emit32le(0);
         return pos;
     }
     g(0xb8);
     size_t pos = cursor();
-    emit32(0);
+    emit32le(0);
     return pos;
 }
 
@@ -464,7 +464,7 @@ void x86::emit_rex_modrm(int ll, int r, int x, int b, byte op)
     if (reg_value(b) == 4)
         g(byte((reg_value(x) << 3) | reg_value(b)));
     if (reg_value(b) == 5 && x == 4)
-        emit32(0);
+        emit32le(0);
 }
 
 
@@ -492,7 +492,7 @@ void x86::load_hw_imm(uint r, uint64_t imm)
         if (rex_b(r))
             g(0x41);
         g(0xb8 + reg_value(r));
-        emit32(uint32_t(imm));
+        emit32le(uint32_t(imm));
         return;
     }
 
@@ -501,15 +501,15 @@ void x86::load_hw_imm(uint r, uint64_t imm)
     {
         orex(1, 0, r, 0xc7);
         g(byte(0xc0 | reg_value(r)));
-        emit32(uint32_t(imm));
+        emit32le(uint32_t(imm));
         return;
     }
 
     // movabs r64, imm64 — 10 bytes
     g(0x48 | (rex_b(r) ? 1 : 0));
     g(0xb8 + reg_value(r));
-    emit32(uint32_t(imm));
-    emit32(uint32_t(imm >> 32));
+    emit32le(uint32_t(imm));
+    emit32le(uint32_t(imm >> 32));
 }
 
 
@@ -528,7 +528,7 @@ void x86::load_float_local(byte n, uint xmm)
     g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
     g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
     if (disp)
-        emit32(uint32_t(disp));
+        emit32le(uint32_t(disp));
 }
 
 
@@ -547,7 +547,7 @@ void x86::store_float_local(byte n, uint xmm)
     g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
     g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
     if (disp)
-        emit32(uint32_t(disp));
+        emit32le(uint32_t(disp));
 }
 
 
@@ -566,7 +566,7 @@ void x86::load_double_local(byte n, uint xmm)
     g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
     g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
     if (disp)
-        emit32(uint32_t(disp));
+        emit32le(uint32_t(disp));
 }
 
 
@@ -585,7 +585,7 @@ void x86::store_double_local(byte n, uint xmm)
     g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
     g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
     if (disp)
-        emit32(uint32_t(disp));
+        emit32le(uint32_t(disp));
 }
 
 
@@ -605,7 +605,7 @@ void x86::load_local_frame(byte n, uint r)
         g(0x8b);
         g(byte((2 << 6) | (reg_value(r) << 3) | 4));
         g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
-        emit32(uint32_t(disp));
+        emit32le(uint32_t(disp));
     }
     else
     {
@@ -630,7 +630,7 @@ void x86::store_local_frame(uint r, byte n)
         g(0x89);
         g(byte((2 << 6) | (reg_value(r) << 3) | 4));
         g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
-        emit32(uint32_t(disp));
+        emit32le(uint32_t(disp));
     }
     else
     {
@@ -747,12 +747,12 @@ void x86::store_double(byte d, double v)
     g(0x89);
     g(byte((2 << 6) | (reg_value(HW_RAX) << 3) | 4));
     g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
-    emit32(uint32_t(disp));
+    emit32le(uint32_t(disp));
     load_hw_imm(HW_RAX, uint32_t(bits >> 32));
     g(0x89);
     g(byte((2 << 6) | (reg_value(HW_RAX) << 3) | 4));
     g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
-    emit32(uint32_t(disp + 4));
+    emit32le(uint32_t(disp + 4));
 }
 
 
@@ -1959,4 +1959,3 @@ void x86::emit_runtime_call(cstring fn, byte a)
 
 
 #include "x86-emit.cpp"
-

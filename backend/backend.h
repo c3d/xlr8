@@ -48,33 +48,35 @@ struct backend
 {
     enum output_t
     {
-        OUTPUT_MEMORY   = 1,
-        OUTPUT_EXE      = 2,
-        OUTPUT_OBJ      = 3,
-        OUTPUT_DLL      = 4,
+        OUTPUT_MEMORY = 1,
+        OUTPUT_EXE    = 2,
+        OUTPUT_OBJ    = 3,
+        OUTPUT_DLL    = 4,
     };
+
+    using position_map = std::map<uintptr_t, size_t>;
+    using position_map_r = const position_map &;
 
     virtual ~backend() = default;
 
     bool            set_options(cstring options);
     void            set_output(output_t output);
-    arch_t          arch() const            { return current_arch; }
-    output_t        output() const          { return current_output; }
-    bool            nocode() const        { return nocode_wanted; }
-    void            set_nocode(bool on)     { nocode_wanted = on; }
+    arch_t          arch() const                { return current_arch; }
+    output_t        output() const              { return current_output; }
+    bool            nocode() const              { return nocode_wanted; }
+    void            set_nocode(bool on)         { nocode_wanted = on; }
 
-    section        &code()                  { return text_section; }
-    size_t          cursor() const          { return ind; }
-    void            set_cursor(size_t pos)  { ind = pos; }
-    const std::map<uintptr_t, size_t> &bytecode_positions() const
-                                            { return bc_positions; }
-    int             frame_offset() const    { return loc; }
-    void            set_frame_offset(int o) { loc = o; }
+    section        &code()                      { return text_section; }
+    size_t          cursor() const              { return ind; }
+    void            set_cursor(size_t pos)      { ind = pos; }
+    position_map_r  bytecode_positions() const  { return bc_positions; }
+    int             frame_offset() const        { return loc; }
+    void            set_frame_offset(int o)     { loc = o; }
 
     bool            translate(byte_p &pc);
     virtual void    finish_translation();
     virtual void    begin_translation();
-    void            bind(tok_t t)           { labels[t] = cursor(); }
+    void            bind(tok_t t)               { labels[t] = cursor(); }
     void            resolve_labels();
     void            set_branch_target(byte_p target, bool code_target = true);
 
@@ -84,10 +86,9 @@ struct backend
     virtual uint    ptr_size() const = 0;
     virtual uint    reg_iret() const = 0;
 
-    // Byte emission (g/o in TinyCC)
-    virtual void    g(byte c);
-    virtual void    o(uint c);
-    virtual void    emit32(uint32_t c);
+    // Byte emission (g in TinyCC, o seems really strange and was removed)
+    void    g(byte c);
+    void    emit32le(uint32_t c);
 
     // Control flow with deferred fixup (gjmp/gsym in TinyCC)
     virtual uint    gjmp(uint t) = 0;

@@ -128,16 +128,6 @@ uint riscv64::reg_iret() const
 }
 
 
-void riscv64::emit32le(uint32_t insn)
-// ----------------------------------------------------------------------------
-//   Emit a 32-bit instruction word
-// ----------------------------------------------------------------------------
-{
-    record(riscv64, "emit32le(%lld)", insn);
-    emit32(insn);
-}
-
-
 void riscv64::load_uimm32(uint r, uint32_t v)
 // ----------------------------------------------------------------------------
 //   Load a 32-bit unsigned value into r with upper bits cleared

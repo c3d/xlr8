@@ -309,7 +309,7 @@ protected:
         {
             g(byte((2 << 6) | ((reg_field & 7) << 3) | 4));
             g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
-            emit32(uint32_t(disp));
+            emit32le(uint32_t(disp));
             return;
         }
         // rbp/r13 cannot use mod=00 without a displacement
@@ -361,7 +361,7 @@ protected:
         {
             g(0x81);
             emit_modrm_frame(op_ext, local_disp(n));
-            emit32(uint32_t(imm));
+            emit32le(uint32_t(imm));
         }
     }
 
@@ -400,7 +400,7 @@ protected:
         g(0x0f);
         g(cc);
         size_t pos = cursor();
-        emit32(0);
+        emit32le(0);
         return pos;
     }
 
@@ -422,7 +422,7 @@ protected:
     {
         g(0xe9);
         size_t pos = cursor();
-        emit32(0);
+        emit32le(0);
         return pos;
     }
 
@@ -451,7 +451,7 @@ protected:
         }
         g(0xe9);
         size_t pos = cursor();
-        emit32(0);
+        emit32le(0);
         int32_t off = int32_t(target) - int32_t(pos) - 4;
         code().patch32(pos, uint32_t(off));
     }
@@ -484,7 +484,7 @@ protected:
     // ------------------------------------------------------------------------
     {
         orex(1, HW_RAX, 0, 0x3d);
-        emit32(imm);
+        emit32le(imm);
     }
 
     void emit_alu_rax_imm32(byte op, uint32_t imm)
@@ -493,7 +493,7 @@ protected:
     // ------------------------------------------------------------------------
     {
         orex(1, HW_RAX, 0, op);
-        emit32(imm);
+        emit32le(imm);
     }
 
     void emit_imul_rax_rax_imm32(uint32_t imm)
@@ -503,7 +503,7 @@ protected:
     {
         orex(1, HW_RAX, 0, 0x69);
         g(modrm_rr(HW_RAX, HW_RAX));
-        emit32(imm);
+        emit32le(imm);
     }
 
     void emit_store_u8_at_rax_cl()
