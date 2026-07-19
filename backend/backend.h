@@ -72,13 +72,13 @@ struct backend
     position_map_r  bytecode_positions() const  { return bc_positions; }
     int             frame_offset() const        { return loc; }
     void            set_frame_offset(int o)     { loc = o; }
-
-    bool            translate(byte_p &pc);
-    virtual void    finish_translation();
-    virtual void    begin_translation();
     void            bind(tok_t t)               { labels[t] = cursor(); }
     void            resolve_labels();
     void            set_branch_target(byte_p target, bool code_target = true);
+
+    virtual void    begin_translation()         = 0;
+    virtual void    finish_translation()        = 0;
+    bool            translate(byte_p &pc);
 
     // Target constants (TARGET_DEFS_ONLY section in TinyCC)
     virtual cstring machine_defs() const = 0;
