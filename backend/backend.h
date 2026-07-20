@@ -37,6 +37,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <sys/types.h>
 #include <vector>
 
 
@@ -124,6 +125,24 @@ struct backend
 
     // ========================================================================
     //
+    //   Hardware register allocation
+    //
+    // ========================================================================
+
+    virtual hwreg_t  load(local_t r, hwspec_t spec = 0);
+    virtual bool     load(hwreg_t, local_t r, hwspec_t spec = 0) = 0;
+    virtual bool     store(local_t r, hwreg_t)                   = 0;
+    virtual hwspec_t register_specification(hwreg_t)             = 0;
+
+    virtual size_t   spill_all();
+    virtual size_t   frame_size();
+    virtual size_t   frame_size(size_t slots);
+
+    const hwreg_t    NO_REGISTER = hwreg_t(-1);
+
+
+    // ========================================================================
+    //
     //   Virtual emitters for every built-in opcode
     //
     // ========================================================================
@@ -190,6 +209,8 @@ protected:
     using fixups_t      = std::vector<branch_fixup>;
     using targets_t     = std::set<byte_p>;
     using jmpchain_t    = std::map<size_t, size_t>;
+    using regmap_t      = std::map<hwreg_t, local_t>;
+    using regalloc_t    = std::vector<hwreg_t>;
 
     arch_t        current_arch;
     output_t      current_output;
@@ -198,6 +219,8 @@ protected:
     bool          translating;
     section       text_section;
     size_t        index;
+    regmap_t      regmap;
+    regalloc_t    regalloc;
     relocations_t relocations;
     labels_t      labels;
     tok_map_t     tok_jumps;

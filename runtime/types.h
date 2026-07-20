@@ -53,6 +53,10 @@ typedef uvalue_t      unicode;
 typedef void         *void_p;
 typedef const void   *kvoid_p;
 
+typedef uint          hwreg_t;  // Hardware register index
+typedef uint          hwspec_t; // Hardware register specification
+typedef uint          local_t;  // Local slot (0-255 = bytecode regs)
+
 enum op_t : byte
 // ----------------------------------------------------------------------------
 //   Represent all the opcodes

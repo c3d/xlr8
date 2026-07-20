@@ -168,6 +168,116 @@ bool backend::set_options(cstring options)
 
 // ============================================================================
 //
+//   Hardware register allocation
+//
+// ============================================================================
+
+hwreg_t backend::load(backend::local_t loc, backend::hwspec_t spec)
+// ----------------------------------------------------------------------------
+//  The default allocator
+// ----------------------------------------------------------------------------
+{
+    if (loc >= regalloc.size())
+    {
+        record(recorder_warning,
+               "Local %u is out of frame size %u", loc, regalloc.size());
+        regalloc.resize(loc + 1);
+    }
+
+    // Check if we have a register allocation for this local
+    hwreg_t reg = regalloc[loc];
+    if (reg != NO_REGISTER)
+    {
+        auto    existing = regmap.find(reg);
+        if (existing != regmap.end())
+        {
+            // If the register is already holding the local, return it
+            if ((*existing).second == loc)
+                return reg;
+        }
+    }
+
+    // Try to find some register satisfying the constraint (unused first)
+    hwreg_t nregs = nb_regs();
+    for (uint used = 0; used < 2; used++)
+    {
+        for (hwreg_t r = 0; r < nregs; r++)
+        {
+            auto existing = regmap.find(reg);
+            if (used || existing == regmap.end())
+            {
+                hwspec_t rspec = register_specification(r);
+                if (rspec & spec)
+                {
+                    if (used)
+                    {
+                        // Need to store to existing slot first
+                        local_t storage = (*existing).second;
+                        store(storage, r);
+                    }
+                    load(r, loc);
+                    regalloc[loc] = r;
+                    regmap[r]     = loc;
+                    return r;
+                }
+            }
+        }
+    }
+
+    record(backend_error,
+           "Unable to find register for loc %u with spec 0x%X", loc, spec);
+    return NO_REGISTER;
+}
+
+
+size_t backend::spill_all()
+// ----------------------------------------------------------------------------
+//   Store all live hardware registers back to their slot
+// ----------------------------------------------------------------------------
+{
+    size_t count = 0;
+    for (uint loc = 0; loc < regalloc.size(); loc++)
+    {
+        hwreg_t &hwreg = regalloc[loc];
+        if (hwreg != NO_REGISTER)
+        {
+            store(loc, hwreg);
+            hwreg = NO_REGISTER;
+            count++;
+        }
+    }
+    regmap.clear();
+    record(backend, "Spilled %zu registers", count);
+    return count;
+}
+
+
+size_t backend::frame_size()
+// ----------------------------------------------------------------------------
+//    Return current frame size in slots
+// ----------------------------------------------------------------------------
+{
+    return regalloc.size();
+}
+
+
+size_t backend::frame_size(size_t slots)
+// ----------------------------------------------------------------------------
+//   Allocate the given number of slots
+// ----------------------------------------------------------------------------
+{
+    size_t before = regalloc.size();
+    if (size_t spilled = spill_all())
+        record(backend_warning, "Frame resizing with %zu live registers",
+               spilled);
+    regalloc.resize(slots, NO_REGISTER);
+    return before;
+}
+
+
+
+// ============================================================================
+//
 //   Code generation
 //
 // ============================================================================
