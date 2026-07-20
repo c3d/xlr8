@@ -38,8 +38,9 @@
 #include <cmath>
 
 
-RECORDER(runtime,       16, "Runtime");
-RECORDER(runtime_error, 16, "Runtime errors");
+RECORDER(runtime,         16, "Runtime");
+RECORDER(runtime_error,   16, "Runtime errors");
+RECORDER(runtime_warning, 16, "Runtime warnings");
 
 
 runtime::runtime(size_t sz, size_t argc, char *argv[])

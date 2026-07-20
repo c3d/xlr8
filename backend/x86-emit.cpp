@@ -59,6 +59,16 @@ void x86::emit_undef(emit_args &e)
 }
 
 
+void x86::emit_end(emit_args &e)
+// ----------------------------------------------------------------------------
+//   Emit bytecode for the undef opcode
+// ----------------------------------------------------------------------------
+{
+    record(x86_ops, "emit_end");
+    translating = false;
+}
+
+
 void x86::emit_int(emit_args &e)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the int opcode

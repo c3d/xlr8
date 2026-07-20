@@ -62,6 +62,16 @@ void riscv64::emit_undef(emit_args &e)
 }
 
 
+void riscv64::emit_end(emit_args &e)
+// ----------------------------------------------------------------------------
+//   Emit bytecode for the undef opcode
+// ----------------------------------------------------------------------------
+{
+    record(riscv64_ops, "emit_end");
+    translating = false;
+}
+
+
 void riscv64::emit_int(emit_args &e)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the int opcode

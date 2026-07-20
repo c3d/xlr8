@@ -31,6 +31,7 @@
 // ****************************************************************************
 
 #include "leb128.h"
+#include "recorder.h"
 #include "types.h"
 
 #include <cassert>
@@ -620,5 +621,10 @@ public:
 
     scanner            *input;
 };
+
+
+RECORDER_DECLARE(runtime);
+RECORDER_DECLARE(runtime_error);
+RECORDER_DECLARE(runtime_warning);
 
 #endif // RUNTIME_H

@@ -257,8 +257,6 @@ void backend::translate_subroutine(byte_p &pc, byte_p end)
             emit_user(args);
             break;
         }
-        if (op <= op_end || args.error)
-            break;
     }
     if (args.error)
         record(backend_error, "Error during translation: %+s", args.error);

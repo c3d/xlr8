@@ -47,6 +47,16 @@ void arm64::emit_undef(emit_args &e)
 }
 
 
+void arm64::emit_end(emit_args &e)
+// ----------------------------------------------------------------------------
+//   Emit bytecode for the undef opcode
+// ----------------------------------------------------------------------------
+{
+    record(arm64_ops, "emit_end");
+    translating = false;
+}
+
+
 void arm64::emit_ret(emit_args &e)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ret opcode

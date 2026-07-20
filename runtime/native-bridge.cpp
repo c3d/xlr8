@@ -56,6 +56,36 @@ runtime *xlr8_get_runtime()
 }
 
 
+void xlr8_null_opcode()
+// ----------------------------------------------------------------------------
+//   Trap for a null opcode
+// ----------------------------------------------------------------------------
+{
+    record(runtime_error, "Hit null opcode at runtime");
+    exit(1);
+}
+
+
+void xlr8_user_opcode()
+// ----------------------------------------------------------------------------
+//   Trap for an undefined user opcode
+// ----------------------------------------------------------------------------
+{
+    record(runtime_error, "Hit undefined user opcode at runtime");
+    exit(1);
+}
+
+
+void xlr8_undef_opcode()
+// ----------------------------------------------------------------------------
+//   Trap for an undefined opcode
+// ----------------------------------------------------------------------------
+{
+    record(runtime_error, "Hit 'undef' opcode at runtime");
+    exit(1);
+}
+
+
 void xlr8_set_sys_args(byte_p args)
 // ----------------------------------------------------------------------------
 //   Remember bytecode pointer for the next sys call

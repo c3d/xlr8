@@ -48,6 +48,16 @@ void arm::emit_undef(emit_args &e)
 }
 
 
+void arm::emit_end(emit_args &e)
+// ----------------------------------------------------------------------------
+//   Emit bytecode for the undef opcode
+// ----------------------------------------------------------------------------
+{
+    record(arm_ops, "emit_end");
+    translating = false;
+}
+
+
 void arm::emit_user(emit_args &e)
 // ----------------------------------------------------------------------------
 //   Emit a user-defined opcode (128..255, or registered low opcodes)
