@@ -30,7 +30,6 @@
 #include "runtime.h"
 #include "native-bridge.h"
 
-#include "arch.h"
 #include "backend.h"
 #include "recorder.h"
 #include "section.h"
@@ -381,7 +380,7 @@ bool runtime::run_native(byte_p entry)
 {
     if (!entry)
         entry = this->entry;
-    backend *be = backend_new(ARCH_NATIVE);
+    backend *be = backend::make(backend::ARCH_NATIVE);
     if (!be)
     {
         error("No native backend for this CPU");

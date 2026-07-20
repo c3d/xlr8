@@ -122,7 +122,6 @@ void *xlr8_runtime_fn(cstring name)
         { "xlr8_jit_addr", (void *) xlr8_jit_addr },
         { "xlr8_after_sys", (void *) xlr8_after_sys },
         { "xlr8_dispatch", (void *) xlr8_dispatch },
-        { "xlr8_user_op", (void *) xlr8_user_op },
         { "xlr8_store_float_local", (void *) xlr8_store_float_local },
         { "xlr8_float_binop",       (void *) xlr8_float_binop },
         { "xlr8_push_value",      (void *) xlr8_push_value },
@@ -238,7 +237,7 @@ byte_p xlr8_resolve_impl(tok_t t, tok_t *impl_tok)
         return pc;
     }
     byte_p tp = xlr8_bytecode_start(t);
-    if (tp && *tp == runtime::op_undef)
+    if (tp && *tp == op_undef)
     {
         byte_p ucp = tp + 1;
         tok_t name = leb128<tok_t>(ucp);
@@ -255,7 +254,7 @@ byte_p xlr8_resolve_impl(tok_t t, tok_t *impl_tok)
     if (t > 0 && t < rt.tokens.size())
     {
         pc = byte_p(rt.tok(t));
-        if (pc && *pc != runtime::op_undef)
+        if (pc && *pc != op_undef)
         {
             if (impl_tok)
                 *impl_tok = t;
@@ -463,10 +462,10 @@ static uintptr_t xlr8_jit_addr_impl(uintptr_t addr)
     if (addr >= base && addr < base + code_top + 4096u)
         return addr;
 
-    auto it = rt.jit_pc_off.find(addr);
+    auto it = rt.jit_pc_off.find(byte_p(addr));
     if (it == rt.jit_pc_off.end())
     {
-        auto next = rt.jit_pc_off.lower_bound(addr);
+        auto next = rt.jit_pc_off.lower_bound(byte_p(addr));
         if (next == rt.jit_pc_off.end())
             return 0;
         it = next;
@@ -523,16 +522,6 @@ int xlr8_user_op(byte op, uintptr_t args_pc)
     runtime &rt = *xlr8_current_rt;
     rt.pc = byte_p(args_pc);
     return rt.user_operation(op) ? 1 : 0;
-}
-
-
-void xlr8_skip_user_args(byte op, byte_p &pc)
-// ----------------------------------------------------------------------------
-//   Advance the translator PC past a user opcode's inline payload
-// ----------------------------------------------------------------------------
-{
-    if (xlr8_current_rt)
-        xlr8_current_rt->skip_user_args(op, pc);
 }
 
 

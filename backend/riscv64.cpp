@@ -311,6 +311,16 @@ void riscv64::gsym_addr(uint t, uint a)
 }
 
 
+void riscv64::gsyscall(void (*target)())
+// ----------------------------------------------------------------------------
+//   Implement a syscall to the runtime
+// ----------------------------------------------------------------------------
+{
+    record(riscv64, "gsyscall(%p)", target);
+    call_abs((void *) target);
+}
+
+
 void riscv64::begin_translation()
 // ----------------------------------------------------------------------------
 //   Prime frame/flags from the runtime, then reload shadow locals
@@ -1324,12 +1334,13 @@ void riscv64::relocate(void *base)
         uint64_t addr = uint64_t(byte_p(base) + fx.target);
         patch_imm64_at(base, fx.imm_at, fx.rd, addr);
     }
-    for (abs_fixup &fx : abs_fixups)
+    for (relocation &fx : relocations)
     {
-        auto it = bc_positions.find(fx.offset);
+        byte_p bcpos = byte_p(fx.offset); // REVISIT
+        auto it = bc_positions.find(bcpos);
         if (it == bc_positions.end())
         {
-            auto next = bc_positions.lower_bound(fx.offset);
+            auto next = bc_positions.lower_bound(bcpos);
             if (next == bc_positions.end())
                 continue;
             it = next;

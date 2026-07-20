@@ -844,7 +844,7 @@ bool scanner::do_macro_definition(bool bytecode)
 
     if (bytecode)
     {
-        program += byte(runtime::op_end);
+        program += byte(op_end);
         if (!validate())
             return false;
         here.definition = rt.as_text(pgmid);
@@ -2015,7 +2015,7 @@ tok_t scanner::undef(tok_t id)
 {
     byte buffer[16];
     byte *bp = buffer;
-    bp       = leb128(bp, runtime::op_undef);
+    bp       = leb128(bp, op_undef);
     bp       = leb128(bp, id);
     return rt.tok(utf8(buffer), bp - buffer);
 }

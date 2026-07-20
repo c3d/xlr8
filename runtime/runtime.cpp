@@ -278,6 +278,8 @@ static inline float frame_float(stack_p frame, byte n)
 #define BRANCH          (pc = bpc + b)                  TRC(">%p", pc)
 #define KINT            ARG(value_t,  kint)             TRC("I%d",int (kint))
 #define KNAT            ARG(uvalue_t, knat)             TRC("N%u",uint(knat))
+#define KFLT
+#define KDBL
 #define KLEN            ARG(size_t, klen)               TRC("L%zu",size_t(klen))
 #define KSHIFT          REG(kshift)
 #define FLUSH           this->flags = flags;            \

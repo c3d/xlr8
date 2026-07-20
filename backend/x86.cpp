@@ -56,7 +56,7 @@ void x86::begin_translation()
 // ----------------------------------------------------------------------------
 {
     record(x86, "begin_translation()");
-    abs_fixups.clear();
+    relocations.clear();
     if (ptr_size() == 4)
     {
         // i386 SysV: ebx/esi/edi/ebp are callee-saved.  We keep frame in edi
@@ -96,6 +96,16 @@ void x86::finish_translation()
 {
     record(x86, "finish_translation()");
     do_ret();
+}
+
+
+void x86::gsyscall(void (*target)())
+// ----------------------------------------------------------------------------
+//   Implement a syscall to the runtime
+// ----------------------------------------------------------------------------
+{
+    record(x86, "gsyscall(%p)", target);
+    call_ptr((void *) target);
 }
 
 
@@ -330,7 +340,7 @@ size_t x86::reserve_pc_in_rax()
 }
 
 
-void x86::patch_pc_rel(size_t disp_at, uintptr_t target)
+void x86::patch_pc_rel(size_t disp_at, size_t target)
 // ----------------------------------------------------------------------------
 //   Patch reserve_pc_in_rax so rax/eax holds target after the sequence
 // ----------------------------------------------------------------------------
@@ -346,7 +356,7 @@ void x86::patch_pc_rel(size_t disp_at, uintptr_t target)
         // i386: mov eax, imm32 — target is a code-buffer offset; relocate()
         // rewrites it to base+offset once the mmap address is known.
         code().patch32(disp_at, uint32_t(target));
-        abs_fixups.push_back({ disp_at, target });
+        relocations.push_back({ disp_at, target });
     }
 }
 
@@ -359,7 +369,7 @@ void x86::relocate(void *base)
     record(x86, "relocate(%p)", base);
     if (ptr_size() != 4 || !base)
         return;
-    for (abs_fixup &fx : abs_fixups)
+    for (relocation &fx : relocations)
     {
         uint32_t abs = uint32_t(uintptr_t(byte_p(base) + fx.offset));
         code().patch32(fx.imm_at, abs);

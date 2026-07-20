@@ -161,7 +161,7 @@ int main(int argc, char **argv)
     }
 
     record(main, "XLR8 Compiler version %+s starting (%u opcodes, %zuK)",
-           XLR8_VERSION, runtime::OP_COUNT, memory / 1024);
+           XLR8_VERSION, OP_COUNT, memory / 1024);
     runtime rt(memory, argc, argv);
     bool ok = true;
     if (debug_opcode)

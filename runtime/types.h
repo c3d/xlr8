@@ -53,4 +53,14 @@ typedef uvalue_t      unicode;
 typedef void         *void_p;
 typedef const void   *kvoid_p;
 
+enum op_t : byte
+// ----------------------------------------------------------------------------
+//   Represent all the opcodes
+// ----------------------------------------------------------------------------
+{
+#define OP(op, decl, code)              op_##op,
+#include "opcodes.tbl"
+    OP_COUNT
+};
+
 #endif // TYPES_H

@@ -323,6 +323,16 @@ void arm64::gsym_addr(uint t, uint a)
 }
 
 
+void arm64::gsyscall(void (*target)())
+// ----------------------------------------------------------------------------
+//   Implement a syscall to the runtime
+// ----------------------------------------------------------------------------
+{
+    record(arm64, "gsyscall(%p)", target);
+    call_abs((void *) target);
+}
+
+
 void arm64::begin_translation()
 // ----------------------------------------------------------------------------
 //   Save invoke LR on the JIT stack, then reload shadows
@@ -1209,12 +1219,13 @@ void arm64::relocate(void *base)
     record(arm64, "relocate(%p)", base);
     (void) base;
     section &sec = code();
-    for (abs_fixup &fx : abs_fixups)
+    for (relocation &fx : relocations)
     {
-        auto it = bc_positions.find(fx.offset);
+        byte_p bcpos = byte_p(fx.offset); // REVISIT
+        auto it = bc_positions.find(bcpos);
         if (it == bc_positions.end())
         {
-            auto next = bc_positions.lower_bound(fx.offset);
+            auto next = bc_positions.lower_bound(bcpos);
             if (next == bc_positions.end())
                 continue;
             it = next;

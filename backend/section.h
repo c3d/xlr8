@@ -49,7 +49,7 @@ struct section : std::vector<byte>
         push_back(c);
     }
 
-    void append32(uint32_t c)
+    void append32le(uint32_t c)
     // ------------------------------------------------------------------------
     //   Append a 32-bit little-endian value
     // ------------------------------------------------------------------------
@@ -67,10 +67,11 @@ struct section : std::vector<byte>
     {
         if (at + 4 > size())
             return;
-        (*this)[at]     = byte(c);
-        (*this)[at + 1] = byte(c >> 8);
-        (*this)[at + 2] = byte(c >> 16);
-        (*this)[at + 3] = byte(c >> 24);
+        section &s = *this;
+        s[at]      = byte(c);
+        s[at + 1]  = byte(c >> 8);
+        s[at + 2]  = byte(c >> 16);
+        s[at + 3]  = byte(c >> 24);
     }
 
     void patch8(size_t at, byte c)
@@ -80,7 +81,8 @@ struct section : std::vector<byte>
     {
         if (at >= size())
             return;
-        (*this)[at] = c;
+        section &s = *this;
+        s[at] = c;
     }
 
     size_t allocated() const

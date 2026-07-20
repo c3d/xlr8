@@ -149,16 +149,18 @@ struct x86 : backend
 
     void begin_translation() override;
     void finish_translation() override;
+    void gsyscall(void (*target)()) override;
     size_t emit_over_callees_branch() override;
     void patch_branch_site(size_t insn_pos, size_t target_native) override;
     void relocate(void *base) override;
 
-    void emit_user(op_t op, byte_p &pc) override;
+    void emit_user(emit_args &args) override;
 
-    // All opcode emitters — implemented in x86-emit.cpp
-#define OP(op, sig) sig override;
-#include "opover.tbl"
-#undef OP
+#define OP(op, code, decl) virtual void emit_##op(emit_args &args);
+#include "opcodes.tbl"
+
+#define NATIVE(op, code, decl) virtual void emit_sys_##op(emit_args &args);
+#include "native.tbl"
 
 protected:
     static inline uint reg_value(uint r)
@@ -675,7 +677,7 @@ protected:
     void emit_set_arg1_imm(uint64_t imm);
     void emit_cleanup_call_args(uint argc);
     size_t reserve_pc_in_rax();
-    void patch_pc_rel(size_t disp_at, uintptr_t target);
+    void patch_pc_rel(size_t disp_at, size_t target);
 
     void emit_btx_imm8(uint r, byte ext, byte bit)
     // ------------------------------------------------------------------------

@@ -83,16 +83,6 @@ struct runtime
     // Evaluator function for each opcode, return true to keep going
     typedef bool (*run_fn)(runtime &rt);
 
-    enum op_t : byte
-    // ------------------------------------------------------------------------
-    //   Represent all the opcodes
-    // ------------------------------------------------------------------------
-    {
-#define OP(op, decl, code)              op_##op,
-#include "opcodes.tbl"
-        OP_COUNT
-    };
-
 #define NATIVE(op, decl, code)          static tok_t sys_##op;
 #include "native.tbl"
 
@@ -492,21 +482,6 @@ struct runtime
     }
 
 
-    void skip_user_args(byte op, byte_p &pc)
-    // ------------------------------------------------------------------------
-    //   Advance pc past inline payload of a registered user opcode
-    // ------------------------------------------------------------------------
-    {
-        if (byte(op - 128) < user_ops.size() && user_ops[byte(op - 128)])
-        {
-            while (*pc)
-                pc++;
-            if (*pc == 0)
-                pc++;
-        }
-    }
-
-
     std::ostream *iosetup(size_t index, std::ostream *output);
     std::istream *iosetup(size_t index, std::istream *input);
     // ------------------------------------------------------------------------
@@ -605,7 +580,7 @@ public:
     uintptr_t           jit_link;       // Saved native return address for -O
     void               *jit_code;       // Base of mmap'd JIT code (-O)
     size_t              jit_map_size;   // Mapped size for safe unmap after JIT
-    std::map<uintptr_t, size_t> jit_pc_off; // Bytecode PC -> native offset
+    std::map<byte_p, size_t> jit_pc_off; // Bytecode PC -> native offset
     byte_p              pc;             // Current PC
     byte_p              memory;         // Memory allocated for that runtime
     byte_p              heap;           // Top of heap (lo marker for stack)

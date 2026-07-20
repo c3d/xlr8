@@ -81,15 +81,18 @@ struct arm : backend
 
     uint gjmp(uint t) override;
     void gsym_addr(uint t, uint a) override;
+    void gsyscall(void (*target)()) override;
     void finish_translation() override;
     void begin_translation() override;
     void patch_branch_site(size_t insn_pos, size_t target_native) override;
     size_t emit_over_callees_branch() override;
-    void emit_user(op_t op, byte_p &pc) override;
+    void emit_user(emit_args &args) override;
 
-#define OP(op, sig) sig override;
-#include "opover.tbl"
-#undef OP
+#define OP(op, code, decl) virtual void emit_##op(emit_args &args);
+#include "opcodes.tbl"
+
+#define NATIVE(op, code, decl) virtual void emit_sys_##op(emit_args &args);
+#include "native.tbl"
 
 protected:
     enum hwreg_t : uint

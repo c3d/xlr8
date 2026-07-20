@@ -277,6 +277,15 @@ void arm::gsym_addr(uint t, uint a)
     }
 }
 
+void arm::gsyscall(void (*target)())
+// ----------------------------------------------------------------------------
+//   Implement a syscall to the runtime
+// ----------------------------------------------------------------------------
+{
+    record(arm, "gsyscall(%p)", target);
+    call_abs((void *) target);
+}
+
 
 void arm::begin_translation()
 // ----------------------------------------------------------------------------
