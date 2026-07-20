@@ -164,6 +164,8 @@ REAL_CMP(cmpgt, >  )
 REAL_CMP(cmple, <= )
 REAL_CMP(cmpge, >= )
 
+#undef REAL_CMP
+
 NATIVE(stack,   DST,                    DNAT = (uintptr_t) rt.stack)
 
 NATIVE(st8v,    DST SRC,        OTYPE(volatile u64, DNAT, 0) = SNAT)

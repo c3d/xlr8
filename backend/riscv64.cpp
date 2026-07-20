@@ -1643,7 +1643,6 @@ void riscv64::trap(cstring msg)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_warning, "trap(%s)", msg);
-    (void) msg;
     emit32le(ebreak_insn());
 }
 
