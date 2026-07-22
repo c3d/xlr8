@@ -62,13 +62,18 @@ struct backend
 
         ARCH_I386,
         ARCH_AMD64,
+        ARCH_AMD64_WIN,
         ARCH_ARM,
         ARCH_ARM64,
         ARCH_RISCV64,
 
         ARCH_NATIVE =
 #  if defined(__x86_64__) || defined(__amd64__)
-        ARCH_AMD64
+#    if defined(_WIN64)
+        ARCH_AMD64_WIN,
+#    else
+        ARCH_AMD64,
+#  endif
 #  elif defined(__aarch64__)
         ARCH_ARM64
 #  elif defined(__arm__)
@@ -96,17 +101,22 @@ struct backend
 
     section         &code()                     { return text_section; }
     hwcode_t         cursor() const             { return text_section.size(); }
-    auto             bytecode_positions() const { return code_offset; }
-    void             bind(tok_t t)              { labels[t] = cursor(); }
-    void             resolve_labels();
 
     bool             translate(byte_p &pc);
     void             emit8(byte c);
     void             emit32le(uint32_t c);
     void             emit32be(uint32_t c);
 
-    intptr_t         branch_offset(byte_p bytecode, hwcode_t machine);
-    uint             translate_address(byte_p source, hwcode_t target);
+    uint             translate_address(byte_p bytecode, hwcode_t hwcode);
+    intptr_t         branch_offset(byte_p bytecode, hwcode_t hwcode);
+    intptr_t         branch_offset(hwcode_t hwcode)
+    {
+        return branch_offset(translating, hwcode);
+    }
+    intptr_t         branch_offset()
+    {
+        return branch_offset(translating, cursor());
+    }
 
 
     // ========================================================================
@@ -231,7 +241,6 @@ struct backend
 
     virtual void emit_user(emit_args &args);
     virtual bool branch(emit_args &args, byte_p target);
-    virtual void patch_branch(hwcode_t data, hwcode_t tgt);
 
 protected:
     backend(arch_t arch);       // Only create backends through the factory
@@ -239,7 +248,7 @@ protected:
 
     arch_t   current_arch;
     output_t current_output;
-    bool     translating;
+    byte_p   translating;
     section  text_section;
 
     using reg_local_t = std::vector<local_t>;
@@ -247,32 +256,16 @@ protected:
     reg_local_t reg_local;
     local_reg_t local_reg;
 
-    struct translation
-    {
-        byte_p   bytecode;
-        hwcode_t machine;
-
-        bool     operator==(const translation &other) = default;
-        bool     operator!=(const translation &other) = default;
-        bool     operator< (const translation &other)
-        {
-            return bytecode < other.bytecode ||
-                (bytecode == otehr.bytecode && machine < other.machine);
-        }
-        bool operator<(byte_p bc)
-        {
-            return bytecode < bc;
-        }
-        bool operator<(hwcode_t mc)
-        {
-            return machine < mc;
-        }
-    };
+    struct translation { byte_p   bytecode; hwcode_t hwcode; };
     using translations = std::vector<translation>;
     translations functions;
     translations branches;
     translations calls;
     translations labels;
+
+    friend struct translation_compare;
+    template<typename T> static auto lower_bound(const translations &, T);
+    template<typename T> static auto equal_range(const translations &, T);
 };
 
 RECORDER_DECLARE(backend);

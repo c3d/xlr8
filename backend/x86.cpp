@@ -110,41 +110,32 @@ void x86::syscall(void (*target)())
 }
 
 
-size_t x86::skip_callees()
-// ----------------------------------------------------------------------------
-//   Emit a forward branch over callee bodies to the epilogue
-// ----------------------------------------------------------------------------
-{
-    record(x86, "skip_callees()");
-    return emit_near_jmp_rel32();
-}
-
-
-void x86::patch_branch_site(size_t insn_pos, size_t target_native)
+void x86::patch_branch(hwcode_t data, hwcode_t target)
 // ----------------------------------------------------------------------------
 //   Patch a recorded branch (rel8 or rel32) to jump to target_native
 // ----------------------------------------------------------------------------
 {
-    record(x86, "patch_branch_site(%zu, %zu)", insn_pos, target_native);
+    record(x86, "patch_branch broff=%zu target=%zu", data, target);
+
     section &sec = code();
     // Short forms return the disp8 site; opcode is the preceding byte.
-    if (insn_pos >= 1)
+    if (data >= 1)
     {
-        byte op = sec[insn_pos - 1];
+        byte op = sec[data - 1];
         if (op == 0xeb || (op & 0xf0) == 0x70)
         {
-            int32_t off = int32_t(target_native) - int32_t(insn_pos) - 1;
+            int32_t off = int32_t(target) - int32_t(data) - 1;
             if (off < -128 || off > 127)
             {
                 record(x86_error, "rel8 branch out of range off=%d", off);
                 return;
             }
-            sec.patch8(insn_pos, byte(int8_t(off)));
+            sec.patch8(data, byte(int8_t(off)));
             return;
         }
     }
-    int32_t off = int32_t(target_native) - int32_t(insn_pos) - 4;
-    sec.patch32le(insn_pos, uint32_t(off));
+    int32_t off = int32_t(target) - int32_t(data) - 4;
+    sec.patch32le(data, uint32_t(off));
 }
 
 
@@ -585,220 +576,154 @@ void x86::binop_local(byte d, byte s, cstring op)
     bool stored = false;
     load_local(d, HW_EAX);
     load_local(s, HW_ECX);
-if (!strcmp(op, "add"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_add_rr(HW_EAX, HW_ECX);
-}
+    if (!strcmp(op, "add"))
+    {
+        emit_add_rr(HW_EAX, HW_ECX);
+    }
 
-else if (!strcmp(op, "sub"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_sub_rr(HW_EAX, HW_ECX);
-}
+    else if (!strcmp(op, "sub"))
+    {
+        emit_sub_rr(HW_EAX, HW_ECX);
+    }
 
-else if (!strcmp(op, "imul"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_imul_rax_rcx();
-}
+    else if (!strcmp(op, "imul"))
+    {
+        emit_imul_rax_rcx();
+    }
 
-else if (!strcmp(op, "and"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_and_rr(HW_EAX, HW_ECX);
-}
+    else if (!strcmp(op, "and"))
+    {
+        emit_and_rr(HW_EAX, HW_ECX);
+    }
 
-else if (!strcmp(op, "or"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_or_rr(HW_EAX, HW_ECX);
-}
+    else if (!strcmp(op, "or"))
+    {
+        emit_or_rr(HW_EAX, HW_ECX);
+    }
 
-else if (!strcmp(op, "xor"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_xor_rr(HW_EAX, HW_ECX);
-}
+    else if (!strcmp(op, "xor"))
+    {
+        emit_xor_rr(HW_EAX, HW_ECX);
+    }
 
-else if (!strcmp(op, "shl"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_shift_cl(HW_EAX, 0xe0);
-}
+    else if (!strcmp(op, "shl"))
+    {
+        emit_shift_cl(HW_EAX, 0xe0);
+    }
 
-else if (!strcmp(op, "sar"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_shift_cl(HW_EAX, 0xf8);
-}
+    else if (!strcmp(op, "sar"))
+    {
+        emit_shift_cl(HW_EAX, 0xf8);
+    }
 
-else if (!strcmp(op, "shr"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_shift_cl(HW_EAX, 0xe8);
-}
+    else if (!strcmp(op, "shr"))
+    {
+        emit_shift_cl(HW_EAX, 0xe8);
+    }
 
-else if (!strcmp(op, "idiv"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_cdq();
-    emit_idiv_rcx();
-}
+    else if (!strcmp(op, "idiv"))
+    {
+        emit_cdq();
+        emit_idiv_rcx();
+    }
 
-else if (!strcmp(op, "udiv"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_xor_rdx_rdx();
-    emit_div_rcx();
-}
+    else if (!strcmp(op, "udiv"))
+    {
+        emit_xor_rdx_rdx();
+        emit_div_rcx();
+    }
 
-else if (!strcmp(op, "div"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_xor_rdx_rdx();
-    emit_div_rcx();
-}
+    else if (!strcmp(op, "div"))
+    {
+        emit_xor_rdx_rdx();
+        emit_div_rcx();
+    }
 
-else if (!strcmp(op, "idiv_mod"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_cdq();
-    emit_idiv_rcx();
-    emit_mov_rr(HW_EAX, HW_EDX);
-}
+    else if (!strcmp(op, "idiv_mod"))
+    {
+        emit_cdq();
+        emit_idiv_rcx();
+        emit_mov_rr(HW_EAX, HW_EDX);
+    }
 
-else if (!strcmp(op, "div_mod"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_xor_rdx_rdx();
-    emit_div_rcx();
-    emit_mov_rr(HW_EAX, HW_EDX);
-}
+    else if (!strcmp(op, "div_mod"))
+    {
+        emit_xor_rdx_rdx();
+        emit_div_rcx();
+        emit_mov_rr(HW_EAX, HW_EDX);
+    }
 
-else if (!strcmp(op, "fadd"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    load_float_local(d, 0);
-    load_float_local(s, 1);
-    emit_sse_scalar_op(0xf3, SSE_ADD, 0xc1);
-    store_float_local(d, 0);
-    stored = true;
-}
+    else if (!strcmp(op, "fadd"))
+    {
+        load_float_local(d, 0);
+        load_float_local(s, 1);
+        emit_sse_scalar_op(0xf3, SSE_ADD, 0xc1);
+        store_float_local(d, 0);
+        stored = true;
+    }
 
-else if (!strcmp(op, "fsub"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    load_float_local(d, 0);
-    load_float_local(s, 1);
-    emit_sse_scalar_op(0xf3, SSE_SUB, 0xc1);
-    store_float_local(d, 0);
-    stored = true;
-}
+    else if (!strcmp(op, "fsub"))
+    {
+        load_float_local(d, 0);
+        load_float_local(s, 1);
+        emit_sse_scalar_op(0xf3, SSE_SUB, 0xc1);
+        store_float_local(d, 0);
+        stored = true;
+    }
 
-else if (!strcmp(op, "fmul"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    load_float_local(d, 0);
-    load_float_local(s, 1);
-    emit_sse_scalar_op(0xf3, SSE_MUL, 0xc1);
-    store_float_local(d, 0);
-    stored = true;
-}
+    else if (!strcmp(op, "fmul"))
+    {
+        load_float_local(d, 0);
+        load_float_local(s, 1);
+        emit_sse_scalar_op(0xf3, SSE_MUL, 0xc1);
+        store_float_local(d, 0);
+        stored = true;
+    }
 
-else if (!strcmp(op, "fdiv"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    load_float_local(d, 0);
-    load_float_local(s, 1);
-    emit_sse_scalar_op(0xf3, SSE_DIV, 0xc1);
-    store_float_local(d, 0);
-    stored = true;
-}
+    else if (!strcmp(op, "fdiv"))
+    {
+        load_float_local(d, 0);
+        load_float_local(s, 1);
+        emit_sse_scalar_op(0xf3, SSE_DIV, 0xc1);
+        store_float_local(d, 0);
+        stored = true;
+    }
 
-else if (!strcmp(op, "dadd"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    load_double_local(d, 0);
-    load_double_local(s, 1);
-    emit_sse_scalar_op(0xf2, SSE_ADD, 0xc1);
-    store_double_local(d, 0);
-    stored = true;
-}
+    else if (!strcmp(op, "dadd"))
+    {
+        load_double_local(d, 0);
+        load_double_local(s, 1);
+        emit_sse_scalar_op(0xf2, SSE_ADD, 0xc1);
+        store_double_local(d, 0);
+        stored = true;
+    }
 
-else if (!strcmp(op, "dsub"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    load_double_local(d, 0);
-    load_double_local(s, 1);
-    emit_sse_scalar_op(0xf2, SSE_SUB, 0xc1);
-    store_double_local(d, 0);
-    stored = true;
-}
+    else if (!strcmp(op, "dsub"))
+    {
+        load_double_local(d, 0);
+        load_double_local(s, 1);
+        emit_sse_scalar_op(0xf2, SSE_SUB, 0xc1);
+        store_double_local(d, 0);
+        stored = true;
+    }
 
-else if (!strcmp(op, "dmul"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    load_double_local(d, 0);
-    load_double_local(s, 1);
-    emit_sse_scalar_op(0xf2, SSE_MUL, 0xc1);
-    store_double_local(d, 0);
-    stored = true;
-}
+    else if (!strcmp(op, "dmul"))
+    {
+        load_double_local(d, 0);
+        load_double_local(s, 1);
+        emit_sse_scalar_op(0xf2, SSE_MUL, 0xc1);
+        store_double_local(d, 0);
+        stored = true;
+    }
 
-else if (!strcmp(op, "ddiv"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    load_double_local(d, 0);
-    load_double_local(s, 1);
-    emit_sse_scalar_op(0xf2, SSE_DIV, 0xc1);
-    store_double_local(d, 0);
-    stored = true;
-}
+    else if (!strcmp(op, "ddiv"))
+    {
+        load_double_local(d, 0);
+        load_double_local(s, 1);
+        emit_sse_scalar_op(0xf2, SSE_DIV, 0xc1);
+        store_double_local(d, 0);
+        stored = true;
+    }
 
     if (!stored)
         store_local(HW_EAX, d);
@@ -828,119 +753,80 @@ void x86::binop_imm(byte d, value_t v, cstring op)
     }
 
     load_local(d, HW_EAX);
-if (!strcmp(op, "add"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_alu_rax_imm32(0x05, uint32_t(v));
-}
+    if (!strcmp(op, "add"))
+    {
+        emit_alu_rax_imm32(0x05, uint32_t(v));
+    }
 
-else if (!strcmp(op, "sub"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_alu_rax_imm32(0x2d, uint32_t(v));
-}
+    else if (!strcmp(op, "sub"))
+    {
+        emit_alu_rax_imm32(0x2d, uint32_t(v));
+    }
 
-else if (!strcmp(op, "imul"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_imul_rax_rax_imm32(uint32_t(v));
-}
+    else if (!strcmp(op, "imul"))
+    {
+        emit_imul_rax_rax_imm32(uint32_t(v));
+    }
 
-else if (!strcmp(op, "and"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_alu_rax_imm32(0x25, uint32_t(v));
-}
+    else if (!strcmp(op, "and"))
+    {
+        emit_alu_rax_imm32(0x25, uint32_t(v));
+    }
 
-else if (!strcmp(op, "or"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_alu_rax_imm32(0x0d, uint32_t(v));
-}
+    else if (!strcmp(op, "or"))
+    {
+        emit_alu_rax_imm32(0x0d, uint32_t(v));
+    }
 
-else if (!strcmp(op, "xor"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_alu_rax_imm32(0x35, uint32_t(v));
-}
+    else if (!strcmp(op, "xor"))
+    {
+        emit_alu_rax_imm32(0x35, uint32_t(v));
+    }
 
-else if (!strcmp(op, "shl_imm"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_shift_imm8(HW_EAX, 0xe0, byte(uint64_t(v)));
-}
+    else if (!strcmp(op, "shl_imm"))
+    {
+        emit_shift_imm8(HW_EAX, 0xe0, byte(uint64_t(v)));
+    }
 
-else if (!strcmp(op, "sar_imm"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_shift_imm8(HW_EAX, 0xf8, byte(uint64_t(v)));
-}
+    else if (!strcmp(op, "sar_imm"))
+    {
+        emit_shift_imm8(HW_EAX, 0xf8, byte(uint64_t(v)));
+    }
 
-else if (!strcmp(op, "shr_imm"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_shift_imm8(HW_EAX, 0xe8, byte(uint64_t(v)));
-}
+    else if (!strcmp(op, "shr_imm"))
+    {
+        emit_shift_imm8(HW_EAX, 0xe8, byte(uint64_t(v)));
+    }
 
-else if (!strcmp(op, "idiv_imm"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    load_hw_imm(HW_ECX, uint64_t(v));
-    emit_cdq();
-    emit_idiv_rcx();
-}
+    else if (!strcmp(op, "idiv_imm"))
+    {
+        load_hw_imm(HW_ECX, uint64_t(v));
+        emit_cdq();
+        emit_idiv_rcx();
+    }
 
-else if (!strcmp(op, "div_imm"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    load_hw_imm(HW_ECX, uint64_t(v));
-    emit_xor_rdx_rdx();
-    emit_div_rcx();
-}
+    else if (!strcmp(op, "div_imm"))
+    {
+        load_hw_imm(HW_ECX, uint64_t(v));
+        emit_xor_rdx_rdx();
+        emit_div_rcx();
+    }
 
-else if (!strcmp(op, "idiv_mod_imm"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    load_hw_imm(HW_ECX, uint64_t(v));
-    emit_cdq();
-    emit_idiv_rcx();
-    emit_mov_rr(HW_EAX, HW_EDX);
-}
+    else if (!strcmp(op, "idiv_mod_imm"))
+    {
+        load_hw_imm(HW_ECX, uint64_t(v));
+        emit_cdq();
+        emit_idiv_rcx();
+        emit_mov_rr(HW_EAX, HW_EDX);
+    }
 
-else if (!strcmp(op, "div_mod_imm"))
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    load_hw_imm(HW_ECX, uint64_t(v));
-    emit_xor_rdx_rdx();
-    emit_div_rcx();
-    emit_mov_rr(HW_EAX, HW_EDX);
-}
+    else if (!strcmp(op, "div_mod_imm"))
+    {
+        load_hw_imm(HW_ECX, uint64_t(v));
+        emit_xor_rdx_rdx();
+        emit_div_rcx();
+        emit_mov_rr(HW_EAX, HW_EDX);
+    }
 
     store_local(HW_EAX, d);
 }
@@ -1165,7 +1051,7 @@ void x86::zext_local(byte d, byte w)
 }
 
 
-void x86::store_mem(byte d, byte s, uint sz)
+void x86::store_mem(byte d, byte s, size_t sz)
 // ----------------------------------------------------------------------------
 //   Store value from local s at address in local d
 // ----------------------------------------------------------------------------
@@ -1173,71 +1059,53 @@ void x86::store_mem(byte d, byte s, uint sz)
     record(x86, "store_mem(%u, %u, %u)", d, s, sz);
     load_local(d, HW_EAX);
     load_local(s, HW_ECX);
-if (sz == 1)
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_store_u8_at_rax_cl();
-}
+    if (sz == 1)
+    {
+        emit_store_u8_at_rax_cl();
+    }
 
-else if (sz == 2)
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_store_u16_at_rax_rcx();
-}
+    else if (sz == 2)
+    {
+        emit_store_u16_at_rax_rcx();
+    }
 
-else if (sz == 4)
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_store_u32_at_rax_rcx();
-}
+    else if (sz == 4)
+    {
+        emit_store_u32_at_rax_rcx();
+    }
 
     else { emit_rex_modrm(1, HW_ECX, HW_EAX, HW_EAX, 0x89); }
 }
 
 
-void x86::load_mem(byte d, byte s, uint sz)
+void x86::load_mem(byte d, byte s, size_t sz)
 // ----------------------------------------------------------------------------
 //   Load from address in local s into local d
 // ----------------------------------------------------------------------------
 {
     record(x86, "load_mem(%u, %u, %u)", d, s, sz);
     load_local(s, HW_EAX);
-if (sz == 1)
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_load_u8_zext_rax();
-}
+    if (sz == 1)
+    {
+        emit_load_u8_zext_rax();
+    }
 
-else if (sz == 2)
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_load_u16_zext_rax();
-}
+    else if (sz == 2)
+    {
+        emit_load_u16_zext_rax();
+    }
 
-else if (sz == 4)
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_load_u32_rax();
-}
+    else if (sz == 4)
+    {
+        emit_load_u32_rax();
+    }
 
     else { emit_rex_modrm(1, HW_EAX, HW_EAX, HW_EAX, 0x8b); }
     store_local(HW_EAX, d);
 }
 
 
-void x86::store_mem_off(byte d, byte s, value_t o, uint sz)
+void x86::store_mem_off(byte d, byte s, value_t o, size_t sz)
 // ----------------------------------------------------------------------------
 //   Store value from local s at address in local d plus offset
 // ----------------------------------------------------------------------------
@@ -1250,35 +1118,26 @@ void x86::store_mem_off(byte d, byte s, value_t o, uint sz)
         emit_add_rr(HW_EAX, HW_EDX);
     }
     load_local(s, HW_ECX);
-if (sz == 1)
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_store_u8_at_rax_cl();
-}
+    if (sz == 1)
+    {
+        emit_store_u8_at_rax_cl();
+    }
 
-else if (sz == 2)
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_store_u16_at_rax_rcx();
-}
+    else if (sz == 2)
+    {
+        emit_store_u16_at_rax_rcx();
+    }
 
-else if (sz == 4)
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_store_u32_at_rax_rcx();
-}
+    else if (sz == 4)
+    {
+        emit_store_u32_at_rax_rcx();
+    }
 
     else { emit_rex_modrm(1, HW_ECX, HW_EAX, HW_EAX, 0x89); }
 }
 
 
-void x86::load_mem_off(byte d, byte s, value_t o, uint sz)
+void x86::load_mem_off(byte d, byte s, value_t o, size_t sz)
 // ----------------------------------------------------------------------------
 //   Load from address in local s plus offset into local d
 // ----------------------------------------------------------------------------
@@ -1290,29 +1149,20 @@ void x86::load_mem_off(byte d, byte s, value_t o, uint sz)
         load_hw_imm(HW_ECX, uint64_t(o));
         emit_add_rr(HW_EAX, HW_ECX);
     }
-if (sz == 1)
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_load_u8_zext_rax();
-}
+    if (sz == 1)
+    {
+        emit_load_u8_zext_rax();
+    }
 
-else if (sz == 2)
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_load_u16_zext_rax();
-}
+    else if (sz == 2)
+    {
+        emit_load_u16_zext_rax();
+    }
 
-else if (sz == 4)
-// ----------------------------------------------------------------------------
-//   If
-// ----------------------------------------------------------------------------
-{
-    emit_load_u32_rax();
-}
+    else if (sz == 4)
+    {
+        emit_load_u32_rax();
+    }
 
     else { emit_rex_modrm(1, HW_EAX, HW_EAX, HW_EAX, 0x8b); }
     store_local(HW_EAX, d);
@@ -1335,7 +1185,7 @@ void x86::load_signext_mem(byte w)
         emit_rex_modrm(1, HW_EAX, HW_EAX, HW_EAX, 0x8b);
     else
     {
-        uint sz = (w + 7) / 8;
+        size_t sz = (w + 7) / 8;
         if (sz == 1)
             emit_load_u8_zext_rax();
         else if (sz == 2)

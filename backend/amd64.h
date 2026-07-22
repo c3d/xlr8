@@ -65,106 +65,13 @@ struct amd64 : x86
 //   64-bit x86 code generator
 // ----------------------------------------------------------------------------
 {
-    static backend *make()              { return new amd64; }
+    static backend *make(arch_t arch)           { return new amd64(arch); }
 
-    amd64(): x86(ARCH_AMD64) { }
+    amd64(arch_t arch): x86(arch) { }
 
 protected:
-    enum hwreg_t : ::hwreg_t
-    {
-        HW_RAX,
-        HW_RCX,
-        HW_RDX,
-        HW_RBX,
-        HW_RSP,
-        HW_RBP,
-        HW_RSI,
-        HW_RDI,
-        HW_R8,
-        HW_R9,
-        HW_R10,
-        HW_R11,
-        HW_R12,
-        HW_R13,
-        HW_R14,
-        HW_R15,
-        HW_XMM0,
-        HW_XMM1,
-        HW_XMM2,
-        HW_XMM3,
-        HW_XMM4,
-        HW_XMM5,
-        HW_XMM6,
-        HW_XMM7,
-        HW_XMM8,
-        HW_XMM9,
-        HW_XMM10,
-        HW_XMM11,
-        HW_XMM12,
-        HW_XMM13,
-        HW_XMM14,
-        HW_COUNT,
-
-        HW_FRAME   = HW_R12, // rt.frame — see regmap.h
-        HW_FLAGS   = HW_R15, // rt.flags (64-bit predicates)
-        HW_SCRATCH = HW_R11, // general scratch (swap, etc.)
-    };
-
-    uint hw_arg0() const
-    // ------------------------------------------------------------------------
-    //   First integer C-helper argument register (SysV rdi / Win64 rcx)
-    // ------------------------------------------------------------------------
-    {
-        return win64_abi() ? HW_RCX : HW_RDI;
-    }
-
-    uint hw_arg1() const
-    // ------------------------------------------------------------------------
-    //   Second integer C-helper argument register (SysV rsi / Win64 rdx)
-    // ------------------------------------------------------------------------
-    {
-        return win64_abi() ? HW_RDX : HW_RSI;
-    }
-
-    uint registers() const override    { return 25; }
-    uint pointer_size() const override   { return 8; }
-
-    uint jump(uint t) override
-    // ------------------------------------------------------------------------
-    //   Emit jump with deferred fixup chain
-    // ------------------------------------------------------------------------
-    {
-        emit8(0xe9);
-        uint pos = uint(cursor());
-        emit32le(t);
-        return pos;
-    }
-
-    void resolve_jump(uint t, size_t a) override
-    // ------------------------------------------------------------------------
-    //   Patch pending jumps to address a
-    // ------------------------------------------------------------------------
-    {
-        section &sec = code();
-        while (t)
-        {
-            uint n = t;
-            uint32_t next = 0;
-            if (n + 4 <= sec.size())
-            {
-                next = uint32_t(sec[n])
-                     | (uint32_t(sec[n + 1]) << 8)
-                     | (uint32_t(sec[n + 2]) << 16)
-                     | (uint32_t(sec[n + 3]) << 24);
-            }
-            int32_t offset = int32_t(a) - int32_t(n) - 4;
-            sec.patch32le(n, uint32_t(offset));
-            t = next;
-        }
-    }
-
-    void            do_prologue();
-    void            do_ret();
+    void            do_prologue()       override;
+    void            do_ret()            override;
 };
 
 RECORDER_DECLARE(amd64);

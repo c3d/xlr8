@@ -96,9 +96,13 @@ bool backend::set_options(cstring options)
         std::string token = opt.substr(start, pos - start);
 
         if (token == "-v" || token == "--verbose")
+        {
             verbose = true;
+        }
         else if (token == "-nostdlib")
-            { /* reserved for future link options */ }
+        {
+            /* reserved for future link options */
+        }
         else if (token == "-m32")
         {
             if (current_arch != ARCH_I386)
@@ -106,7 +110,7 @@ bool backend::set_options(cstring options)
         }
         else if (token == "-m64")
         {
-            if (current_arch != ARCH_AMD64)
+            if (current_arch != ARCH_AMD64 && current_arch != ARCH_AMD64_WIN)
                 return false;
         }
         else if (token == "-marm" || token == "-marm32")
@@ -125,13 +129,21 @@ bool backend::set_options(cstring options)
                 return false;
         }
         else if (token == "-r" || token == "-c")
+        {
             set_output(OUTPUT_OBJ);
+        }
         else if (token == "-shared")
+        {
             set_output(OUTPUT_DLL);
+        }
         else if (token.substr(0, 2) == "-O")
-            { /* optimization level - reserved */ }
+        {
+            /* optimization level - reserved */
+        }
         else
+        {
             return false;
+        }
     }
 
     if (verbose)
@@ -178,7 +190,57 @@ void backend::emit32be(uint32_t c)
 }
 
 
-intptr_t backend::branch_offset(byte_p bytecode, hwcode_t machine)
+struct translation_compare
+// ----------------------------------------------------------------------------
+//   Comparator for translations based on bytecode, hwcode or lexicographic
+// ----------------------------------------------------------------------------
+{
+    bool operator()(const backend::translation &t, byte_p bc)
+    {
+        return t.bytecode < bc;
+    }
+    bool operator()(byte_p bc, const backend::translation &t)
+    {
+        return bc < t.bytecode;
+    }
+    bool operator()(const backend::translation &t, hwcode_t mc)
+    {
+        return t.hwcode < mc;
+    }
+    bool operator()(hwcode_t mc, const backend::translation &t)
+    {
+        return mc < t.hwcode;
+    }
+    bool operator()(const backend::translation &t1,
+                    const backend::translation &t2)
+    {
+        return (t1.bytecode < t2.bytecode ||
+                (t1.bytecode == t2.bytecode && t1.hwcode < t2.hwcode));
+    }
+};
+
+
+template<typename T>
+auto backend::lower_bound(const translations &t, T v)
+// ----------------------------------------------------------------------------
+//   Find the lower bound by bytecode
+// ----------------------------------------------------------------------------
+{
+    return std::lower_bound(t.begin(), t.end(), v, translation_compare{});
+}
+
+
+template<typename T>
+auto backend::equal_range(const translations &t, T v)
+// ----------------------------------------------------------------------------
+//   Find the lower bound by bytecode
+// ----------------------------------------------------------------------------
+{
+    return std::equal_range(t.begin(), t.end(), v, translation_compare{});
+}
+
+
+intptr_t backend::branch_offset(byte_p bytecode, hwcode_t hwcode)
 // ----------------------------------------------------------------------------
 //  Record that we have a branch, mapping bytecode to machine code
 // ----------------------------------------------------------------------------
@@ -187,40 +249,44 @@ intptr_t backend::branch_offset(byte_p bytecode, hwcode_t machine)
     byte_p  bpc    = bytecode;
     broff_t offset = leb128<broff_t>(bpc);
     byte_p  target = bytecode + offset;
-    auto    label  = std::lower_bound(labels.begin(), labels.end(), target);
+    auto    label  = lower_bound(labels, target);
 
     // If it already exists, return the offset to the label
-    if (label != labels.end() && label->machine == target)
-        return target - machine;
+    if (label != labels.end() && label->bytecode == target)
+        return label->hwcode - hwcode;
 
     // If it does not, add it to the list of branches to patch
-    translation bt = { target, machine };
-    auto branch = std::lower_bound(branches.begin(), branches.end(), bt);
-    if (branch == branches.end() || *branch != bt)
+    translation bt = { target, hwcode };
+    auto branch = lower_bound(branches, bt);
+    if (branch == branches.end() ||
+        branch->bytecode != target || branch->hwcode != hwcode)
         branches.insert(branch, bt);
     return 0;
 }
 
 
-uint backend::translate_address(byte_p bytecode, hwcode_t machine)
+uint backend::translate_address(byte_p bytecode, hwcode_t hwcode)
 // ----------------------------------------------------------------------------
 //   Add an address translation, resolve labels if necessary
 // ----------------------------------------------------------------------------
 {
     uint count = 0;
 
+    // Record what we are currently translating
+    translating = bytecode;
+
     // Check if there are branches that need patching
-    auto range = std::equal_range(branches.begin(), branches.end(), machine);
+    auto range = equal_range(branches, hwcode);
     for (auto b = range.first; b != range.second; ++b)
     {
-        patch_branch(b->machine, machine);
+        patch_branch(b->hwcode, hwcode);
         count++;
     }
     if (count)
         branches.erase(range.first, range.second);
 
     // Record the mapping from bytecode to machine code for future branches
-    labels.emplace_back({ bytecode, machine });
+    labels.emplace_back(translation{bytecode, hwcode});
 
     return count;
 }
@@ -261,7 +327,7 @@ bool backend::translate(byte_p pc, byte_p end)
 {
     record(backend, "translate subroutine %p..%p", pc, end);
 
-    emit_args args(pc);
+    emit_args args(pc, end);
     while (pc < end && !args.error)
     {
         // Insert translation in address map
@@ -371,8 +437,8 @@ bool backend::branch(emit_args &args, byte_p target)
     record(backend, "branch %p to %p", args.pc, target);
 
     // Check if we already dealt with that code
-    auto label = std::lower_bound(labels.begin(), labels.end(), target);
-    if (label == labels.end() || label->machine != target)
+    auto label = lower_bound(labels, target);
+    if (label == labels.end() || label->bytecode != target)
     {
         // Label was not translated yet (e.g. forward branch):
         // Translate that instruction next
@@ -388,7 +454,7 @@ bool backend::branch(emit_args &args, byte_p target)
     {
         record(backend,
                "Picking up branch %p at offset %u",
-               branch->bytecode, branch->machine);
+               branch->bytecode, branch->hwcode);
         args.pc = branch->bytecode;
         return false;
     }
@@ -413,71 +479,6 @@ bool backend::branch(emit_args &args, byte_p target)
 }
 
 
-void backend::resolve_labels()
-// ----------------------------------------------------------------------------
-//   Patch token-based jumps once all labels are known
-// ----------------------------------------------------------------------------
-{
-    record(backend, "resolve_labels()");
-    for (auto &entry : tok_jumps)
-    {
-        size_t native = 0;
-        auto it = labels.find(entry.first);
-        if (it != labels.end())
-            native = it->second;
-        else
-        {
-            tok_t impl_tok = entry.first;
-            byte_p target = xlr8_resolve_impl(entry.first, &impl_tok);
-            if (target)
-            {
-                auto bc = code_offset.find(target);
-                if (bc != code_offset.end())
-                    native = bc->second;
-            }
-        }
-        if (!native)
-        {
-            record(backend_warning, "tok_jump miss token=%llu site=%u",
-                   entry.first, entry.second);
-            continue;
-        }
-        record(backend, "patching tok_jump token=%llu site=%u -> native=%zu",
-               entry.first, entry.second, native);
-        resolve_jump(entry.second, uint(native));
-    }
-
-    for (branch_fixup &fx : branch_fixups)
-    {
-        if (!code_offset.count(fx.target))
-        {
-            if (!fx.target)
-            {
-                record(backend_warning,
-                       "branch_fixup skip null target insn_pos=%zu",
-                       fx.insn_pos);
-                continue;
-            }
-            ensure_branch_target_translated(fx.target);
-        }
-        auto it = code_offset.find(fx.target);
-        if (it == code_offset.end())
-        {
-            auto next = code_offset.lower_bound(fx.target);
-            if (next != code_offset.end())
-                it = next;
-        }
-        if (it == code_offset.end())
-        {
-            record(backend_warning, "branch_fixup miss target=%p insn_pos=%zu",
-                   (void *) fx.target, fx.insn_pos);
-            continue;
-        }
-        record(backend, "patching branch insn_pos=%zu -> native=%zu",
-               fx.insn_pos, it->second);
-        patch_branch_site(fx.insn_pos, it->second);
-    }
-}
 
 
 
@@ -629,7 +630,7 @@ size_t backend::frame_size(size_t slots)
 
 #include "arm.h"
 #include "arm64.h"
-#include "i386.h"
+#include "x86.h"
 #include "amd64.h"
 #include "riscv64.h"
 
@@ -640,15 +641,16 @@ backend *backend::make(arch_t arch)
 {
     switch (arch)
     {
-    case ARCH_I386:     return x86::make();
-    case ARCH_AMD64:    return amd64::make();
-    case ARCH_ARM:      return arm::make();
-    case ARCH_ARM64:    return arm64::make();
-    case ARCH_RISCV64:  return riscv64::make();
+    case ARCH_I386:             return x86::make();
+    case ARCH_AMD64:
+    case ARCH_AMD64_WIN:        return amd64::make(arch);
+    case ARCH_ARM:              return arm::make();
+    case ARCH_ARM64:            return arm64::make();
+    case ARCH_RISCV64:          return riscv64::make();
     default:
         record(backend_error, "Unknown arch %u, defaulting to AMD64", arch);
     }
-    return amd64::make();
+    return amd64::make(ARCH_AMD64);
 }
 
 
@@ -661,6 +663,7 @@ cstring backend::arch_name(arch_t arch)
     {
     case ARCH_I386:     return "i386";
     case ARCH_AMD64:    return "amd64";
+    case ARCH_AMD64_WIN:return "amd64_windows";
     case ARCH_ARM:      return "arm";
     case ARCH_ARM64:    return "arm64";
     case ARCH_RISCV64:  return "riscv64";
