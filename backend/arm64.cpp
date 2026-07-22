@@ -97,31 +97,22 @@ cstring arm64::machine_defs() const
     return "__aarch64__\0__arm64__\0";
 }
 
-uint arm64::nb_regs() const
+uint arm64::registers() const
 // ----------------------------------------------------------------------------
 //   Return number of bytecode registers
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "nb_regs()");
+    record(arm64, "registers()");
     return 28;
 }
 
-uint arm64::ptr_size() const
+uint arm64::pointer_size() const
 // ----------------------------------------------------------------------------
 //   Return pointer size in bytes
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "ptr_size()");
+    record(arm64, "pointer_size()");
     return 8;
-}
-
-uint arm64::reg_iret() const
-// ----------------------------------------------------------------------------
-//   Return integer return-value register index
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "reg_iret()");
-    return 0;
 }
 
 void arm64::load_imm64(uint r, uint64_t v)
@@ -256,28 +247,6 @@ void arm64::reload_frame_reg()
 }
 
 
-void arm64::reload_shadows(void)
-// ----------------------------------------------------------------------------
-//   Reload shadowed bytecode locals from the runtime frame after a syscall
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "reload_shadows()");
-    restore_frame_ptr();
-    runtime *rt = xlr8_get_runtime();
-    if (!rt || !rt->frame)
-        return;
-
-    byte locals = byte(rt->frame[-1]);
-    if (!locals)
-        locals = byte(rt->CALL_CLOBBERED_REGS);
-    if (locals > LOC_SHADOW_COUNT)
-        locals = LOC_SHADOW_COUNT;
-
-    for (uint r = 0; r < locals; r++)
-        emit32le(ldr_off(xreg(byte(r)), HW_FRAME, r));
-}
-
-
 void arm64::reload_flags_reg()
 // ----------------------------------------------------------------------------
 //   Reload x22 from runtime flags after xlr8_leave
@@ -289,46 +258,46 @@ void arm64::reload_flags_reg()
 }
 
 
-uint arm64::gjmp(uint t)
+uint arm64::jump(uint t)
 // ----------------------------------------------------------------------------
 //   Emit jump with deferred fixup chain (placeholder holds previous head)
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "gjmp(%u)", t);
+    record(arm64, "jump(%u)", t);
     uint pos = uint(cursor());
     emit32le(b_imm(0));
-    gjmp_chain[pos] = t;
+    jump_chain[pos] = t;
     return pos;
 }
 
-void arm64::gsym_addr(uint t, uint a)
+void arm64::resolve_jump(uint t, uint a)
 // ----------------------------------------------------------------------------
 //   Patch pending jumps to address a
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "gsym_addr(%u, %u)", t, a);
+    record(arm64, "resolve_jump(%u, %u)", t, a);
     section &sec = code();
     while (t)
     {
         uint n = t;
         uint next = 0;
-        auto it = gjmp_chain.find(n);
-        if (it != gjmp_chain.end())
+        auto it = jump_chain.find(n);
+        if (it != jump_chain.end())
             next = it->second;
         int32_t offset = (int32_t(a) - int32_t(n)) / 4;
-        record(arm64, "gsym_addr patch site=%u next=%u offset=%d", n, next, offset);
-        sec.patch32(n, b_imm(offset));
+        record(arm64, "resolve_jump patch site=%u next=%u offset=%d", n, next, offset);
+        sec.patch32le(n, b_imm(offset));
         t = next;
     }
 }
 
 
-void arm64::gsyscall(void (*target)())
+void arm64::syscall(void (*target)())
 // ----------------------------------------------------------------------------
 //   Implement a syscall to the runtime
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "gsyscall(%p)", target);
+    record(arm64, "syscall(%p)", target);
     call_abs((void *) target);
 }
 
@@ -342,7 +311,6 @@ void arm64::begin_translation()
     frame_memory_touched = false;
     emit32le(stp_push(30));
     emit32le(mov_rr(HW_ANCHOR, HW_FRAME));
-    reload_shadows();
 }
 
 
@@ -699,7 +667,7 @@ void arm64::set_pred_cmp(byte p, byte cond)
     load_imm64(HW_SCR_ADDR, 1ULL << p);
     emit32le(orr_rrr(HW_FLAGS, HW_FLAGS, HW_SCR_ADDR));
     int off = int((cursor() - cbz_pos) / 4);
-    code().patch32(cbz_pos, cbz_imm(HW_SCR_VAL, off));
+    code().patch32le(cbz_pos, cbz_imm(HW_SCR_VAL, off));
 }
 
 
@@ -747,7 +715,7 @@ void arm64::cond_mov_local(byte p, byte d, byte s)
     emit32le(cbz_imm(HW_SCR_VAL, 0));
     mov_local(d, s);
     int off = int((cursor() - cbz_pos) / 4);
-    code().patch32(cbz_pos, cbz_imm(HW_SCR_VAL, off));
+    code().patch32le(cbz_pos, cbz_imm(HW_SCR_VAL, off));
 }
 
 void arm64::select_local(byte p, byte d, byte s, byte x)
@@ -763,9 +731,9 @@ void arm64::select_local(byte p, byte d, byte s, byte x)
     mov_local(d, s);
     size_t b_pos = cursor();
     emit32le(b_imm(0));
-    code().patch32(cbz_pos, cbz_imm(HW_SCR_VAL, int((cursor() - cbz_pos) / 4)));
+    code().patch32le(cbz_pos, cbz_imm(HW_SCR_VAL, int((cursor() - cbz_pos) / 4)));
     mov_local(d, x);
-    code().patch32(b_pos, b_imm(int((cursor() - b_pos) / 4)));
+    code().patch32le(b_pos, b_imm(int((cursor() - b_pos) / 4)));
 }
 
 void arm64::neg_local(byte d)
@@ -1114,7 +1082,7 @@ void arm64::patch_branch_site(size_t insn_pos, size_t target_native)
         uint bit = ((insn >> 26) & 0x20u) | ((insn >> 19) & 0x1fu);
         insn = tbnz_imm(rt, bit, off);
     }
-    code().patch32(insn_pos, insn);
+    code().patch32le(insn_pos, insn);
 }
 
 
@@ -1178,7 +1146,7 @@ void arm64::jmp_tok(tok_t t)
 {
     record(arm64, "jmp_tok(%llu)", t);
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
-    uint pos = gjmp(head);
+    uint pos = jump(head);
     record_tok_jump(t, pos);
 }
 
@@ -1188,26 +1156,26 @@ void arm64::patch_imm64_at(void *mem, size_t at, uint r, uint64_t v)
 // ----------------------------------------------------------------------------
 {
     static const uint32_t nop = 0xd503201fu;
-    auto patch32 = [&](size_t off, uint32_t insn)
+    auto patch32le = [&](size_t off, uint32_t insn)
     {
-        code().patch32(off, insn);
+        code().patch32le(off, insn);
         if (mem)
             memcpy((void *) ((byte_p) mem + off), &insn, sizeof(insn));
     };
-    patch32(at, movz(r, uint32_t(v) & 0xffffu));
+    patch32le(at, movz(r, uint32_t(v) & 0xffffu));
     at += 4;
     if ((v >> 16) & 0xffffu)
-        patch32(at, movk(r, uint32_t(v >> 16), 16));
+        patch32le(at, movk(r, uint32_t(v >> 16), 16));
     else
-        patch32(at, nop);
+        patch32le(at, nop);
     at += 4;
     if ((v >> 32) & 0xffffu)
-        patch32(at, movk(r, uint32_t(v >> 32), 32));
+        patch32le(at, movk(r, uint32_t(v >> 32), 32));
     else
-        patch32(at, nop);
+        patch32le(at, nop);
     at += 4;
     if ((v >> 48) & 0xffffu)
-        patch32(at, movk(r, uint32_t(v >> 48), 48));
+        patch32le(at, movk(r, uint32_t(v >> 48), 48));
 }
 
 
@@ -1222,11 +1190,11 @@ void arm64::relocate(void *base)
     for (relocation &fx : relocations)
     {
         byte_p bcpos = byte_p(fx.offset); // REVISIT
-        auto it = bc_positions.find(bcpos);
-        if (it == bc_positions.end())
+        auto it = code_offset.find(bcpos);
+        if (it == code_offset.end())
         {
-            auto next = bc_positions.lower_bound(bcpos);
-            if (next == bc_positions.end())
+            auto next = code_offset.lower_bound(bcpos);
+            if (next == code_offset.end())
                 continue;
             it = next;
         }
@@ -1236,7 +1204,7 @@ void arm64::relocate(void *base)
                       | (uint32_t(sec[fx.imm_at + 2]) << 16)
                       | (uint32_t(sec[fx.imm_at + 3]) << 24);
         uint rd = insn & 0x1fu;
-        sec.patch32(fx.imm_at, adr(rd, off));
+        sec.patch32le(fx.imm_at, adr(rd, off));
         if (base)
         {
             uint32_t patched = adr(rd, off);
@@ -1246,12 +1214,12 @@ void arm64::relocate(void *base)
 }
 
 
-size_t arm64::emit_over_callees_branch()
+size_t arm64::skip_callees()
 // ----------------------------------------------------------------------------
 //   Emit a forward branch over callee bodies to the epilogue
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "emit_over_callees_branch()");
+    record(arm64, "skip_callees()");
     size_t pos = cursor();
     emit32le(b_imm(0));
     return pos;
@@ -1271,12 +1239,11 @@ void arm64::call_tok(tok_t t)
     emit32le(mov_rr(0, HW_SCR_VAL));
     rtcall("xlr8_push_value");
     rtcall("xlr8_sync_args");
-    reload_shadows();
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
-    uint pos = gjmp(head);
+    uint pos = jump(head);
     record_tok_jump(t, pos);
     int off = int(pos + 4) - int(adr_at);
-    code().patch32(adr_at, adr(HW_SCR_VAL, off));
+    code().patch32le(adr_at, adr(HW_SCR_VAL, off));
 }
 
 void arm64::br_via_ip()
@@ -1286,7 +1253,6 @@ void arm64::br_via_ip()
 {
     record(arm64, "br_via_ip()");
     emit32le(mov_rr(HW_IP, 0));
-    reload_shadows();
     emit32le(br(HW_IP));
 }
 
@@ -1314,15 +1280,13 @@ void arm64::icall_local(byte s)
     emit32le(mov_rr(0, HW_SCR_VAL));
     rtcall("xlr8_push_value");
     rtcall("xlr8_sync_args");
-    reload_shadows();
     load_local(s, 0);
     rtcall("xlr8_jit_addr");
     emit32le(mov_rr(HW_IP, 0));
-    reload_shadows();
     size_t blr_at = cursor();
     emit32le(blr(HW_IP));
     int off = int(blr_at + 4) - int(adr_at);
-    code().patch32(adr_at, adr(HW_SCR_VAL, off));
+    code().patch32le(adr_at, adr(HW_SCR_VAL, off));
 }
 
 void arm64::push_pc()
@@ -1334,7 +1298,6 @@ void arm64::push_pc()
     spill_frame();
     emit32le(adr(0, 0));
     rtcall("xlr8_push_value");
-    reload_shadows();
     spill_arg_regs = true;
 }
 
@@ -1379,7 +1342,6 @@ void arm64::get_arg(byte d, byte s)
     load_imm64(0, uint64_t(d));
     load_imm64(1, uint64_t(s));
     rtcall("xlr8_get_arg");
-    reload_shadows();
     touch_local(d);
 }
 
@@ -1408,7 +1370,6 @@ void arm64::push_local(byte s)
     else
         emit32le(ldr_off(0, HW_FRAME, s));
     rtcall("xlr8_push_value");
-    reload_shadows();
     spill_arg_regs = true;
 }
 
@@ -1471,7 +1432,6 @@ void arm64::store_global(byte d, byte s)
     load_imm64(0, uint64_t(d));
     load_imm64(1, uint64_t(s));
     rtcall("xlr8_store_global");
-    reload_shadows();
 }
 
 void arm64::load_global(byte d, byte s)
@@ -1484,7 +1444,6 @@ void arm64::load_global(byte d, byte s)
     load_imm64(0, uint64_t(d));
     load_imm64(1, uint64_t(s));
     rtcall("xlr8_load_global");
-    reload_shadows();
     touch_local(d);
 }
 

@@ -27,8 +27,10 @@
 //   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // ****************************************************************************
 
+#define EMIT(op)        void arm64::emit_##op(emit_args &e)
 
-void arm64::emit_null(emit_args &e)
+
+EMIT(null)
 // ----------------------------------------------------------------------------
 //   Null opcode in inline data: skip during translation (no native code)
 // ----------------------------------------------------------------------------
@@ -37,7 +39,7 @@ void arm64::emit_null(emit_args &e)
 }
 
 
-void arm64::emit_undef(emit_args &e)
+EMIT(undef)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the undef opcode
 // ----------------------------------------------------------------------------
@@ -47,7 +49,7 @@ void arm64::emit_undef(emit_args &e)
 }
 
 
-void arm64::emit_end(emit_args &e)
+EMIT(end)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the undef opcode
 // ----------------------------------------------------------------------------
@@ -57,7 +59,7 @@ void arm64::emit_end(emit_args &e)
 }
 
 
-void arm64::emit_ret(emit_args &e)
+EMIT(ret)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ret opcode
 // ----------------------------------------------------------------------------
@@ -65,12 +67,11 @@ void arm64::emit_ret(emit_args &e)
     record(arm64_ops, "emit_ret()");
     rtcall("xlr8_pop_value");
     emit32le(mov_rr(HW_SCR_VAL, 0));
-    reload_shadows();
     emit32le(br(HW_SCR_VAL));
 }
 
 
-void arm64::emit_user(emit_args &e)
+EMIT(user)
 // ----------------------------------------------------------------------------
 //   Emit a user-defined opcode (128..255, or registered low opcodes)
 // ----------------------------------------------------------------------------
@@ -81,10 +82,9 @@ void arm64::emit_user(emit_args &e)
     load_imm64(0, uint64_t(e.op));
     load_imm64(1, uint64_t(uintptr_t(user_args)));
     rtcall("xlr8_user_op");
-    reload_shadows();
 }
 
-void arm64::emit_int(emit_args &e)
+EMIT(int)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the int opcode
 // ----------------------------------------------------------------------------
@@ -94,7 +94,7 @@ void arm64::emit_int(emit_args &e)
 }
 
 
-void arm64::emit_nat(emit_args &e)
+EMIT(nat)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the nat opcode
 // ----------------------------------------------------------------------------
@@ -104,7 +104,7 @@ void arm64::emit_nat(emit_args &e)
 }
 
 
-void arm64::emit_flt(emit_args &e)
+EMIT(flt)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the flt opcode
 // ----------------------------------------------------------------------------
@@ -114,7 +114,7 @@ void arm64::emit_flt(emit_args &e)
 }
 
 
-void arm64::emit_dbl(emit_args &e)
+EMIT(dbl)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the dbl opcode
 // ----------------------------------------------------------------------------
@@ -124,7 +124,7 @@ void arm64::emit_dbl(emit_args &e)
 }
 
 
-void arm64::emit_txt(emit_args &e)
+EMIT(txt)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the txt opcode
 // ----------------------------------------------------------------------------
@@ -134,7 +134,7 @@ void arm64::emit_txt(emit_args &e)
 }
 
 
-void arm64::emit_copy(emit_args &e)
+EMIT(copy)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the copy opcode
 // ----------------------------------------------------------------------------
@@ -144,7 +144,7 @@ void arm64::emit_copy(emit_args &e)
 }
 
 
-void arm64::emit_swap(emit_args &e)
+EMIT(swap)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the swap opcode
 // ----------------------------------------------------------------------------
@@ -154,7 +154,7 @@ void arm64::emit_swap(emit_args &e)
 }
 
 
-void arm64::emit_ccopy(emit_args &e)
+EMIT(ccopy)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ccopy opcode
 // ----------------------------------------------------------------------------
@@ -164,7 +164,7 @@ void arm64::emit_ccopy(emit_args &e)
 }
 
 
-void arm64::emit_select(emit_args &e)
+EMIT(select)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the select opcode
 // ----------------------------------------------------------------------------
@@ -174,7 +174,7 @@ void arm64::emit_select(emit_args &e)
 }
 
 
-void arm64::emit_jmp(emit_args &e)
+EMIT(jmp)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the jmp opcode
 // ----------------------------------------------------------------------------
@@ -184,7 +184,7 @@ void arm64::emit_jmp(emit_args &e)
 }
 
 
-void arm64::emit_call(emit_args &e)
+EMIT(call)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the call opcode
 // ----------------------------------------------------------------------------
@@ -194,7 +194,7 @@ void arm64::emit_call(emit_args &e)
 }
 
 
-void arm64::emit_ijmp(emit_args &e)
+EMIT(ijmp)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ijmp opcode
 // ----------------------------------------------------------------------------
@@ -204,7 +204,7 @@ void arm64::emit_ijmp(emit_args &e)
 }
 
 
-void arm64::emit_icall(emit_args &e)
+EMIT(icall)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the icall opcode
 // ----------------------------------------------------------------------------
@@ -214,7 +214,7 @@ void arm64::emit_icall(emit_args &e)
 }
 
 
-void arm64::emit_ppc(emit_args &e)
+EMIT(ppc)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ppc opcode
 // ----------------------------------------------------------------------------
@@ -224,7 +224,7 @@ void arm64::emit_ppc(emit_args &e)
 }
 
 
-void arm64::emit_pc(emit_args &e)
+EMIT(pc)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the pc opcode
 // ----------------------------------------------------------------------------
@@ -234,7 +234,7 @@ void arm64::emit_pc(emit_args &e)
 }
 
 
-void arm64::emit_pca(emit_args &e)
+EMIT(pca)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the pca opcode
 // ----------------------------------------------------------------------------
@@ -244,7 +244,7 @@ void arm64::emit_pca(emit_args &e)
 }
 
 
-void arm64::emit_enter(emit_args &e)
+EMIT(enter)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the enter opcode
 // ----------------------------------------------------------------------------
@@ -256,11 +256,10 @@ void arm64::emit_enter(emit_args &e)
     rtcall("xlr8_set_flags");
     rtcall("xlr8_enter", e.dst);
     reload_frame_reg();
-    reload_shadows();
 }
 
 
-void arm64::emit_leave(emit_args &e)
+EMIT(leave)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the leave opcode
 // ----------------------------------------------------------------------------
@@ -269,11 +268,10 @@ void arm64::emit_leave(emit_args &e)
     rtcall("xlr8_leave");
     reload_frame_reg();
     reload_flags_reg();
-    reload_shadows();
 }
 
 
-void arm64::emit_get(emit_args &e)
+EMIT(get)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the get opcode
 // ----------------------------------------------------------------------------
@@ -283,7 +281,7 @@ void arm64::emit_get(emit_args &e)
 }
 
 
-void arm64::emit_set(emit_args &e)
+EMIT(set)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the set opcode
 // ----------------------------------------------------------------------------
@@ -293,7 +291,7 @@ void arm64::emit_set(emit_args &e)
 }
 
 
-void arm64::emit_push(emit_args &e)
+EMIT(push)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the push opcode
 // ----------------------------------------------------------------------------
@@ -303,7 +301,7 @@ void arm64::emit_push(emit_args &e)
 }
 
 
-void arm64::emit_pop(emit_args &e)
+EMIT(pop)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the pop opcode
 // ----------------------------------------------------------------------------
@@ -313,7 +311,7 @@ void arm64::emit_pop(emit_args &e)
 }
 
 
-void arm64::emit_sys(emit_args &e)
+EMIT(sys)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the sys opcode
 // ----------------------------------------------------------------------------
@@ -335,7 +333,6 @@ void arm64::emit_sys(emit_args &e)
 #else
     restore_frame_ptr();
 #endif
-    reload_shadows();
     reload_flags_reg();
     load_imm64(HW_SCR_VAL, uint64_t(uintptr_t(e.pc)));
     emit32le(mov_rr(0, HW_SCR_VAL));
@@ -343,21 +340,19 @@ void arm64::emit_sys(emit_args &e)
     uint cbnz_at = uint(cursor());
     emit32le(cbnz_imm(0, 0));
     restore_frame_ptr();
-    reload_shadows();
     spill_arg_regs = false;
     uint skip_at = uint(cursor());
     emit32le(b_imm(0));
     uint br_at = uint(cursor());
     emit32le(mov_rr(HW_IP, 0));
     restore_frame_ptr();
-    reload_shadows();
     emit32le(br(HW_IP));
-    code().patch32(cbnz_at, cbnz_imm(0, (int(br_at) - int(cbnz_at)) / 4));
-    code().patch32(skip_at, b_imm((int(br_at + 4) - int(skip_at)) / 4));
+    code().patch32le(cbnz_at, cbnz_imm(0, (int(br_at) - int(cbnz_at)) / 4));
+    code().patch32le(skip_at, b_imm((int(br_at + 4) - int(skip_at)) / 4));
 }
 
 
-void arm64::emit_sto(emit_args &e)
+EMIT(sto)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the sto opcode
 // ----------------------------------------------------------------------------
@@ -367,7 +362,7 @@ void arm64::emit_sto(emit_args &e)
 }
 
 
-void arm64::emit_rcl(emit_args &e)
+EMIT(rcl)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the rcl opcode
 // ----------------------------------------------------------------------------
@@ -377,7 +372,7 @@ void arm64::emit_rcl(emit_args &e)
 }
 
 
-void arm64::emit_dbra(emit_args &e)
+EMIT(dbra)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the dbra opcode
 // ----------------------------------------------------------------------------
@@ -387,7 +382,7 @@ void arm64::emit_dbra(emit_args &e)
 }
 
 
-void arm64::emit_bra(emit_args &e)
+EMIT(bra)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the bra opcode
 // ----------------------------------------------------------------------------
@@ -397,7 +392,7 @@ void arm64::emit_bra(emit_args &e)
 }
 
 
-void arm64::emit_btrue(emit_args &e)
+EMIT(btrue)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the btrue opcode
 // ----------------------------------------------------------------------------
@@ -407,7 +402,7 @@ void arm64::emit_btrue(emit_args &e)
 }
 
 
-void arm64::emit_bfalse(emit_args &e)
+EMIT(bfalse)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the bfalse opcode
 // ----------------------------------------------------------------------------
@@ -417,7 +412,7 @@ void arm64::emit_bfalse(emit_args &e)
 }
 
 
-void arm64::emit_beq(emit_args &e)
+EMIT(beq)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the beq opcode
 // ----------------------------------------------------------------------------
@@ -427,7 +422,7 @@ void arm64::emit_beq(emit_args &e)
 }
 
 
-void arm64::emit_bne(emit_args &e)
+EMIT(bne)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the bne opcode
 // ----------------------------------------------------------------------------
@@ -437,7 +432,7 @@ void arm64::emit_bne(emit_args &e)
 }
 
 
-void arm64::emit_blt(emit_args &e)
+EMIT(blt)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the blt opcode
 // ----------------------------------------------------------------------------
@@ -447,7 +442,7 @@ void arm64::emit_blt(emit_args &e)
 }
 
 
-void arm64::emit_bgt(emit_args &e)
+EMIT(bgt)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the bgt opcode
 // ----------------------------------------------------------------------------
@@ -457,7 +452,7 @@ void arm64::emit_bgt(emit_args &e)
 }
 
 
-void arm64::emit_ble(emit_args &e)
+EMIT(ble)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ble opcode
 // ----------------------------------------------------------------------------
@@ -467,7 +462,7 @@ void arm64::emit_ble(emit_args &e)
 }
 
 
-void arm64::emit_bge(emit_args &e)
+EMIT(bge)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the bge opcode
 // ----------------------------------------------------------------------------
@@ -477,7 +472,7 @@ void arm64::emit_bge(emit_args &e)
 }
 
 
-void arm64::emit_switch(emit_args &e)
+EMIT(switch)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the switch opcode
 // ----------------------------------------------------------------------------
@@ -487,7 +482,7 @@ void arm64::emit_switch(emit_args &e)
 }
 
 
-void arm64::emit_dispatch(emit_args &e)
+EMIT(dispatch)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the dispatch opcode
 // ----------------------------------------------------------------------------
@@ -501,7 +496,7 @@ void arm64::emit_dispatch(emit_args &e)
 }
 
 
-void arm64::emit_true(emit_args &e)
+EMIT(true)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the true opcode
 // ----------------------------------------------------------------------------
@@ -511,7 +506,7 @@ void arm64::emit_true(emit_args &e)
 }
 
 
-void arm64::emit_false(emit_args &e)
+EMIT(false)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the false opcode
 // ----------------------------------------------------------------------------
@@ -521,7 +516,7 @@ void arm64::emit_false(emit_args &e)
 }
 
 
-void arm64::emit_cmpeq(emit_args &e)
+EMIT(cmpeq)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the cmpeq opcode
 // ----------------------------------------------------------------------------
@@ -531,7 +526,7 @@ void arm64::emit_cmpeq(emit_args &e)
 }
 
 
-void arm64::emit_cmpne(emit_args &e)
+EMIT(cmpne)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the cmpne opcode
 // ----------------------------------------------------------------------------
@@ -541,7 +536,7 @@ void arm64::emit_cmpne(emit_args &e)
 }
 
 
-void arm64::emit_cmplt(emit_args &e)
+EMIT(cmplt)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the cmplt opcode
 // ----------------------------------------------------------------------------
@@ -551,7 +546,7 @@ void arm64::emit_cmplt(emit_args &e)
 }
 
 
-void arm64::emit_cmple(emit_args &e)
+EMIT(cmple)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the cmple opcode
 // ----------------------------------------------------------------------------
@@ -561,7 +556,7 @@ void arm64::emit_cmple(emit_args &e)
 }
 
 
-void arm64::emit_cmpult(emit_args &e)
+EMIT(cmpult)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the cmpult opcode
 // ----------------------------------------------------------------------------
@@ -571,7 +566,7 @@ void arm64::emit_cmpult(emit_args &e)
 }
 
 
-void arm64::emit_cmpule(emit_args &e)
+EMIT(cmpule)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the cmpule opcode
 // ----------------------------------------------------------------------------
@@ -581,7 +576,7 @@ void arm64::emit_cmpule(emit_args &e)
 }
 
 
-void arm64::emit_cmpeqi(emit_args &e)
+EMIT(cmpeqi)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the cmpeqi opcode
 // ----------------------------------------------------------------------------
@@ -591,7 +586,7 @@ void arm64::emit_cmpeqi(emit_args &e)
 }
 
 
-void arm64::emit_cmpnei(emit_args &e)
+EMIT(cmpnei)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the cmpnei opcode
 // ----------------------------------------------------------------------------
@@ -601,7 +596,7 @@ void arm64::emit_cmpnei(emit_args &e)
 }
 
 
-void arm64::emit_cmplti(emit_args &e)
+EMIT(cmplti)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the cmplti opcode
 // ----------------------------------------------------------------------------
@@ -611,7 +606,7 @@ void arm64::emit_cmplti(emit_args &e)
 }
 
 
-void arm64::emit_cmplei(emit_args &e)
+EMIT(cmplei)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the cmplei opcode
 // ----------------------------------------------------------------------------
@@ -621,7 +616,7 @@ void arm64::emit_cmplei(emit_args &e)
 }
 
 
-void arm64::emit_cmpequ(emit_args &e)
+EMIT(cmpequ)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the cmpequ opcode
 // ----------------------------------------------------------------------------
@@ -631,7 +626,7 @@ void arm64::emit_cmpequ(emit_args &e)
 }
 
 
-void arm64::emit_cmpneu(emit_args &e)
+EMIT(cmpneu)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the cmpneu opcode
 // ----------------------------------------------------------------------------
@@ -641,7 +636,7 @@ void arm64::emit_cmpneu(emit_args &e)
 }
 
 
-void arm64::emit_cmpltu(emit_args &e)
+EMIT(cmpltu)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the cmpltu opcode
 // ----------------------------------------------------------------------------
@@ -651,7 +646,7 @@ void arm64::emit_cmpltu(emit_args &e)
 }
 
 
-void arm64::emit_cmpleu(emit_args &e)
+EMIT(cmpleu)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the cmpleu opcode
 // ----------------------------------------------------------------------------
@@ -661,7 +656,7 @@ void arm64::emit_cmpleu(emit_args &e)
 }
 
 
-void arm64::emit_pushf(emit_args &e)
+EMIT(pushf)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the pushf opcode
 // ----------------------------------------------------------------------------
@@ -671,7 +666,7 @@ void arm64::emit_pushf(emit_args &e)
 }
 
 
-void arm64::emit_popf(emit_args &e)
+EMIT(popf)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the popf opcode
 // ----------------------------------------------------------------------------
@@ -681,7 +676,7 @@ void arm64::emit_popf(emit_args &e)
 }
 
 
-void arm64::emit_add(emit_args &e)
+EMIT(add)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the add opcode
 // ----------------------------------------------------------------------------
@@ -691,7 +686,7 @@ void arm64::emit_add(emit_args &e)
 }
 
 
-void arm64::emit_sub(emit_args &e)
+EMIT(sub)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the sub opcode
 // ----------------------------------------------------------------------------
@@ -701,7 +696,7 @@ void arm64::emit_sub(emit_args &e)
 }
 
 
-void arm64::emit_mul(emit_args &e)
+EMIT(mul)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the mul opcode
 // ----------------------------------------------------------------------------
@@ -711,7 +706,7 @@ void arm64::emit_mul(emit_args &e)
 }
 
 
-void arm64::emit_umul(emit_args &e)
+EMIT(umul)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the umul opcode
 // ----------------------------------------------------------------------------
@@ -721,7 +716,7 @@ void arm64::emit_umul(emit_args &e)
 }
 
 
-void arm64::emit_div(emit_args &e)
+EMIT(div)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the div opcode
 // ----------------------------------------------------------------------------
@@ -731,7 +726,7 @@ void arm64::emit_div(emit_args &e)
 }
 
 
-void arm64::emit_udiv(emit_args &e)
+EMIT(udiv)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the udiv opcode
 // ----------------------------------------------------------------------------
@@ -741,7 +736,7 @@ void arm64::emit_udiv(emit_args &e)
 }
 
 
-void arm64::emit_mod(emit_args &e)
+EMIT(mod)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the mod opcode
 // ----------------------------------------------------------------------------
@@ -751,7 +746,7 @@ void arm64::emit_mod(emit_args &e)
 }
 
 
-void arm64::emit_umod(emit_args &e)
+EMIT(umod)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the umod opcode
 // ----------------------------------------------------------------------------
@@ -761,7 +756,7 @@ void arm64::emit_umod(emit_args &e)
 }
 
 
-void arm64::emit_and(emit_args &e)
+EMIT(and)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the and opcode
 // ----------------------------------------------------------------------------
@@ -771,7 +766,7 @@ void arm64::emit_and(emit_args &e)
 }
 
 
-void arm64::emit_or(emit_args &e)
+EMIT(or)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the or opcode
 // ----------------------------------------------------------------------------
@@ -781,7 +776,7 @@ void arm64::emit_or(emit_args &e)
 }
 
 
-void arm64::emit_xor(emit_args &e)
+EMIT(xor)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the xor opcode
 // ----------------------------------------------------------------------------
@@ -791,7 +786,7 @@ void arm64::emit_xor(emit_args &e)
 }
 
 
-void arm64::emit_shl(emit_args &e)
+EMIT(shl)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the shl opcode
 // ----------------------------------------------------------------------------
@@ -801,7 +796,7 @@ void arm64::emit_shl(emit_args &e)
 }
 
 
-void arm64::emit_shr(emit_args &e)
+EMIT(shr)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the shr opcode
 // ----------------------------------------------------------------------------
@@ -811,7 +806,7 @@ void arm64::emit_shr(emit_args &e)
 }
 
 
-void arm64::emit_ushr(emit_args &e)
+EMIT(ushr)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ushr opcode
 // ----------------------------------------------------------------------------
@@ -821,7 +816,7 @@ void arm64::emit_ushr(emit_args &e)
 }
 
 
-void arm64::emit_neg(emit_args &e)
+EMIT(neg)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the neg opcode
 // ----------------------------------------------------------------------------
@@ -831,7 +826,7 @@ void arm64::emit_neg(emit_args &e)
 }
 
 
-void arm64::emit_not(emit_args &e)
+EMIT(not)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the not opcode
 // ----------------------------------------------------------------------------
@@ -841,7 +836,7 @@ void arm64::emit_not(emit_args &e)
 }
 
 
-void arm64::emit_incr(emit_args &e)
+EMIT(incr)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the incr opcode
 // ----------------------------------------------------------------------------
@@ -851,7 +846,7 @@ void arm64::emit_incr(emit_args &e)
 }
 
 
-void arm64::emit_decr(emit_args &e)
+EMIT(decr)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the decr opcode
 // ----------------------------------------------------------------------------
@@ -861,7 +856,7 @@ void arm64::emit_decr(emit_args &e)
 }
 
 
-void arm64::emit_addi(emit_args &e)
+EMIT(addi)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the addi opcode
 // ----------------------------------------------------------------------------
@@ -871,7 +866,7 @@ void arm64::emit_addi(emit_args &e)
 }
 
 
-void arm64::emit_addu(emit_args &e)
+EMIT(addu)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the addu opcode
 // ----------------------------------------------------------------------------
@@ -881,7 +876,7 @@ void arm64::emit_addu(emit_args &e)
 }
 
 
-void arm64::emit_subi(emit_args &e)
+EMIT(subi)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the subi opcode
 // ----------------------------------------------------------------------------
@@ -891,7 +886,7 @@ void arm64::emit_subi(emit_args &e)
 }
 
 
-void arm64::emit_subu(emit_args &e)
+EMIT(subu)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the subu opcode
 // ----------------------------------------------------------------------------
@@ -901,7 +896,7 @@ void arm64::emit_subu(emit_args &e)
 }
 
 
-void arm64::emit_muli(emit_args &e)
+EMIT(muli)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the muli opcode
 // ----------------------------------------------------------------------------
@@ -911,7 +906,7 @@ void arm64::emit_muli(emit_args &e)
 }
 
 
-void arm64::emit_mulu(emit_args &e)
+EMIT(mulu)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the mulu opcode
 // ----------------------------------------------------------------------------
@@ -921,7 +916,7 @@ void arm64::emit_mulu(emit_args &e)
 }
 
 
-void arm64::emit_divi(emit_args &e)
+EMIT(divi)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the divi opcode
 // ----------------------------------------------------------------------------
@@ -931,7 +926,7 @@ void arm64::emit_divi(emit_args &e)
 }
 
 
-void arm64::emit_divu(emit_args &e)
+EMIT(divu)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the divu opcode
 // ----------------------------------------------------------------------------
@@ -941,7 +936,7 @@ void arm64::emit_divu(emit_args &e)
 }
 
 
-void arm64::emit_modi(emit_args &e)
+EMIT(modi)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the modi opcode
 // ----------------------------------------------------------------------------
@@ -951,7 +946,7 @@ void arm64::emit_modi(emit_args &e)
 }
 
 
-void arm64::emit_modu(emit_args &e)
+EMIT(modu)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the modu opcode
 // ----------------------------------------------------------------------------
@@ -961,7 +956,7 @@ void arm64::emit_modu(emit_args &e)
 }
 
 
-void arm64::emit_andu(emit_args &e)
+EMIT(andu)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the andu opcode
 // ----------------------------------------------------------------------------
@@ -971,7 +966,7 @@ void arm64::emit_andu(emit_args &e)
 }
 
 
-void arm64::emit_oru(emit_args &e)
+EMIT(oru)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the oru opcode
 // ----------------------------------------------------------------------------
@@ -981,7 +976,7 @@ void arm64::emit_oru(emit_args &e)
 }
 
 
-void arm64::emit_xoru(emit_args &e)
+EMIT(xoru)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the xoru opcode
 // ----------------------------------------------------------------------------
@@ -991,7 +986,7 @@ void arm64::emit_xoru(emit_args &e)
 }
 
 
-void arm64::emit_shlu(emit_args &e)
+EMIT(shlu)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the shlu opcode
 // ----------------------------------------------------------------------------
@@ -1001,7 +996,7 @@ void arm64::emit_shlu(emit_args &e)
 }
 
 
-void arm64::emit_shru(emit_args &e)
+EMIT(shru)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the shru opcode
 // ----------------------------------------------------------------------------
@@ -1011,7 +1006,7 @@ void arm64::emit_shru(emit_args &e)
 }
 
 
-void arm64::emit_ushru(emit_args &e)
+EMIT(ushru)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ushru opcode
 // ----------------------------------------------------------------------------
@@ -1021,7 +1016,7 @@ void arm64::emit_ushru(emit_args &e)
 }
 
 
-void arm64::emit_frame(emit_args &e)
+EMIT(frame)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the frame opcode
 // ----------------------------------------------------------------------------
@@ -1031,7 +1026,7 @@ void arm64::emit_frame(emit_args &e)
 }
 
 
-void arm64::emit_st8(emit_args &e)
+EMIT(st8)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the st8 opcode
 // ----------------------------------------------------------------------------
@@ -1041,7 +1036,7 @@ void arm64::emit_st8(emit_args &e)
 }
 
 
-void arm64::emit_st4(emit_args &e)
+EMIT(st4)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the st4 opcode
 // ----------------------------------------------------------------------------
@@ -1051,7 +1046,7 @@ void arm64::emit_st4(emit_args &e)
 }
 
 
-void arm64::emit_st2(emit_args &e)
+EMIT(st2)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the st2 opcode
 // ----------------------------------------------------------------------------
@@ -1061,7 +1056,7 @@ void arm64::emit_st2(emit_args &e)
 }
 
 
-void arm64::emit_st1(emit_args &e)
+EMIT(st1)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the st1 opcode
 // ----------------------------------------------------------------------------
@@ -1071,7 +1066,7 @@ void arm64::emit_st1(emit_args &e)
 }
 
 
-void arm64::emit_ld8(emit_args &e)
+EMIT(ld8)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ld8 opcode
 // ----------------------------------------------------------------------------
@@ -1081,7 +1076,7 @@ void arm64::emit_ld8(emit_args &e)
 }
 
 
-void arm64::emit_ld4(emit_args &e)
+EMIT(ld4)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ld4 opcode
 // ----------------------------------------------------------------------------
@@ -1091,7 +1086,7 @@ void arm64::emit_ld4(emit_args &e)
 }
 
 
-void arm64::emit_ld2(emit_args &e)
+EMIT(ld2)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ld2 opcode
 // ----------------------------------------------------------------------------
@@ -1101,7 +1096,7 @@ void arm64::emit_ld2(emit_args &e)
 }
 
 
-void arm64::emit_ld1(emit_args &e)
+EMIT(ld1)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ld1 opcode
 // ----------------------------------------------------------------------------
@@ -1111,7 +1106,7 @@ void arm64::emit_ld1(emit_args &e)
 }
 
 
-void arm64::emit_st8o(emit_args &e)
+EMIT(st8o)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the st8o opcode
 // ----------------------------------------------------------------------------
@@ -1121,7 +1116,7 @@ void arm64::emit_st8o(emit_args &e)
 }
 
 
-void arm64::emit_st4o(emit_args &e)
+EMIT(st4o)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the st4o opcode
 // ----------------------------------------------------------------------------
@@ -1131,7 +1126,7 @@ void arm64::emit_st4o(emit_args &e)
 }
 
 
-void arm64::emit_st2o(emit_args &e)
+EMIT(st2o)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the st2o opcode
 // ----------------------------------------------------------------------------
@@ -1141,7 +1136,7 @@ void arm64::emit_st2o(emit_args &e)
 }
 
 
-void arm64::emit_st1o(emit_args &e)
+EMIT(st1o)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the st1o opcode
 // ----------------------------------------------------------------------------
@@ -1151,7 +1146,7 @@ void arm64::emit_st1o(emit_args &e)
 }
 
 
-void arm64::emit_ld8o(emit_args &e)
+EMIT(ld8o)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ld8o opcode
 // ----------------------------------------------------------------------------
@@ -1161,7 +1156,7 @@ void arm64::emit_ld8o(emit_args &e)
 }
 
 
-void arm64::emit_ld4o(emit_args &e)
+EMIT(ld4o)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ld4o opcode
 // ----------------------------------------------------------------------------
@@ -1171,7 +1166,7 @@ void arm64::emit_ld4o(emit_args &e)
 }
 
 
-void arm64::emit_ld2o(emit_args &e)
+EMIT(ld2o)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ld2o opcode
 // ----------------------------------------------------------------------------
@@ -1181,7 +1176,7 @@ void arm64::emit_ld2o(emit_args &e)
 }
 
 
-void arm64::emit_ld1o(emit_args &e)
+EMIT(ld1o)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ld1o opcode
 // ----------------------------------------------------------------------------
@@ -1191,7 +1186,7 @@ void arm64::emit_ld1o(emit_args &e)
 }
 
 
-void arm64::emit_lds(emit_args &e)
+EMIT(lds)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the lds opcode
 // ----------------------------------------------------------------------------
@@ -1201,7 +1196,7 @@ void arm64::emit_lds(emit_args &e)
 }
 
 
-void arm64::emit_ldos(emit_args &e)
+EMIT(ldos)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ldos opcode
 // ----------------------------------------------------------------------------
@@ -1211,7 +1206,7 @@ void arm64::emit_ldos(emit_args &e)
 }
 
 
-void arm64::emit_sext(emit_args &e)
+EMIT(sext)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the sext opcode
 // ----------------------------------------------------------------------------
@@ -1221,7 +1216,7 @@ void arm64::emit_sext(emit_args &e)
 }
 
 
-void arm64::emit_zext(emit_args &e)
+EMIT(zext)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the zext opcode
 // ----------------------------------------------------------------------------
@@ -1231,7 +1226,7 @@ void arm64::emit_zext(emit_args &e)
 }
 
 
-void arm64::emit_fadd(emit_args &e)
+EMIT(fadd)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the fadd opcode
 // ----------------------------------------------------------------------------
@@ -1241,7 +1236,7 @@ void arm64::emit_fadd(emit_args &e)
 }
 
 
-void arm64::emit_fsub(emit_args &e)
+EMIT(fsub)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the fsub opcode
 // ----------------------------------------------------------------------------
@@ -1251,7 +1246,7 @@ void arm64::emit_fsub(emit_args &e)
 }
 
 
-void arm64::emit_fmul(emit_args &e)
+EMIT(fmul)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the fmul opcode
 // ----------------------------------------------------------------------------
@@ -1261,7 +1256,7 @@ void arm64::emit_fmul(emit_args &e)
 }
 
 
-void arm64::emit_fdiv(emit_args &e)
+EMIT(fdiv)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the fdiv opcode
 // ----------------------------------------------------------------------------
@@ -1271,7 +1266,7 @@ void arm64::emit_fdiv(emit_args &e)
 }
 
 
-void arm64::emit_dadd(emit_args &e)
+EMIT(dadd)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the dadd opcode
 // ----------------------------------------------------------------------------
@@ -1281,7 +1276,7 @@ void arm64::emit_dadd(emit_args &e)
 }
 
 
-void arm64::emit_dsub(emit_args &e)
+EMIT(dsub)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the dsub opcode
 // ----------------------------------------------------------------------------
@@ -1291,7 +1286,7 @@ void arm64::emit_dsub(emit_args &e)
 }
 
 
-void arm64::emit_dmul(emit_args &e)
+EMIT(dmul)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the dmul opcode
 // ----------------------------------------------------------------------------
@@ -1301,7 +1296,7 @@ void arm64::emit_dmul(emit_args &e)
 }
 
 
-void arm64::emit_ddiv(emit_args &e)
+EMIT(ddiv)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ddiv opcode
 // ----------------------------------------------------------------------------

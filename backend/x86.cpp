@@ -44,9 +44,36 @@ x86::x86(arch_t arch)
 // ----------------------------------------------------------------------------
 //   Construct an x86 family code generator
 // ----------------------------------------------------------------------------
-: backend(arch)
+    : backend(arch)
 {
-    record(x86, "x86(%lld)", arch);
+    record(x86, "x86(%+s)", arch_name(arch));
+}
+
+
+cstring x86::machine_defs() const
+// ----------------------------------------------------------------------------
+//   Machine definition for 32-bit x86
+// ----------------------------------------------------------------------------
+{
+    return "__i386__\0__i386\0";
+}
+
+
+uint x86::registers() const
+// ----------------------------------------------------------------------------
+//   Return the number of hardware registers on this platform
+// ----------------------------------------------------------------------------
+{
+    return HW_COUNT;
+}
+
+
+uint x86::pointer_size() const
+// ----------------------------------------------------------------------------
+//   The platform is 32-bit
+// ----------------------------------------------------------------------------
+{
+    return 4;                   // 32-bit
 }
 
 
@@ -56,36 +83,8 @@ void x86::begin_translation()
 // ----------------------------------------------------------------------------
 {
     record(x86, "begin_translation()");
-    relocations.clear();
-    if (ptr_size() == 4)
-    {
-        // i386 SysV: ebx/esi/edi/ebp are callee-saved.  We keep frame in edi
-        // and flags in esi for the whole translation (see hw_frame/hw_flags).
-        emit_push_reg(HW_RBX);
-        emit_push_reg(HW_RSI);
-        emit_push_reg(HW_RDI);
-        emit_push_reg(HW_RBP);
-        // 4 pushes = 16 bytes — stack already 16-byte aligned for C calls.
-        call_ptr(xlr8_runtime_fn("xlr8_get_frame"));
-        emit_mov_frame_rax();
-        call_ptr(xlr8_runtime_fn("xlr8_get_flags"));
-        emit_mov_rr(hw_flags(), HW_RAX);
-    }
-    else
-    {
-        // SysV and Win64: rbx,rbp,r12,r15 are callee-saved.  r12/r15 hold
-        // frame/flags for the whole translation; rbx shadows local 3.
-        emit_push_reg(HW_RBX);
-        emit_push_reg(HW_RBP);
-        emit_push_reg(HW_R12);
-        emit_push_reg(HW_R15);
-        emit_sub_rsp_imm8(0x08);        // 16-byte align before C calls
-        call_ptr(xlr8_runtime_fn("xlr8_get_frame"));
-        emit_mov_rr(hw_frame(), HW_RAX);
-        call_ptr(xlr8_runtime_fn("xlr8_get_flags"));
-        emit_mov_rr(hw_flags(), HW_RAX);
-        reload_shadows();
-    }
+    backend::begin_translation();
+    do_prologue();
 }
 
 
@@ -96,25 +95,27 @@ void x86::finish_translation()
 {
     record(x86, "finish_translation()");
     do_ret();
+    backend::finish_translation();
 }
 
 
-void x86::gsyscall(void (*target)())
+
+void x86::syscall(void (*target)())
 // ----------------------------------------------------------------------------
 //   Implement a syscall to the runtime
 // ----------------------------------------------------------------------------
 {
-    record(x86, "gsyscall(%p)", target);
-    call_ptr((void *) target);
+    record(x86, "syscall(%p)", target);
+    call_ptr(target);
 }
 
 
-size_t x86::emit_over_callees_branch()
+size_t x86::skip_callees()
 // ----------------------------------------------------------------------------
 //   Emit a forward branch over callee bodies to the epilogue
 // ----------------------------------------------------------------------------
 {
-    record(x86, "emit_over_callees_branch()");
+    record(x86, "skip_callees()");
     return emit_near_jmp_rel32();
 }
 
@@ -143,200 +144,22 @@ void x86::patch_branch_site(size_t insn_pos, size_t target_native)
         }
     }
     int32_t off = int32_t(target_native) - int32_t(insn_pos) - 4;
-    sec.patch32(insn_pos, uint32_t(off));
+    sec.patch32le(insn_pos, uint32_t(off));
 }
 
 
-void x86::emit_sub_rsp_imm8(byte imm)
+byte x86::setcc_from_rel(cstring rel)
 // ----------------------------------------------------------------------------
-//   Emit sub rsp/esp, imm8
-// ----------------------------------------------------------------------------
-{
-    if (ptr_size() == 8)
-        g(0x48);
-    g(0x83);
-    g(0xec);
-    g(imm);
-}
-
-
-void x86::emit_add_rsp_imm8(byte imm)
-// ----------------------------------------------------------------------------
-//   Emit add rsp/esp, imm8
+//   Map a comparison name to a SETcc opcode byte
 // ----------------------------------------------------------------------------
 {
-    if (ptr_size() == 8)
-        g(0x48);
-    g(0x83);
-    g(0xc4);
-    g(imm);
-}
-
-
-void x86::emit_add_esp_imm(byte imm)
-// ----------------------------------------------------------------------------
-//   Emit add esp, imm8 (cdecl stack cleanup on i386)
-// ----------------------------------------------------------------------------
-{
-    g(0x83);
-    g(0xc4);
-    g(byte(imm));
-}
-
-
-void x86::emit_cdq()
-// ----------------------------------------------------------------------------
-//   Sign-extend eax into edx:eax (cdq/cqo)
-// ----------------------------------------------------------------------------
-{
-    if (ptr_size() == 8)
-        g(0x48);
-    g(0x99);
-}
-
-
-void x86::emit_xor_rdx_rdx()
-// ----------------------------------------------------------------------------
-//   Clear edx/rdx
-// ----------------------------------------------------------------------------
-{
-    emit_xor_rr(HW_RDX, HW_RDX);
-}
-
-
-void x86::emit_idiv_rcx()
-// ----------------------------------------------------------------------------
-//   Signed divide edx:eax by rcx/ecx
-// ----------------------------------------------------------------------------
-{
-    orex(1, 0, HW_RCX, 0xf7);
-    g(0xf9);
-}
-
-
-void x86::emit_div_rcx()
-// ----------------------------------------------------------------------------
-//   Unsigned divide edx:eax by rcx/ecx
-// ----------------------------------------------------------------------------
-{
-    orex(1, 0, HW_RCX, 0xf7);
-    g(0xf1);
-}
-
-
-void x86::emit_mov_frame_rax()
-// ----------------------------------------------------------------------------
-//   Reload frame pointer register from rax
-// ----------------------------------------------------------------------------
-{
-    emit_mov_rr(hw_frame(), HW_RAX);
-}
-
-
-void x86::emit_push_reg(uint r)
-// ----------------------------------------------------------------------------
-//   Push a general-purpose register (cdecl / SysV argument)
-// ----------------------------------------------------------------------------
-{
-    if (ptr_size() == 8 && rex_b(r))
-        g(0x41);
-    g(byte(0x50 + reg_value(r)));
-}
-
-
-void x86::emit_pop_reg(uint r)
-// ----------------------------------------------------------------------------
-//   Pop into a general-purpose register
-// ----------------------------------------------------------------------------
-{
-    if (ptr_size() == 8 && rex_b(r))
-        g(0x41);
-    g(byte(0x58 + reg_value(r)));
-}
-
-
-void x86::emit_set_arg0_rax()
-// ----------------------------------------------------------------------------
-//   Pass rax as first C helper argument
-// ----------------------------------------------------------------------------
-{
-    if (ptr_size() == 8)
-        emit_mov_rr(hw_arg0(), HW_RAX);
-    else
-        emit_push_reg(HW_RAX);
-}
-
-
-void x86::emit_set_arg0_r(uint r)
-// ----------------------------------------------------------------------------
-//   Pass register r as first C helper argument
-// ----------------------------------------------------------------------------
-{
-    if (ptr_size() == 8)
-        emit_mov_rr(hw_arg0(), r);
-    else
-        emit_push_reg(r);
-}
-
-
-void x86::emit_set_arg0_imm(uint64_t imm)
-// ----------------------------------------------------------------------------
-//   Pass immediate as first C helper argument
-// ----------------------------------------------------------------------------
-{
-    if (ptr_size() == 8)
-        load_hw_imm(hw_arg0(), imm);
-    else
-    {
-        load_hw_imm(HW_RAX, imm);
-        emit_push_reg(HW_RAX);
-    }
-}
-
-
-void x86::emit_set_arg1_imm(uint64_t imm)
-// ----------------------------------------------------------------------------
-//   Pass immediate as second C helper argument (cdecl: push first)
-// ----------------------------------------------------------------------------
-{
-    if (ptr_size() == 8)
-        load_hw_imm(hw_arg1(), imm);
-    else
-    {
-        load_hw_imm(HW_RAX, imm);
-        emit_push_reg(HW_RAX);
-    }
-}
-
-
-void x86::emit_cleanup_call_args(uint argc)
-// ----------------------------------------------------------------------------
-//   Caller pops stack arguments after cdecl call on i386
-// ----------------------------------------------------------------------------
-{
-    if (ptr_size() == 4 && argc)
-        emit_add_esp_imm(byte(argc * ptr_size()));
-}
-
-
-size_t x86::reserve_pc_in_rax()
-// ----------------------------------------------------------------------------
-//   Materialize a patchable PC value in rax (lea rip on x86-64, mov imm i386)
-// ----------------------------------------------------------------------------
-{
-    if (ptr_size() == 8)
-    {
-        g(0x48);
-        g(0x8d);
-        g(0x05);
-        size_t pos = cursor();
-        emit32le(0);
-        return pos;
-    }
-    g(0xb8);
-    size_t pos = cursor();
-    emit32le(0);
-    return pos;
+    if (!strcmp(rel, "eq"))  return SETCC_EQ;
+    if (!strcmp(rel, "ne"))  return SETCC_NE;
+    if (!strcmp(rel, "lt"))  return SETCC_LT;
+    if (!strcmp(rel, "le"))  return SETCC_LE;
+    if (!strcmp(rel, "ltu")) return SETCC_LTU;
+    if (!strcmp(rel, "leu")) return SETCC_LEU;
+    return SETCC_EQ;
 }
 
 
@@ -345,17 +168,17 @@ void x86::patch_pc_rel(size_t disp_at, size_t target)
 //   Patch reserve_pc_in_rax so rax/eax holds target after the sequence
 // ----------------------------------------------------------------------------
 {
-    if (ptr_size() == 8)
+    if (ptr64())
     {
         uintptr_t base = disp_at + 4;
         int32_t off = int32_t(target) - int32_t(base);
-        code().patch32(disp_at, uint32_t(off));
+        code().patch32le(disp_at, uint32_t(off));
     }
     else
     {
         // i386: mov eax, imm32 — target is a code-buffer offset; relocate()
         // rewrites it to base+offset once the mmap address is known.
-        code().patch32(disp_at, uint32_t(target));
+        code().patch32le(disp_at, uint32_t(target));
         relocations.push_back({ disp_at, target });
     }
 }
@@ -367,12 +190,12 @@ void x86::relocate(void *base)
 // ----------------------------------------------------------------------------
 {
     record(x86, "relocate(%p)", base);
-    if (ptr_size() != 4 || !base)
+    if (ptr64() || !base)
         return;
     for (relocation &fx : relocations)
     {
         uint32_t abs = uint32_t(uintptr_t(byte_p(base) + fx.offset));
-        code().patch32(fx.imm_at, abs);
+        code().patch32le(fx.imm_at, abs);
         memcpy((void *) ((byte_p) base + fx.imm_at), &abs, sizeof(abs));
     }
 }
@@ -395,20 +218,7 @@ void x86::reload_flags_reg()
 {
     record(x86, "reload_flags_reg()");
     emit_runtime_call("xlr8_get_flags");
-    emit_mov_rr(hw_flags(), HW_RAX);
-}
-
-
-void x86::reload_shadows()
-// ----------------------------------------------------------------------------
-//   Reload shadow locals 0..3 from frame memory after a native call
-// ----------------------------------------------------------------------------
-{
-    if (ptr_size() != 8)
-        return;
-    record(x86, "reload_shadows()");
-    for (byte n = 0; n < X86_SHADOW_COUNT; n++)
-        load_local_frame(n, shadow_reg(n));
+    emit_mov_rr(hw_flags(), HW_EAX);
 }
 
 
@@ -417,13 +227,13 @@ void x86::reload_rt_regs()
 //   Reload frame and flags callee-saved registers from runtime (i386 cdecl)
 // ----------------------------------------------------------------------------
 {
-    if (ptr_size() != 4)
+    if (ptr64())
         return;
     record(x86, "reload_rt_regs()");
     call_ptr(xlr8_runtime_fn("xlr8_get_frame"));
     emit_mov_frame_rax();
     call_ptr(xlr8_runtime_fn("xlr8_get_flags"));
-    emit_mov_rr(hw_flags(), HW_RAX);
+    emit_mov_rr(hw_flags(), HW_EAX);
 }
 
 
@@ -453,10 +263,10 @@ void x86::orex(int ll, int r, int x, byte c)
 // ----------------------------------------------------------------------------
 {
     record(x86, "orex(%lld, %lld, %lld, %u)", ll, r, x, c);
-    int w = (ll && ptr_size() == 8) ? 8 : 0;
+    int w = (ll && ptr64()) ? 8 : 0;
     if (w || r >= 8 || x >= 8)
-        g(0x40 | w | (rex_r(r) ? 4 : 0) | (rex_b(x) ? 1 : 0));
-    g(c);
+        emit8(0x40 | w | (rex_r(r) ? 4 : 0) | (rex_b(x) ? 1 : 0));
+    emit8(c);
 }
 
 
@@ -466,19 +276,19 @@ void x86::emit_rex_modrm(int ll, int r, int x, int b, byte op)
 // ----------------------------------------------------------------------------
 {
     record(x86, "emit_rex_modrm(%lld, %lld, %lld, %lld, %u)", ll, r, x, b, op);
-    int w = (ll && ptr_size() == 8) ? 8 : 0;
+    int w = (ll && ptr64()) ? 8 : 0;
     if (w || r >= 8 || x >= 8 || b >= 8)
-        g(0x40 | w | (rex_r(r) ? 4 : 0) | (rex_x(x) ? 2 : 0) | (rex_b(b) ? 1 : 0));
-    g(op);
-    g(byte((reg_value(r) << 3) | reg_value(b)));
+        emit8(0x40 | w | (rex_r(r) ? 4 : 0) | (rex_x(x) ? 2 : 0) | (rex_b(b) ? 1 : 0));
+    emit8(op);
+    emit8(byte((reg_value(r) << 3) | reg_value(b)));
     if (reg_value(b) == 4)
-        g(byte((reg_value(x) << 3) | reg_value(b)));
+        emit8(byte((reg_value(x) << 3) | reg_value(b)));
     if (reg_value(b) == 5 && x == 4)
         emit32le(0);
 }
 
 
-void x86::load_hw_imm(uint r, uint64_t imm)
+void x86::load_hw_imm(hwreg_t r, uint64_t imm)
 // ----------------------------------------------------------------------------
 //   Load immediate into a hardware register (prefer short encodings)
 // ----------------------------------------------------------------------------
@@ -486,7 +296,7 @@ void x86::load_hw_imm(uint r, uint64_t imm)
     record(x86, "load_hw_imm(%u, %lld)", r, imm);
 
     // i386 only ever materializes the low 32 bits
-    if (ptr_size() == 4)
+    if (pointer_size() == 4)
         imm = uint32_t(imm);
 
     // xor r32, r32 — 2–3 bytes; clears the full 64-bit register on x86-64
@@ -500,8 +310,8 @@ void x86::load_hw_imm(uint r, uint64_t imm)
     if (imm == uint32_t(imm))
     {
         if (rex_b(r))
-            g(0x41);
-        g(0xb8 + reg_value(r));
+            emit8(0x41);
+        emit8(0xb8 + reg_value(r));
         emit32le(uint32_t(imm));
         return;
     }
@@ -510,14 +320,14 @@ void x86::load_hw_imm(uint r, uint64_t imm)
     if (int64_t(imm) == int32_t(imm))
     {
         orex(1, 0, r, 0xc7);
-        g(byte(0xc0 | reg_value(r)));
+        emit8(byte(0xc0 | reg_value(r)));
         emit32le(uint32_t(imm));
         return;
     }
 
     // movabs r64, imm64 — 10 bytes
-    g(0x48 | (rex_b(r) ? 1 : 0));
-    g(0xb8 + reg_value(r));
+    emit8(0x48 | (rex_b(r) ? 1 : 0));
+    emit8(0xb8 + reg_value(r));
     emit32le(uint32_t(imm));
     emit32le(uint32_t(imm >> 32));
 }
@@ -530,13 +340,13 @@ void x86::load_float_local(byte n, uint xmm)
 {
     record(x86, "load_float_local(%u, %u)", n, xmm);
     int disp = local_disp(n);
-    uint frame = hw_frame();
-    g(0xf3);
+    uint frame = HW_FRAME;
+    emit8(0xf3);
     emit_sse_rex_r(xmm);
-    g(0x0f);
-    g(0x10);
-    g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
-    g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
+    emit8(0x0f);
+    emit8(0x10);
+    emit8(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
+    emit8(byte((reg_value(HW_ESP) << 3) | reg_value(frame)));
     if (disp)
         emit32le(uint32_t(disp));
 }
@@ -549,13 +359,13 @@ void x86::store_float_local(byte n, uint xmm)
 {
     record(x86, "store_float_local(%u, %u)", n, xmm);
     int disp = local_disp(n);
-    uint frame = hw_frame();
-    g(0xf3);
+    uint frame = HW_FRAME;
+    emit8(0xf3);
     emit_sse_rex_r(xmm);
-    g(0x0f);
-    g(0x11);
-    g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
-    g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
+    emit8(0x0f);
+    emit8(0x11);
+    emit8(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
+    emit8(byte((reg_value(HW_ESP) << 3) | reg_value(frame)));
     if (disp)
         emit32le(uint32_t(disp));
 }
@@ -568,13 +378,13 @@ void x86::load_double_local(byte n, uint xmm)
 {
     record(x86, "load_double_local(%u, %u)", n, xmm);
     int disp = local_disp(n);
-    uint frame = hw_frame();
-    g(0xf2);
+    uint frame = HW_FRAME;
+    emit8(0xf2);
     emit_sse_rex_r(xmm);
-    g(0x0f);
-    g(0x10);
-    g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
-    g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
+    emit8(0x0f);
+    emit8(0x10);
+    emit8(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
+    emit8(byte((reg_value(HW_ESP) << 3) | reg_value(frame)));
     if (disp)
         emit32le(uint32_t(disp));
 }
@@ -587,69 +397,69 @@ void x86::store_double_local(byte n, uint xmm)
 {
     record(x86, "store_double_local(%u, %u)", n, xmm);
     int disp = local_disp(n);
-    uint frame = hw_frame();
-    g(0xf2);
+    uint frame = HW_FRAME;
+    emit8(0xf2);
     emit_sse_rex_r(xmm);
-    g(0x0f);
-    g(0x11);
-    g(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
-    g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
+    emit8(0x0f);
+    emit8(0x11);
+    emit8(byte((disp ? 2 : 0) << 6 | (reg_value(xmm) << 3) | 4));
+    emit8(byte((reg_value(HW_ESP) << 3) | reg_value(frame)));
     if (disp)
         emit32le(uint32_t(disp));
 }
 
 
-void x86::load_local_frame(byte n, uint r)
+void x86::load_local_frame(byte n, hwreg_t r)
 // ----------------------------------------------------------------------------
 //   Load bytecode local n from frame memory into hardware register r
 // ----------------------------------------------------------------------------
 {
     record(x86, "load_local_frame(%u, %u)", n, r);
     int disp = local_disp(n);
-    uint frame = hw_frame();
+    uint frame = HW_FRAME;
     if (disp)
     {
-        int w = (ptr_size() == 8) ? 8 : 0;
+        int w = (ptr64()) ? 8 : 0;
         if (w || r >= 8 || frame >= 8)
-            g(0x40 | w | (rex_r(r) ? 4 : 0) | (rex_b(frame) ? 1 : 0));
-        g(0x8b);
-        g(byte((2 << 6) | (reg_value(r) << 3) | 4));
-        g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
+            emit8(0x40 | w | (rex_r(r) ? 4 : 0) | (rex_b(frame) ? 1 : 0));
+        emit8(0x8b);
+        emit8(byte((2 << 6) | (reg_value(r) << 3) | 4));
+        emit8(byte((reg_value(HW_ESP) << 3) | reg_value(frame)));
         emit32le(uint32_t(disp));
     }
     else
     {
-        emit_rex_modrm(1, r, HW_RSP, frame, 0x8b);
+        emit_rex_modrm(1, r, HW_ESP, frame, 0x8b);
     }
 }
 
 
-void x86::store_local_frame(uint r, byte n)
+void x86::store_local_frame(hwreg_t r, byte n)
 // ----------------------------------------------------------------------------
 //   Store hardware register r into bytecode local frame slot n
 // ----------------------------------------------------------------------------
 {
     record(x86, "store_local_frame(%u, %u)", r, n);
     int disp = local_disp(n);
-    uint frame = hw_frame();
+    uint frame = HW_FRAME;
     if (disp)
     {
-        int w = (ptr_size() == 8) ? 8 : 0;
+        int w = (ptr64()) ? 8 : 0;
         if (w || r >= 8 || frame >= 8)
-            g(0x40 | w | (rex_r(r) ? 4 : 0) | (rex_b(frame) ? 1 : 0));
-        g(0x89);
-        g(byte((2 << 6) | (reg_value(r) << 3) | 4));
-        g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
+            emit8(0x40 | w | (rex_r(r) ? 4 : 0) | (rex_b(frame) ? 1 : 0));
+        emit8(0x89);
+        emit8(byte((2 << 6) | (reg_value(r) << 3) | 4));
+        emit8(byte((reg_value(HW_ESP) << 3) | reg_value(frame)));
         emit32le(uint32_t(disp));
     }
     else
     {
-        emit_rex_modrm(1, r, HW_RSP, frame, 0x89);
+        emit_rex_modrm(1, r, HW_ESP, frame, 0x89);
     }
 }
 
 
-void x86::load_local(byte n, uint r)
+void x86::load_local(byte n, hwreg_t r)
 // ----------------------------------------------------------------------------
 //   Load bytecode local into a hardware register
 // ----------------------------------------------------------------------------
@@ -666,7 +476,7 @@ void x86::load_local(byte n, uint r)
 }
 
 
-void x86::store_local(uint r, byte n)
+void x86::store_local(hwreg_t r, byte n)
 // ----------------------------------------------------------------------------
 //   Store hardware register into bytecode local
 // ----------------------------------------------------------------------------
@@ -694,8 +504,8 @@ void x86::mov_local(byte d, byte s)
         store_local_frame(shadow_reg(d), d);
         return;
     }
-    load_local(s, HW_RAX);
-    store_local(HW_RAX, d);
+    load_local(s, HW_EAX);
+    store_local(HW_EAX, d);
 }
 
 
@@ -705,10 +515,10 @@ void x86::swap_locals(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(x86, "swap_locals(%u, %u)", d, s);
-    load_local(d, HW_RAX);
-    load_local(s, HW_RCX);
-    store_local(HW_RCX, d);
-    store_local(HW_RAX, s);
+    load_local(d, HW_EAX);
+    load_local(s, HW_ECX);
+    store_local(HW_ECX, d);
+    store_local(HW_EAX, s);
 }
 
 
@@ -718,8 +528,8 @@ void x86::store_imm(byte d, value_t v)
 // ----------------------------------------------------------------------------
 {
     record(x86, "store_imm(%u, %lld)", d, v);
-    load_hw_imm(HW_RAX, uint64_t(v));
-    store_local(HW_RAX, d);
+    load_hw_imm(HW_EAX, uint64_t(v));
+    store_local(HW_EAX, d);
 }
 
 
@@ -731,8 +541,8 @@ void x86::store_float(byte d, float v)
     record(x86, "store_float(%u, %g)", d, v);
     uint32_t bits = 0;
     memcpy(&bits, &v, sizeof(bits));
-    load_hw_imm(HW_RAX, bits);
-    store_local(HW_RAX, d);
+    load_hw_imm(HW_EAX, bits);
+    store_local(HW_EAX, d);
 }
 
 
@@ -744,24 +554,24 @@ void x86::store_double(byte d, double v)
     record(x86, "store_double(%u, %g)", d, v);
     uint64_t bits = 0;
     memcpy(&bits, &v, sizeof(bits));
-    if (ptr_size() == 8)
+    if (ptr64())
     {
-        load_hw_imm(HW_RAX, bits);
-        store_local(HW_RAX, d);
+        load_hw_imm(HW_EAX, bits);
+        store_local(HW_EAX, d);
         return;
     }
     // i386: load_hw_imm truncates to 32 bits — write both halves of the slot.
     int disp = local_disp(d);
-    uint frame = hw_frame();
-    load_hw_imm(HW_RAX, uint32_t(bits));
-    g(0x89);
-    g(byte((2 << 6) | (reg_value(HW_RAX) << 3) | 4));
-    g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
+    uint frame = HW_FRAME;
+    load_hw_imm(HW_EAX, uint32_t(bits));
+    emit8(0x89);
+    emit8(byte((2 << 6) | (reg_value(HW_EAX) << 3) | 4));
+    emit8(byte((reg_value(HW_ESP) << 3) | reg_value(frame)));
     emit32le(uint32_t(disp));
-    load_hw_imm(HW_RAX, uint32_t(bits >> 32));
-    g(0x89);
-    g(byte((2 << 6) | (reg_value(HW_RAX) << 3) | 4));
-    g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
+    load_hw_imm(HW_EAX, uint32_t(bits >> 32));
+    emit8(0x89);
+    emit8(byte((2 << 6) | (reg_value(HW_EAX) << 3) | 4));
+    emit8(byte((reg_value(HW_ESP) << 3) | reg_value(frame)));
     emit32le(uint32_t(disp + 4));
 }
 
@@ -773,14 +583,14 @@ void x86::binop_local(byte d, byte s, cstring op)
 {
     record(x86, "binop_local(%u, %u, %s)", d, s, op);
     bool stored = false;
-    load_local(d, HW_RAX);
-    load_local(s, HW_RCX);
+    load_local(d, HW_EAX);
+    load_local(s, HW_ECX);
 if (!strcmp(op, "add"))
 // ----------------------------------------------------------------------------
 //   If
 // ----------------------------------------------------------------------------
 {
-    emit_add_rr(HW_RAX, HW_RCX);
+    emit_add_rr(HW_EAX, HW_ECX);
 }
 
 else if (!strcmp(op, "sub"))
@@ -788,7 +598,7 @@ else if (!strcmp(op, "sub"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    emit_sub_rr(HW_RAX, HW_RCX);
+    emit_sub_rr(HW_EAX, HW_ECX);
 }
 
 else if (!strcmp(op, "imul"))
@@ -804,7 +614,7 @@ else if (!strcmp(op, "and"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    emit_and_rr(HW_RAX, HW_RCX);
+    emit_and_rr(HW_EAX, HW_ECX);
 }
 
 else if (!strcmp(op, "or"))
@@ -812,7 +622,7 @@ else if (!strcmp(op, "or"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    emit_or_rr(HW_RAX, HW_RCX);
+    emit_or_rr(HW_EAX, HW_ECX);
 }
 
 else if (!strcmp(op, "xor"))
@@ -820,7 +630,7 @@ else if (!strcmp(op, "xor"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    emit_xor_rr(HW_RAX, HW_RCX);
+    emit_xor_rr(HW_EAX, HW_ECX);
 }
 
 else if (!strcmp(op, "shl"))
@@ -828,7 +638,7 @@ else if (!strcmp(op, "shl"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    emit_shift_cl(HW_RAX, 0xe0);
+    emit_shift_cl(HW_EAX, 0xe0);
 }
 
 else if (!strcmp(op, "sar"))
@@ -836,7 +646,7 @@ else if (!strcmp(op, "sar"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    emit_shift_cl(HW_RAX, 0xf8);
+    emit_shift_cl(HW_EAX, 0xf8);
 }
 
 else if (!strcmp(op, "shr"))
@@ -844,7 +654,7 @@ else if (!strcmp(op, "shr"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    emit_shift_cl(HW_RAX, 0xe8);
+    emit_shift_cl(HW_EAX, 0xe8);
 }
 
 else if (!strcmp(op, "idiv"))
@@ -881,7 +691,7 @@ else if (!strcmp(op, "idiv_mod"))
 {
     emit_cdq();
     emit_idiv_rcx();
-    emit_mov_rr(HW_RAX, HW_RDX);
+    emit_mov_rr(HW_EAX, HW_EDX);
 }
 
 else if (!strcmp(op, "div_mod"))
@@ -891,7 +701,7 @@ else if (!strcmp(op, "div_mod"))
 {
     emit_xor_rdx_rdx();
     emit_div_rcx();
-    emit_mov_rr(HW_RAX, HW_RDX);
+    emit_mov_rr(HW_EAX, HW_EDX);
 }
 
 else if (!strcmp(op, "fadd"))
@@ -991,7 +801,7 @@ else if (!strcmp(op, "ddiv"))
 }
 
     if (!stored)
-        store_local(HW_RAX, d);
+        store_local(HW_EAX, d);
 }
 
 
@@ -1017,7 +827,7 @@ void x86::binop_imm(byte d, value_t v, cstring op)
         }
     }
 
-    load_local(d, HW_RAX);
+    load_local(d, HW_EAX);
 if (!strcmp(op, "add"))
 // ----------------------------------------------------------------------------
 //   If
@@ -1071,7 +881,7 @@ else if (!strcmp(op, "shl_imm"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    emit_shift_imm8(HW_RAX, 0xe0, byte(uint64_t(v)));
+    emit_shift_imm8(HW_EAX, 0xe0, byte(uint64_t(v)));
 }
 
 else if (!strcmp(op, "sar_imm"))
@@ -1079,7 +889,7 @@ else if (!strcmp(op, "sar_imm"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    emit_shift_imm8(HW_RAX, 0xf8, byte(uint64_t(v)));
+    emit_shift_imm8(HW_EAX, 0xf8, byte(uint64_t(v)));
 }
 
 else if (!strcmp(op, "shr_imm"))
@@ -1087,7 +897,7 @@ else if (!strcmp(op, "shr_imm"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    emit_shift_imm8(HW_RAX, 0xe8, byte(uint64_t(v)));
+    emit_shift_imm8(HW_EAX, 0xe8, byte(uint64_t(v)));
 }
 
 else if (!strcmp(op, "idiv_imm"))
@@ -1095,7 +905,7 @@ else if (!strcmp(op, "idiv_imm"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    load_hw_imm(HW_RCX, uint64_t(v));
+    load_hw_imm(HW_ECX, uint64_t(v));
     emit_cdq();
     emit_idiv_rcx();
 }
@@ -1105,7 +915,7 @@ else if (!strcmp(op, "div_imm"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    load_hw_imm(HW_RCX, uint64_t(v));
+    load_hw_imm(HW_ECX, uint64_t(v));
     emit_xor_rdx_rdx();
     emit_div_rcx();
 }
@@ -1115,10 +925,10 @@ else if (!strcmp(op, "idiv_mod_imm"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    load_hw_imm(HW_RCX, uint64_t(v));
+    load_hw_imm(HW_ECX, uint64_t(v));
     emit_cdq();
     emit_idiv_rcx();
-    emit_mov_rr(HW_RAX, HW_RDX);
+    emit_mov_rr(HW_EAX, HW_EDX);
 }
 
 else if (!strcmp(op, "div_mod_imm"))
@@ -1126,13 +936,13 @@ else if (!strcmp(op, "div_mod_imm"))
 //   If
 // ----------------------------------------------------------------------------
 {
-    load_hw_imm(HW_RCX, uint64_t(v));
+    load_hw_imm(HW_ECX, uint64_t(v));
     emit_xor_rdx_rdx();
     emit_div_rcx();
-    emit_mov_rr(HW_RAX, HW_RDX);
+    emit_mov_rr(HW_EAX, HW_EDX);
 }
 
-    store_local(HW_RAX, d);
+    store_local(HW_EAX, d);
 }
 
 
@@ -1144,7 +954,7 @@ void x86::set_pred_cmp(byte p, byte cc)
     record(x86, "set_pred_cmp(%u, %u)", p, cc);
     emit_setcc_al(cc);
     emit_movzx_eax_al();
-    emit_mov_rr(hw_scr(), HW_RAX);
+    emit_mov_rr(hw_scr(), HW_EAX);
     emit_pred_clear_bit(p);
     emit_test_rr(hw_scr(), hw_scr());
     size_t pos = emit_jcc_rel8(JCC_JZ);
@@ -1172,9 +982,9 @@ void x86::cmp_local(byte p, byte d, byte s, cstring rel)
 // ----------------------------------------------------------------------------
 {
     record(x86, "cmp_local(%u, %u, %u, %s)", p, d, s, rel);
-    load_local(d, HW_RAX);
-    load_local(s, HW_RCX);
-    emit_cmp_rr(HW_RAX, HW_RCX);
+    load_local(d, HW_EAX);
+    load_local(s, HW_ECX);
+    emit_cmp_rr(HW_EAX, HW_ECX);
     set_pred_cmp(p, setcc_from_rel(rel));
 }
 
@@ -1185,7 +995,7 @@ void x86::cmp_imm(byte p, byte d, value_t v, cstring rel)
 // ----------------------------------------------------------------------------
 {
     record(x86, "cmp_imm(%u, %u, %lld, %s)", p, d, v, rel);
-    load_local(d, HW_RAX);
+    load_local(d, HW_EAX);
     emit_cmp_rax_imm32(uint32_t(v));
     set_pred_cmp(p, setcc_from_rel(rel));
 }
@@ -1236,9 +1046,9 @@ void x86::neg_local(byte d)
 // ----------------------------------------------------------------------------
 {
     record(x86, "neg_local(%u)", d);
-    load_local(d, HW_RAX);
-    emit_grp3_f7(HW_RAX, 0xd8);
-    store_local(HW_RAX, d);
+    load_local(d, HW_EAX);
+    emit_grp3_f7(HW_EAX, 0xd8);
+    store_local(HW_EAX, d);
 }
 
 
@@ -1248,9 +1058,9 @@ void x86::not_local(byte d)
 // ----------------------------------------------------------------------------
 {
     record(x86, "not_local(%u)", d);
-    load_local(d, HW_RAX);
-    emit_grp3_f7(HW_RAX, 0xd0);
-    store_local(HW_RAX, d);
+    load_local(d, HW_EAX);
+    emit_grp3_f7(HW_EAX, 0xd0);
+    store_local(HW_EAX, d);
 }
 
 
@@ -1288,7 +1098,7 @@ void x86::decr_local(byte d)
 }
 
 
-void x86::sext_reg(uint r, byte w)
+void x86::sext_reg(hwreg_t r, byte w)
 // ----------------------------------------------------------------------------
 //   Sign-extend register r to w bits (shared by sext and load paths)
 // ----------------------------------------------------------------------------
@@ -1298,26 +1108,26 @@ void x86::sext_reg(uint r, byte w)
         return;
     if (w == 8)
     {
-        if (ptr_size() == 8)
-            g(0x48);
-        g(0x0f);
-        g(0xbe);
-        g(byte(0xc0 | (r & 7)));
+        if (ptr64())
+            emit8(0x48);
+        emit8(0x0f);
+        emit8(0xbe);
+        emit8(byte(0xc0 | (r & 7)));
     }
     else if (w == 16)
     {
-        g(0x66);
-        if (ptr_size() == 8)
-            g(0x48);
-        g(0x0f);
-        g(0xbf);
-        g(byte(0xc0 | (r & 7)));
+        emit8(0x66);
+        if (ptr64())
+            emit8(0x48);
+        emit8(0x0f);
+        emit8(0xbf);
+        emit8(byte(0xc0 | (r & 7)));
     }
-    else if (w == 32 && ptr_size() == 8)
+    else if (w == 32 && ptr64())
     {
-        g(0x48);
-        g(0x63);
-        g(byte(0xc0 | ((r & 7) << 3) | (r & 7)));
+        emit8(0x48);
+        emit8(0x63);
+        emit8(byte(0xc0 | ((r & 7) << 3) | (r & 7)));
     }
     else
     {
@@ -1333,9 +1143,9 @@ void x86::sext_local(byte d, byte w)
 // ----------------------------------------------------------------------------
 {
     record(x86, "sext_local(%u, %u)", d, w);
-    load_local(d, HW_RAX);
-    sext_reg(HW_RAX, w);
-    store_local(HW_RAX, d);
+    load_local(d, HW_EAX);
+    sext_reg(HW_EAX, w);
+    store_local(HW_EAX, d);
 }
 
 
@@ -1345,13 +1155,13 @@ void x86::zext_local(byte d, byte w)
 // ----------------------------------------------------------------------------
 {
     record(x86, "zext_local(%u, %u)", d, w);
-    load_local(d, HW_RAX);
+    load_local(d, HW_EAX);
     if (w < 64)
     {
-        load_hw_imm(HW_RCX, (1ULL << w) - 1);
-        emit_and_rr(HW_RAX, HW_RCX);
+        load_hw_imm(HW_ECX, (1ULL << w) - 1);
+        emit_and_rr(HW_EAX, HW_ECX);
     }
-    store_local(HW_RAX, d);
+    store_local(HW_EAX, d);
 }
 
 
@@ -1361,8 +1171,8 @@ void x86::store_mem(byte d, byte s, uint sz)
 // ----------------------------------------------------------------------------
 {
     record(x86, "store_mem(%u, %u, %u)", d, s, sz);
-    load_local(d, HW_RAX);
-    load_local(s, HW_RCX);
+    load_local(d, HW_EAX);
+    load_local(s, HW_ECX);
 if (sz == 1)
 // ----------------------------------------------------------------------------
 //   If
@@ -1387,7 +1197,7 @@ else if (sz == 4)
     emit_store_u32_at_rax_rcx();
 }
 
-    else { emit_rex_modrm(1, HW_RCX, HW_RAX, HW_RAX, 0x89); }
+    else { emit_rex_modrm(1, HW_ECX, HW_EAX, HW_EAX, 0x89); }
 }
 
 
@@ -1397,7 +1207,7 @@ void x86::load_mem(byte d, byte s, uint sz)
 // ----------------------------------------------------------------------------
 {
     record(x86, "load_mem(%u, %u, %u)", d, s, sz);
-    load_local(s, HW_RAX);
+    load_local(s, HW_EAX);
 if (sz == 1)
 // ----------------------------------------------------------------------------
 //   If
@@ -1422,8 +1232,8 @@ else if (sz == 4)
     emit_load_u32_rax();
 }
 
-    else { emit_rex_modrm(1, HW_RAX, HW_RAX, HW_RAX, 0x8b); }
-    store_local(HW_RAX, d);
+    else { emit_rex_modrm(1, HW_EAX, HW_EAX, HW_EAX, 0x8b); }
+    store_local(HW_EAX, d);
 }
 
 
@@ -1433,13 +1243,13 @@ void x86::store_mem_off(byte d, byte s, value_t o, uint sz)
 // ----------------------------------------------------------------------------
 {
     record(x86, "store_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
-    load_local(d, HW_RAX);
+    load_local(d, HW_EAX);
     if (o)
     {
-        load_hw_imm(HW_RDX, uint64_t(o));
-        emit_add_rr(HW_RAX, HW_RDX);
+        load_hw_imm(HW_EDX, uint64_t(o));
+        emit_add_rr(HW_EAX, HW_EDX);
     }
-    load_local(s, HW_RCX);
+    load_local(s, HW_ECX);
 if (sz == 1)
 // ----------------------------------------------------------------------------
 //   If
@@ -1464,7 +1274,7 @@ else if (sz == 4)
     emit_store_u32_at_rax_rcx();
 }
 
-    else { emit_rex_modrm(1, HW_RCX, HW_RAX, HW_RAX, 0x89); }
+    else { emit_rex_modrm(1, HW_ECX, HW_EAX, HW_EAX, 0x89); }
 }
 
 
@@ -1474,11 +1284,11 @@ void x86::load_mem_off(byte d, byte s, value_t o, uint sz)
 // ----------------------------------------------------------------------------
 {
     record(x86, "load_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
-    load_local(s, HW_RAX);
+    load_local(s, HW_EAX);
     if (o)
     {
-        load_hw_imm(HW_RCX, uint64_t(o));
-        emit_add_rr(HW_RAX, HW_RCX);
+        load_hw_imm(HW_ECX, uint64_t(o));
+        emit_add_rr(HW_EAX, HW_ECX);
     }
 if (sz == 1)
 // ----------------------------------------------------------------------------
@@ -1504,8 +1314,8 @@ else if (sz == 4)
     emit_load_u32_rax();
 }
 
-    else { emit_rex_modrm(1, HW_RAX, HW_RAX, HW_RAX, 0x8b); }
-    store_local(HW_RAX, d);
+    else { emit_rex_modrm(1, HW_EAX, HW_EAX, HW_EAX, 0x8b); }
+    store_local(HW_EAX, d);
 }
 
 
@@ -1522,7 +1332,7 @@ void x86::load_signext_mem(byte w)
     else if (w == 32)
         emit_load_s32_sext_rax();
     else if (w >= 64)
-        emit_rex_modrm(1, HW_RAX, HW_RAX, HW_RAX, 0x8b);
+        emit_rex_modrm(1, HW_EAX, HW_EAX, HW_EAX, 0x8b);
     else
     {
         uint sz = (w + 7) / 8;
@@ -1533,8 +1343,8 @@ void x86::load_signext_mem(byte w)
         else if (sz == 4)
             emit_load_u32_rax();
         else
-            emit_rex_modrm(1, HW_RAX, HW_RAX, HW_RAX, 0x8b);
-        sext_reg(HW_RAX, w);
+            emit_rex_modrm(1, HW_EAX, HW_EAX, HW_EAX, 0x8b);
+        sext_reg(HW_EAX, w);
     }
 }
 
@@ -1545,9 +1355,9 @@ void x86::load_signext(byte d, byte s, byte w)
 // ----------------------------------------------------------------------------
 {
     record(x86, "load_signext(%u, %u, %u)", d, s, w);
-    load_local(s, HW_RAX);
+    load_local(s, HW_EAX);
     load_signext_mem(w);
-    store_local(HW_RAX, d);
+    store_local(HW_EAX, d);
 }
 
 void x86::load_signext_off(byte d, byte s, byte w, value_t o)
@@ -1556,14 +1366,14 @@ void x86::load_signext_off(byte d, byte s, byte w, value_t o)
 // ----------------------------------------------------------------------------
 {
     record(x86, "load_signext_off(%u, %u, %u, %lld)", d, s, w, o);
-    load_local(s, HW_RAX);
+    load_local(s, HW_EAX);
     if (o)
     {
-        load_hw_imm(HW_RCX, uint64_t(o));
-        emit_add_rr(HW_RAX, HW_RCX);
+        load_hw_imm(HW_ECX, uint64_t(o));
+        emit_add_rr(HW_EAX, HW_ECX);
     }
     load_signext_mem(w);
-    store_local(HW_RAX, d);
+    store_local(HW_EAX, d);
 }
 
 
@@ -1573,9 +1383,9 @@ void x86::frame_addr(byte d, byte s)
 // ----------------------------------------------------------------------------
 {
     record(x86, "frame_addr(%u, %u)", d, s);
-    load_hw_imm(HW_RAX, uint64_t(local_disp(s)));
-    emit_add_rr(HW_RAX, hw_frame());
-    store_local(HW_RAX, d);
+    load_hw_imm(HW_EAX, uint64_t(local_disp(s)));
+    emit_add_rr(HW_EAX, HW_FRAME);
+    store_local(HW_EAX, d);
 }
 
 
@@ -1585,7 +1395,7 @@ void x86::bra_offset(broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(x86, "bra_offset(%lld)", b);
-    uint pos = gjmp(0);
+    uint pos = jump(0);
     record_branch(b, pos);
 }
 
@@ -1608,8 +1418,8 @@ void x86::bra_zero(byte s, broff_t b, bool eq)
 // ----------------------------------------------------------------------------
 {
     record(x86, "bra_zero(%u, %lld, %d)", s, b, eq);
-    load_local(s, HW_RAX);
-    emit_test_rr(HW_RAX, HW_RAX);
+    load_local(s, HW_EAX);
+    emit_test_rr(HW_EAX, HW_EAX);
     size_t pos = emit_jcc_rel32(eq ? JCC_JZ : JCC_JNZ);
     record_branch(b, uint(pos));
 }
@@ -1621,8 +1431,8 @@ void x86::bra_signed(byte s, broff_t b, byte cc)
 // ----------------------------------------------------------------------------
 {
     record(x86, "bra_signed(%u, %lld, %u)", s, b, cc);
-    load_local(s, HW_RAX);
-    emit_test_rr(HW_RAX, HW_RAX);
+    load_local(s, HW_EAX);
+    emit_test_rr(HW_EAX, HW_EAX);
     size_t pos = emit_jcc_rel32(cc);
     record_branch(b, uint(pos));
 }
@@ -1634,9 +1444,9 @@ void x86::dbra_local(byte d, broff_t b)
 // ----------------------------------------------------------------------------
 {
     record(x86, "dbra_local(%u, %lld)", d, b);
-    load_local(d, HW_RAX);
-    emit_grp5_ff(HW_RAX, 0xc8);
-    store_local(HW_RAX, d);
+    load_local(d, HW_EAX);
+    emit_grp5_ff(HW_EAX, 0xc8);
+    store_local(HW_EAX, d);
     bra_zero(d, b, false);
 }
 
@@ -1654,7 +1464,7 @@ void x86::jmp_tok(tok_t t)
         return;
     }
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
-    uint pos = gjmp(head);
+    uint pos = jump(head);
     record_tok_jump(t, pos);
 }
 
@@ -1671,7 +1481,7 @@ void x86::call_tok(tok_t t)
     emit_cleanup_call_args(1);
     emit_runtime_call("xlr8_sync_args");
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
-    uint pos = gjmp(head);
+    uint pos = jump(head);
     record_tok_jump(t, pos);
     patch_pc_rel(adr_at, uintptr_t(pos + 4));
 }
@@ -1683,7 +1493,7 @@ void x86::ijmp_local(byte s)
 // ----------------------------------------------------------------------------
 {
     record(x86, "ijmp_local(%u)", s);
-    load_local(s, HW_RAX);
+    load_local(s, HW_EAX);
     emit_set_arg0_rax();
     emit_runtime_call("xlr8_jit_addr");
     emit_cleanup_call_args(1);
@@ -1702,7 +1512,7 @@ void x86::icall_local(byte s)
     emit_runtime_call("xlr8_push_value");
     emit_cleanup_call_args(1);
     emit_runtime_call("xlr8_sync_args");
-    load_local(s, HW_RAX);
+    load_local(s, HW_EAX);
     emit_set_arg0_rax();
     emit_runtime_call("xlr8_jit_addr");
     emit_cleanup_call_args(1);
@@ -1731,8 +1541,8 @@ void x86::load_pc(byte d)
 // ----------------------------------------------------------------------------
 {
     record(x86, "load_pc(%u)", d);
-    load_hw_imm(HW_RAX, cursor());
-    store_local(HW_RAX, d);
+    load_hw_imm(HW_EAX, cursor());
+    store_local(HW_EAX, d);
 }
 
 
@@ -1743,8 +1553,8 @@ void x86::load_pca(byte d, broff_t b)
 {
     record(x86, "load_pca(%u, %lld)", d, b);
     (void) b;
-    load_hw_imm(HW_RAX, uint64_t(pending_branch_target));
-    store_local(HW_RAX, d);
+    load_hw_imm(HW_EAX, uint64_t(pending_branch_target));
+    store_local(HW_EAX, d);
 }
 
 
@@ -1780,7 +1590,7 @@ void x86::push_local(byte s)
 // ----------------------------------------------------------------------------
 {
     record(x86, "push_local(%u)", s);
-    load_local(s, HW_RAX);
+    load_local(s, HW_EAX);
     emit_set_arg0_rax();
     emit_runtime_call("xlr8_push_value");
     emit_cleanup_call_args(1);
@@ -1794,7 +1604,7 @@ void x86::pop_local(byte d)
 {
     record(x86, "pop_local(%u)", d);
     emit_runtime_call("xlr8_pop_value");
-    store_local(HW_RAX, d);
+    store_local(HW_EAX, d);
 }
 
 
@@ -1847,27 +1657,32 @@ void x86::load_global(byte d, byte s)
 }
 
 
+void x86::do_prologue()
+// ----------------------------------------------------------------------------
+//   Emit standard function prologues
+// ----------------------------------------------------------------------------
+{
+    record(x86, "do_prologue");
+
+    // i386 SysV: ebx/esi/edi/ebp are callee-saved.  We keep frame in edi
+    // and flags in esi for the whole translation (see hw_frame/hw_flags).
+    emit_push_reg(HW_EBX);
+    emit_push_reg(HW_ESI);
+    emit_push_reg(HW_EDI);
+    emit_push_reg(HW_EBP);
+}
+
+
 void x86::do_ret()
 // ----------------------------------------------------------------------------
 //   Emit epilogue (restore callee-saved) and return
 // ----------------------------------------------------------------------------
 {
     record(x86, "do_ret()");
-    if (ptr_size() == 4)
-    {
-        emit_pop_reg(HW_RBP);
-        emit_pop_reg(HW_RDI);
-        emit_pop_reg(HW_RSI);
-        emit_pop_reg(HW_RBX);
-    }
-    else
-    {
-        emit_add_rsp_imm8(0x08);
-        emit_pop_reg(HW_R15);
-        emit_pop_reg(HW_R12);
-        emit_pop_reg(HW_RBP);
-        emit_pop_reg(HW_RBX);
-    }
+    emit_pop_reg(HW_EBP);
+    emit_pop_reg(HW_EDI);
+    emit_pop_reg(HW_ESI);
+    emit_pop_reg(HW_EBX);
     emit_insn_ret();
 }
 
@@ -1878,13 +1693,17 @@ void x86::call_ptr(void *fn)
 // ----------------------------------------------------------------------------
 {
     record(x86, "call_ptr(%p)", fn);
+#ifdef _WIN64
     // Microsoft x64: caller provides 32 bytes of register parameter home space
-    if (ptr_size() == 8 && win64_abi())
+    if (ptr64())
         emit_sub_rsp_imm8(0x20);
-    load_hw_imm(HW_RAX, uint64_t(fn));
+#endif
+    load_hw_imm(HW_EAX, uint64_t(fn));
     emit_call_rax();
-    if (ptr_size() == 8 && win64_abi())
+#ifdef _WIN64
+    if (ptr64())
         emit_add_rsp_imm8(0x20);
+#endif
 }
 
 
@@ -1909,17 +1728,15 @@ void x86::emit_runtime_call(cstring fn)
     // xlr8_leave/enter return the new frame in rax — keep it for the reload.
     if (!strcmp(fn, "xlr8_leave") || !strcmp(fn, "xlr8_enter"))
         reload_frame_reg();
-    else if (ptr_size() == 4)
+    else if (pointer_size() == 4)
     {
         // Preserve helper return in eax.  Refresh frame only — flags live in
         // esi until emit_sys syncs them; get_flags would wipe BTS/BTR updates.
-        emit_push_reg(HW_RAX);
+        emit_push_reg(HW_EAX);
         call_ptr(xlr8_runtime_fn("xlr8_get_frame"));
         emit_mov_frame_rax();
-        emit_pop_reg(HW_RAX);
+        emit_pop_reg(HW_EAX);
     }
-    if (ptr_size() == 8)
-        reload_shadows();
 }
 
 
@@ -1932,15 +1749,13 @@ void x86::emit_runtime_call(cstring fn, tok_t a)
     emit_set_arg0_imm(uint64_t(a));
     call_ptr(xlr8_runtime_fn(fn));
     emit_cleanup_call_args(1);
-    if (ptr_size() == 4)
+    if (pointer_size() == 4)
     {
-        emit_push_reg(HW_RAX);
+        emit_push_reg(HW_EAX);
         call_ptr(xlr8_runtime_fn("xlr8_get_frame"));
         emit_mov_frame_rax();
-        emit_pop_reg(HW_RAX);
+        emit_pop_reg(HW_EAX);
     }
-    if (ptr_size() == 8)
-        reload_shadows();
 }
 
 
@@ -1955,17 +1770,16 @@ void x86::emit_runtime_call(cstring fn, byte a)
     emit_cleanup_call_args(1);
     if (!strcmp(fn, "xlr8_enter") || !strcmp(fn, "xlr8_leave"))
         reload_frame_reg();
-    else if (ptr_size() == 4)
+    else if (pointer_size() == 4)
     {
-        emit_push_reg(HW_RAX);
+        emit_push_reg(HW_EAX);
         call_ptr(xlr8_runtime_fn("xlr8_get_frame"));
         emit_mov_frame_rax();
-        emit_pop_reg(HW_RAX);
+        emit_pop_reg(HW_EAX);
     }
-    if (ptr_size() == 8)
-        reload_shadows();
 }
 
 
+#define EMIT(op)        void x86::emit_##op(emit_args &e)
 
 #include "x86-emit.cpp"

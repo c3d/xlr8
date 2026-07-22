@@ -61,14 +61,14 @@ struct backend
         ARCH_NONE,
 
         ARCH_I386,
-        ARCH_X86_64,
+        ARCH_AMD64,
         ARCH_ARM,
         ARCH_ARM64,
         ARCH_RISCV64,
 
         ARCH_NATIVE =
 #  if defined(__x86_64__) || defined(__amd64__)
-        ARCH_X86_64
+        ARCH_AMD64
 #  elif defined(__aarch64__)
         ARCH_ARM64
 #  elif defined(__arm__)
@@ -83,44 +83,64 @@ struct backend
 #  endif
     };
 
-    virtual        ~backend()   = default;
-    static backend *make(arch_t arch = ARCH_NATIVE);
-    static cstring  arch_name(arch_t arch = ARCH_NATIVE);
+    virtual         ~backend()   = default;
+    static backend  *make(arch_t arch = ARCH_NATIVE);
+    static cstring   arch_name(arch_t arch = ARCH_NATIVE);
 
-    bool            set_options(cstring options);
-    void            set_output(output_t output);
-    arch_t          arch() const                { return current_arch; }
-    output_t        output() const              { return current_output; }
-    bool            nocode() const              { return nocode_wanted; }
-    void            set_nocode(bool on)         { nocode_wanted = on; }
+    bool             set_options(cstring options);
+    void             set_output(output_t output);
+    arch_t           arch() const               { return current_arch; }
+    output_t         output() const             { return current_output; }
 
-    section        &code()                      { return text_section; }
-    size_t          cursor() const              { return text_section.size(); }
-    auto            bytecode_positions() const  { return bc_positions; }
-    void            bind(tok_t t)               { labels[t] = cursor(); }
-    void            resolve_labels();
+    bool             translate(byte_p start, byte_p end);
 
-    virtual void    begin_translation()  = 0;
-    virtual void    finish_translation() = 0;
-    bool            translate(byte_p &pc);
+    section         &code()                     { return text_section; }
+    hwcode_t         cursor() const             { return text_section.size(); }
+    auto             bytecode_positions() const { return code_offset; }
+    void             bind(tok_t t)              { labels[t] = cursor(); }
+    void             resolve_labels();
 
-    // Target constants (TARGET_DEFS_ONLY section in TinyCC)
-    virtual cstring machine_defs() const = 0;
-    virtual uint    nb_regs() const      = 0;
-    virtual uint    ptr_size() const     = 0;
-    virtual uint    reg_iret() const     = 0;
+    bool             translate(byte_p &pc);
+    void             emit8(byte c);
+    void             emit32le(uint32_t c);
+    void             emit32be(uint32_t c);
 
-    // Byte emission (g in TinyCC, o seems really strange and was removed)
-    void            g(byte c);
-    void            emit32le(uint32_t c);
+    intptr_t         branch_offset(byte_p bytecode, hwcode_t machine);
+    uint             translate_address(byte_p source, hwcode_t target);
 
-    // Control flow with deferred fixup (gjmp/gsym in TinyCC)
-    virtual uint    gjmp(uint t) = 0;
-    virtual void    gsym(uint t);
-    virtual void    gsym_addr(uint t, uint a) = 0;
-    virtual void    gsyscall(void (*target)()) = 0;
-    virtual void    relocate(void *base)        { (void) base; }
-    virtual size_t  emit_over_callees_branch()  { return 0; }
+
+    // ========================================================================
+    //
+    //   Backend interface - Functions with default behaviour
+    //
+    // ========================================================================
+
+    virtual void     begin_translation();
+    virtual void     finish_translation();
+    virtual hwreg_t  local(local_t r, hwspec_t spec = 0);
+
+    virtual bool     spill(hwreg_t r);
+    virtual size_t   spill_all();
+    virtual size_t   frame_size();
+    virtual size_t   frame_size(size_t slots);
+
+
+    // ========================================================================
+    //
+    //    Target specification (to be overriden by actual targets)
+    //
+    // ========================================================================
+
+    // Target definition
+    virtual cstring  machine_defs() const                       = 0;
+    virtual uint     registers() const                          = 0;
+    virtual uint     pointer_size() const                       = 0;
+
+    // Control flow with deferred fixup (jump/resolve_jump in TinyCC)
+    virtual void     patch_branch(hwcode_t data, hwcode_t tgt)  = 0;
+    virtual void     call(void (*target)())                     = 0;
+    virtual void     syscall(void (*target)())                  = 0;
+    virtual void     relocate(void *base)                       = 0;
 
 
     // ========================================================================
@@ -129,16 +149,41 @@ struct backend
     //
     // ========================================================================
 
-    virtual hwreg_t  load(local_t r, hwspec_t spec = 0);
-    virtual bool     load(hwreg_t, local_t r, hwspec_t spec = 0) = 0;
-    virtual bool     store(local_t r, hwreg_t)                   = 0;
-    virtual hwspec_t register_specification(hwreg_t)             = 0;
+    virtual bool     move(hwreg_t to, hwreg_t from)             = 0;
+    virtual bool     load(hwreg_t, local_t r)                   = 0;
+    virtual bool     store(local_t r, hwreg_t)                  = 0;
+    virtual hwspec_t register_specification(hwreg_t)            = 0;
+    virtual cstring  register_name(hwreg_t)                     = 0;
 
-    virtual size_t   spill_all();
-    virtual size_t   frame_size();
-    virtual size_t   frame_size(size_t slots);
+    const hwreg_t    NO_REGISTER        = hwreg_t(-1);
+    const local_t    NO_LOCAL           = local_t(-1);
+    const uint       DEFAULT_FRAME_SIZE = 8;
 
-    const hwreg_t    NO_REGISTER = hwreg_t(-1);
+    enum hwflag_t : hwspec_t
+    // ------------------------------------------------------------------------
+    //   Specification flags
+    // ------------------------------------------------------------------------
+    {
+        RSPEC_I8   = 1 << 0,  // Can store   signed  8-bit value
+        RSPEC_I16  = 1 << 1,  // Can store   signed 16-bit value
+        RSPEC_I32  = 1 << 2,  // Can store   signed 32-bit value
+        RSPEC_I64  = 1 << 3,  // Can store   signed 64-bit value
+        RSPEC_U8   = 1 << 4,  // Can store unsigned  8-bit value
+        RSPEC_U16  = 1 << 5,  // Can store unsigned 16-bit value
+        RSPEC_U32  = 1 << 6,  // Can store unsigned 32-bit value
+        RSPEC_U64  = 1 << 7,  // Can store unsigned 64-bit value
+        RSPEC_PTR  = 1 << 8,  // Can store addresses
+        RSPEC_FLT  = 1 << 9,  // Can store 32-bit FP
+        RSPEC_DBL  = 1 << 10, // Can store 64-bit FP
+        RSPEC_BRA  = 1 << 11, // Can store a branch target
+        RSPEC_CMP  = 1 << 12, // Can store a comparision / predicate
+        RSPEC_CALL = 1 << 13, // Safe across calls
+
+        RSPEC_NEG  = RSPEC_I8  | RSPEC_I16 | RSPEC_I32 | RSPEC_I64,
+        RSPEC_POS  = RSPEC_U8  | RSPEC_U16 | RSPEC_U32 | RSPEC_U64,
+        RSPEC_INT  = RSPEC_NEG | RSPEC_POS,
+        RSPEC_FP   = RSPEC_FLT | RSPEC_DBL,
+    };
 
 
     // ========================================================================
@@ -152,11 +197,12 @@ struct backend
     //   Arguments set by opcodes table
     // ------------------------------------------------------------------------
     {
-        emit_args(byte_p pc): error(), ppc(pc), pc(pc) {}
+        emit_args(byte_p pc, byte_p end): error(), ppc(pc), pc(pc), end(end) {}
 
         cstring  error;  // Error message if any
         byte_p   ppc;    // Previous program counter (beginning of op)
         byte_p   pc;     // Program counter (end of op)
+        byte_p   end;    // End of translation unit
         tok_t    op;     // Opcode (first byte or sys name)
         bool     done;   // Indicates that we are done
         byte     dst;    // DST  Destination register index
@@ -183,56 +229,50 @@ struct backend
 #define NATIVE(op, code, decl) virtual void emit_sys_##op(emit_args &args) = 0;
 #include "native.tbl"
 
-    virtual void    emit_user(emit_args &args);
+    virtual void emit_user(emit_args &args);
+    virtual bool branch(emit_args &args, byte_p target);
+    virtual void patch_branch(hwcode_t data, hwcode_t tgt);
 
 protected:
-    backend(arch_t arch);
+    backend(arch_t arch);       // Only create backends through the factory
 
-    void            record_branch(broff_t offset, uint pos);
-    void            record_tok_jump(tok_t t, uint pos);
-    void            patch_branch(uint pos, broff_t offset);
-    virtual void    patch_branch_site(size_t insn_pos, size_t target_native);
-    void            translate_subroutine(byte_p &pc, byte_p end = nullptr);
-    void            mark_entry(byte_p target);
-    void            redirect_after_bra(byte_p target, byte_p &pc);
-    byte_p          next_live_code(byte_p from);
-    void            ensure_branch_target_translated(byte_p target);
 
-    struct relocation   { size_t imm_at; size_t offset; };
-    struct branch_fixup { byte_p target; size_t insn_pos; };
+    arch_t   current_arch;
+    output_t current_output;
+    bool     translating;
+    section  text_section;
 
-    using relocations_t = std::vector<relocation>;
-    using labels_t      = std::map<tok_t, size_t>;
-    using tok_map_t     = std::map<tok_t, uint>;
-    using branches_t    = std::vector<uint>;
-    using positions_t   = std::map<byte_p, size_t>;
-    using fixups_t      = std::vector<branch_fixup>;
-    using targets_t     = std::set<byte_p>;
-    using jmpchain_t    = std::map<size_t, size_t>;
-    using regmap_t      = std::map<hwreg_t, local_t>;
-    using regalloc_t    = std::vector<hwreg_t>;
+    using reg_local_t = std::vector<local_t>;
+    using local_reg_t = std::vector<hwreg_t>;
+    reg_local_t reg_local;
+    local_reg_t local_reg;
 
-    arch_t        current_arch;
-    output_t      current_output;
-    bool          nocode_wanted;
-    bool          verbose;
-    bool          translating;
-    section       text_section;
-    size_t        index;
-    regmap_t      regmap;
-    regalloc_t    regalloc;
-    relocations_t relocations;
-    labels_t      labels;
-    tok_map_t     tok_jumps;
-    branches_t    branch_patches;
-    positions_t   bc_positions;
-    fixups_t      branch_fixups;
-    targets_t     branch_targets;
-    targets_t     entry_targets;
-    jmpchain_t    gjmp_chain;
-    byte_p        translate_base        = nullptr;
-    byte_p        pending_branch_target = nullptr;
-    size_t        over_callees_at       = 0;
+    struct translation
+    {
+        byte_p   bytecode;
+        hwcode_t machine;
+
+        bool     operator==(const translation &other) = default;
+        bool     operator!=(const translation &other) = default;
+        bool     operator< (const translation &other)
+        {
+            return bytecode < other.bytecode ||
+                (bytecode == otehr.bytecode && machine < other.machine);
+        }
+        bool operator<(byte_p bc)
+        {
+            return bytecode < bc;
+        }
+        bool operator<(hwcode_t mc)
+        {
+            return machine < mc;
+        }
+    };
+    using translations = std::vector<translation>;
+    translations functions;
+    translations branches;
+    translations calls;
+    translations labels;
 };
 
 RECORDER_DECLARE(backend);

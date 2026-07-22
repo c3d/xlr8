@@ -25,8 +25,11 @@
 #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #******************************************************************************
 
-SOURCES=backend.cpp				\
-	x86.cpp arm.cpp arm64.cpp riscv64.cpp
+SOURCES=backend.cpp		\
+	x86.cpp amd64.cpp	\
+	arm.cpp arm64.cpp	\
+	riscv64.cpp
+
 PRODUCTS=backend.lib
 
 INCLUDES=../recorder ../runtime

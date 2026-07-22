@@ -56,6 +56,8 @@ typedef const void   *kvoid_p;
 typedef uint          hwreg_t;  // Hardware register index
 typedef uint          hwspec_t; // Hardware register specification
 typedef uint          local_t;  // Local slot (0-255 = bytecode regs)
+typedef size_t        hwcode_t; // Offset to hardware code
+
 
 enum op_t : byte
 // ----------------------------------------------------------------------------

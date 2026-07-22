@@ -64,43 +64,23 @@ struct riscv64 : backend
 //   RISC-V 64 code generator implementing every built-in opcode
 // ----------------------------------------------------------------------------
 {
+    riscv64();
     static backend *make()              { return new riscv64; }
 
-    riscv64();
-
-    cstring machine_defs() const override;
-    uint nb_regs() const override;
-    uint ptr_size() const override;
-    uint reg_iret() const override;
-
-    uint gjmp(uint t) override;
-    void gsym_addr(uint t, uint a) override;
-    void gsyscall(void (*target)()) override;
-    void finish_translation() override;
-    void begin_translation() override;
-    void patch_branch_site(size_t insn_pos, size_t target_native) override;
-    void relocate(void *base) override;
-    size_t emit_over_callees_branch() override;
-    void emit_user(emit_args &args) override;
-
-#define OP(op, code, decl) virtual void emit_##op(emit_args &args);
-#include "opcodes.tbl"
-
-#define NATIVE(op, code, decl) virtual void emit_sys_##op(emit_args &args);
-#include "native.tbl"
+#  include "backend-iface.h"
 
 protected:
     void patch_imm64_at(void *mem, size_t at, uint r, uint64_t v);
 
     enum hwreg_t : uint
     {
-        HW_IP    = 5,       // t0, intra-procedure call scratch
-        HW_FRAME = 8,       // s0, rt.frame base for spill
-        HW_FLAGS = 9,       // s1, rt.flags (64-bit predicates)
-        HW_LOC0  = 10,      // shadow frame[0] .. frame[15]
-        HW_SCR_VAL  = 28,   // t3, scratch: values
-        HW_SCR_ADDR = 29,   // scratch: addresses
-        HW_SCR_OFF  = 30,   // scratch: offsets
+        HW_IP       = 5,  // t0, intra-procedure call scratch
+        HW_FRAME    = 8,  // s0, rt.frame base for spill
+        HW_FLAGS    = 9,  // s1, rt.flags (64-bit predicates)
+        HW_LOC0     = 10, // shadow frame[0] .. frame[15]
+        HW_SCR_VAL  = 28, // t3, scratch: values
+        HW_SCR_ADDR = 29, // scratch: addresses
+        HW_SCR_OFF  = 30, // scratch: offsets
     };
 
     static inline uint xreg(byte n)
@@ -782,7 +762,6 @@ protected:
     void call_abs(void *fn);
     void spill_frame();
     void reload_frame_reg();
-    void reload_shadows();
     void reload_flags_reg();
     void set_pred_cmp(byte p, byte cond);
     void touch_local(byte d);

@@ -91,8 +91,8 @@ across syscalls; `restore_frame_ptr()` is `mov x19, x27` (no C call).
 | Platform | JIT backend | Machine(s)              |
 |----------|-------------|-------------------------|
 | arm64    | arm64       | macOS (dev), torpille   |
-| x86-64   | x86_64      | turbo                   |
-| x86-32   | i386        | **holy** (was turbo-x86)|
+| x86-64   | amd64       | turbo                   |
+| x86-32   | x86         | **holy** (was turbo-x86)|
 | arm32    | arm         | **pi3** (was turbo-arm) |
 | riscv64  | riscv64     | risky (`fedora-riscv`)  |
 
@@ -104,7 +104,7 @@ across syscalls; `restore_frame_ptr()` is `mov x19, x27` (no C call).
   `xlr8` tmux pane on holy already has `export BUILDENV=i686`, so the usual
   protocol (`tmux send-keys` into `xlr8:0.0`, no extra env) picks it up
   automatically.  Any **direct SSH** `make` / one-off shell outside that pane
-  must set `BUILDENV=i686` explicitly or the wrong (likely x86_64) config is
+  must set `BUILDENV=i686` explicitly or the wrong (likely amd64) config is
   used.
 
 Baseline functional rows below still mix older snapshot status with current
@@ -407,11 +407,11 @@ Comment said "refresh x20"; `HW_ANCHOR` is x27.  Updated to match
 
 Previously `g(0x50 + (r&7))` with no REX.B, so `push r12` would encode as
 `push rsp`.  Fixed when the x86-64 prologue landed (`d43b0da`): both push and
-pop emit `0x41` when `ptr_size()==8 && rex_b(r)`.
+pop emit `0x41` when `pointer_size()==8 && rex_b(r)`.
 
 ```cpp
-if (ptr_size() == 8 && rex_b(r))
-    g(0x41);
+if (pointer_size() == 8 && rex_b(r))
+    emit8(0x41);
 g(byte(0x50 + reg_value(r)));
 ```
 
@@ -441,7 +441,7 @@ Validated on macOS / turbo / torpille (226/0) with commit `a164ffe`.
   `7x rel8` / `EB rel8` instead of `0F 8x rel32` / `E9 rel32`.
 - `patch_branch_site` recognizes both forms (opcode before the disp site).
 - `jmp_tok` to an already-bound label uses `emit_jmp_to` (rel8 when in ±128).
-- Deferred bytecode branches (`bra_*`, unbound `gjmp` chains) still use rel32;
+- Deferred bytecode branches (`bra_*`, unbound `jump` chains) still use rel32;
   distance is unknown at emit time and expanding a short site would shift
   later fixups.
 
@@ -577,9 +577,9 @@ Bases were `0xE5100000` / `0xE5000000` (U=0: subtract offset).  Corrected to
 `cmp_local` / `cmp_imm` now map `"eq"`/`"ne"`/`"lt"`/… to ARM condition codes,
 clear the predicate bit with flag-preserving `AND`, then `ORR{cond}` from CPSR.
 
-### 6.3 [P0] ~~`gsym_addr()` missing -8 pipeline offset~~ — **FIXED** (2026-07-16)
+### 6.3 [P0] ~~`resolve_jump()` missing -8 pipeline offset~~ — **FIXED** (2026-07-16)
 
-**File**: `arm.cpp` — `gsym_addr()`
+**File**: `arm.cpp` — `resolve_jump()`
 
 Offset is now `(a - n - 8) / 4`, matching `patch_branch_site`.  Chain-next is
 taken from the 24-bit imm field only (not the full insn word).
@@ -760,7 +760,7 @@ call that returns both the sys result and whether the PC changed.
 
 ### 8.3 Distant Branches (jmp, call)
 
-All platforms use deferred fixup chains (gjmp/gsym) for forward references, which
+All platforms use deferred fixup chains (jump/resolve_jump) for forward references, which
 is correct.  Call sequences are 10-15 instructions due to push-return-address +
 sync-args + jump.  This is inherent to the software call stack model (no hardware
 return-address prediction).
@@ -792,7 +792,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | 7 | Register `xlr8_switch` or implement inline | All 4 | 1h |
 | 8 | ~~Fix `ldr_off`/`str_off` U-bit~~ — §6.1 | arm32 | — |
 | 9 | ~~Fix comparison string mismatch~~ — §6.2 | arm32 | — |
-| 10 | ~~Fix `gsym_addr` pipeline offset (-8)~~ — §6.3 | arm32 | — |
+| 10 | ~~Fix `resolve_jump` pipeline offset (-8)~~ — §6.3 | arm32 | — |
 
 ### Phase 2 -- Correctness Hardening
 

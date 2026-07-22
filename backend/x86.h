@@ -6,7 +6,7 @@
 //
 //   File Description:
 //
-//     Shared x86/x86-64 code generation for all built-in opcodes
+//     32-bit x86 code generation backend (also basis for 64-bit)
 //
 //
 //
@@ -30,31 +30,27 @@
 // ****************************************************************************
 //
 //  ===========================================================================
-//  REGISTER ALLOCATION CONVENTIONS (x86 / x86-64 / i386)
+//  REGISTER ALLOCATION CONVENTIONS (x86 / i386)
 //  ===========================================================================
 //
-//  Bytecode locals 0..3 (x86-64 only) shadow frame[0..3] in r8,r9,r10,rbx.
-//  Locals >= 4 and all locals on i386 use [r12 + local*8] as today.
+//  Locals use [ebp + local*8], ebp is adjusted by op_enter and op_leave
+//  args are pointed to by ebp[-1]
+//  Flags 32-63 are at ebp[-2]
+//  Args   use [ebp + arg*8] before enter
 //
-//  Register map (x86-64):
-//    Shadow locals     r8,r9,r10,rbx  frame[0] .. frame[3] when valid
-//    Frame pointer     r12 (HW_FRAME)   rt.frame, primed at JIT entry
-//    Flags/predicates  r15 (HW_FLAGS)   rt.flags (64-bit), primed at entry
-//    Scratch           r11 (HW_SCR)     general temp (swap, etc.)
-//    Value temps       rax, rcx, rdx    used by opcode helpers
-//    Callee-saved      rbx,rbp,r12,r15  saved/restored in prologue/epilogue
-//    C args (SysV)     rdi, rsi         first two integer helper args
-//    C args (Win64)    rcx, rdx         first two integer helper args
-//    Stack pointer     rsp              native stack (Win64: 32-byte call shadow)
+//  Register map (x86 / i386):
 //
-//  i386 variant: ularge_t slots (8 bytes), no shadow locals (nb_regs == 8).
-//    Frame pointer     edi (HW_RDI)     rt.frame, callee-saved (avoid ebx PIC/GOT)
-//    Flags/predicates  esi (HW_RSI)     rt.flags, callee-saved
-//    Scratch           ecx (HW_RCX)     general temp
-//    Prologue saves    ebx,esi,edi,ebp  (SysV callee-saved); restored in do_ret
+//    Frame pointer     ebp (HW_FRAME)   Runtime frame for locals
+//    Flags/predicates  esi (HW_FLAGS)   First 32 flags
+//    Scratch           ecx (HW_SCRATCH) General temporary
+//    Value temps       eax, ecx, edx    used by opcode helpers
+//    Callee-saved      ebx,esi,edi,ebp  Saved/restored in prologue/epilogue
+//    C args (SysV)     edi, esi         first two integer helper args
+//    C args (Win64)    ecx, edx         first two integer helper args
+//    Stack pointer     esp              native stack
 //
-//  Bytecode PC is the translator cursor, not a fixed HW register.  Runtime is
-//  reached via xlr8_get_runtime() in spill/sys paths.
+//  Bytecode PC is the translator cursor, not a fixed HW register.
+//  Runtime is reached via xlr8_get_runtime() in spill/sys paths.
 //
 //  ===========================================================================
 
@@ -70,100 +66,58 @@ struct x86 : backend
 //   Shared x86 family code generator implementing every opcode
 // ----------------------------------------------------------------------------
 {
-    enum hwreg_t : uint
-    {
-        HW_RAX = 0,
-        HW_RCX = 1,
-        HW_RDX = 2,
-        HW_RBX = 3,
-        HW_RSP = 4,
-        HW_RBP = 5,
-        HW_RSI = 6,
-        HW_RDI = 7,
-        HW_R8  = 8,
-        HW_R9  = 9,
-        HW_R10 = 10,
-        HW_R11 = 11,
-        HW_R12 = 12,
-        HW_R13 = 13,
-        HW_R14 = 14,
-        HW_R15 = 15,
-        HW_FRAME = HW_R12,  // rt.frame — see regmap.h
-        HW_FLAGS = HW_R15,  // rt.flags (64-bit predicates)
-        HW_SCR   = HW_R11,  // general scratch (swap, etc.)
-    };
-
-    static const uint X86_SHADOW_COUNT = 4;
-
-    uint shadow_reg(byte n) const
-    // ------------------------------------------------------------------------
-    //   Map bytecode local n to its shadow hardware register (x86-64 only)
-    // ------------------------------------------------------------------------
-    {
-        static const uint regs[X86_SHADOW_COUNT] =
-            { HW_R8, HW_R9, HW_R10, HW_RBX };
-        return regs[n];
-    }
-
-    bool has_shadow(byte n) const
-    // ------------------------------------------------------------------------
-    //   True when local n is kept in a dedicated shadow register
-    // ------------------------------------------------------------------------
-    {
-        return ptr_size() == 8 && n < X86_SHADOW_COUNT;
-    }
-
     x86(arch_t arch);
+    static x86 *make() { return new x86(ARCH_I386); }
 
-    uint hw_frame() const { return arch() == ARCH_I386 ? HW_RDI : HW_R12; }
-    uint hw_flags() const { return arch() == ARCH_I386 ? HW_RSI : HW_R15; }
-    uint hw_scr() const   { return arch() == ARCH_I386 ? HW_RCX : HW_R11; }
-
-    static bool win64_abi()
-    // ------------------------------------------------------------------------
-    //   True when generating code for the Microsoft x64 calling convention
-    // ------------------------------------------------------------------------
-    {
-#if defined(_WIN64)
-        return true;
-#else
-        return false;
-#endif
-    }
-
-    uint hw_arg0() const
-    // ------------------------------------------------------------------------
-    //   First integer C-helper argument register (SysV rdi / Win64 rcx)
-    // ------------------------------------------------------------------------
-    {
-        return win64_abi() ? HW_RCX : HW_RDI;
-    }
-
-    uint hw_arg1() const
-    // ------------------------------------------------------------------------
-    //   Second integer C-helper argument register (SysV rsi / Win64 rdx)
-    // ------------------------------------------------------------------------
-    {
-        return win64_abi() ? HW_RDX : HW_RSI;
-    }
-
-    void begin_translation() override;
-    void finish_translation() override;
-    void gsyscall(void (*target)()) override;
-    size_t emit_over_callees_branch() override;
-    void patch_branch_site(size_t insn_pos, size_t target_native) override;
-    void relocate(void *base) override;
-
-    void emit_user(emit_args &args) override;
-
-#define OP(op, code, decl) virtual void emit_##op(emit_args &args);
-#include "opcodes.tbl"
-
-#define NATIVE(op, code, decl) virtual void emit_sys_##op(emit_args &args);
-#include "native.tbl"
+#include "backend-iface.h"
 
 protected:
-    static inline uint reg_value(uint r)
+    enum hwreg_t : ::hwreg_t
+    // ------------------------------------------------------------------------
+    //   Hardware registers for 32-bit x86 machines
+    // ------------------------------------------------------------------------
+    {
+        HW_EAX,
+        HW_ECX,
+        HW_EDX,
+        HW_EBX,
+        HW_ESP,
+        HW_EBP,
+        HW_ESI,
+        HW_EDI,
+        HW_MM0,
+        HW_MM1,
+        HW_MM2,
+        HW_MM3,
+        HW_MM4,
+        HW_MM5,
+        HW_MM6,
+        HW_MM7,
+        HW_COUNT,
+
+        HW_FRAME   = HW_EBP,
+        HW_FLAGS   = HW_ESI,    // 32 first flags out of 64
+        HW_SCRATCH = HW_ECX,
+#ifdef _WIN64
+        HW_ARG0    = HW_ECX,
+        HW_ARG1    = HW_EDX,
+#else
+        HW_ARG0    = HW_EDI,
+        HW_ARG1    = HW_ESI,
+#endif
+    };
+
+
+    bool ptr64()
+    // ------------------------------------------------------------------------
+    //    Check if we have 64-bit pointers
+    // ------------------------------------------------------------------------
+    {
+        return pointer_size() == 8;
+    }
+
+
+    static inline uint reg_value(hwreg_t r)
     // ------------------------------------------------------------------------
     //   Low three bits of a hardware register number
     // ------------------------------------------------------------------------
@@ -171,7 +125,7 @@ protected:
         return r & 7;
     }
 
-    static inline bool rex_b(uint r)
+    static inline bool rex_b(hwreg_t r)
     // ------------------------------------------------------------------------
     //   REX.B bit for extended register r
     // ------------------------------------------------------------------------
@@ -187,7 +141,7 @@ protected:
         return (x >> 3) & 1;
     }
 
-    static inline bool rex_r(uint r)
+    static inline bool rex_r(hwreg_t r)
     // ------------------------------------------------------------------------
     //   REX.R bit for extended register r
     // ------------------------------------------------------------------------
@@ -195,7 +149,7 @@ protected:
         return (r >> 3) & 1;
     }
 
-    static inline byte modrm_rr(uint r, uint x)
+    static inline byte modrm_rr(hwreg_t r, uint x)
     // ------------------------------------------------------------------------
     //   ModR/M byte for op r, x (register-direct, both in registers)
     // ------------------------------------------------------------------------
@@ -203,7 +157,7 @@ protected:
         return byte(0xc0 | (reg_value(r) << 3) | reg_value(x));
     }
 
-    static inline byte modrm_rm(uint r, uint b)
+    static inline byte modrm_rm(hwreg_t r, uint b)
     // ------------------------------------------------------------------------
     //   ModR/M byte for op r, [b] (register r, memory at base b)
     // ------------------------------------------------------------------------
@@ -211,7 +165,7 @@ protected:
         return byte(0x00 | (reg_value(r) << 3) | reg_value(b));
     }
 
-    static inline byte modrm_mr(uint b, uint r)
+    static inline byte modrm_mr(uint b, hwreg_t r)
     // ------------------------------------------------------------------------
     //   ModR/M byte for op [b], r (memory at base b, register r)
     // ------------------------------------------------------------------------
@@ -219,22 +173,24 @@ protected:
         return byte(0x00 | (reg_value(r) << 3) | reg_value(b));
     }
 
+
     // =========================================================================
+    //
     //  Instruction emitters
     //
+    // =========================================================================
     //  Helper names use Intel operand order (dest, src).  ModR/M encodes the
     //  source in the reg field and the destination in r/m, so every rr helper
     //  ends up calling modrm_rr(src, dest).
-    // =========================================================================
 
-    static constexpr byte JCC_JC  = 0x82;   // jb / jc
-    static constexpr byte JCC_JNC = 0x83;   // jae / jnc
-    static constexpr byte JCC_JZ  = 0x84;   // je / jz
-    static constexpr byte JCC_JNZ = 0x85;   // jne / jnz
-    static constexpr byte JCC_JL  = 0x8c;   // jl / jnge
-    static constexpr byte JCC_JLE = 0x8e;   // jle / jng
-    static constexpr byte JCC_JGE = 0x8d;   // jge / jnl
-    static constexpr byte JCC_JG  = 0x8f;   // jg / jnle
+    static constexpr byte JCC_JC    = 0x82; // jb / jc
+    static constexpr byte JCC_JNC   = 0x83; // jae / jnc
+    static constexpr byte JCC_JZ    = 0x84; // je / jz
+    static constexpr byte JCC_JNZ   = 0x85; // jne / jnz
+    static constexpr byte JCC_JL    = 0x8c; // jl / jnge
+    static constexpr byte JCC_JLE   = 0x8e; // jle / jng
+    static constexpr byte JCC_JGE   = 0x8d; // jge / jnl
+    static constexpr byte JCC_JG    = 0x8f; // jg / jnle
 
     static constexpr byte SETCC_EQ  = 0x94; // sete / setz
     static constexpr byte SETCC_NE  = 0x95; // setne / setnz
@@ -243,32 +199,32 @@ protected:
     static constexpr byte SETCC_LTU = 0x92; // setb / setnae
     static constexpr byte SETCC_LEU = 0x96; // setbe / setna
 
-    void emit_op_rr(byte op, uint dest, uint src, int ll = 1)
+    void emit_op_rr(byte op, hwreg_t dest, hwreg_t src, int ll = 1)
     // ------------------------------------------------------------------------
     //   Emit a two-register ALU opcode: op dest, src
     // ------------------------------------------------------------------------
     {
         orex(ll, src, dest, op);
-        g(modrm_rr(src, dest));
+        emit8(modrm_rr(src, dest));
     }
 
-    void emit_mov_rr(uint dest, uint src)    { emit_op_rr(0x89, dest, src); }
-    void emit_add_rr(uint dest, uint src)    { emit_op_rr(0x01, dest, src); }
-    void emit_sub_rr(uint dest, uint src)    { emit_op_rr(0x29, dest, src); }
-    void emit_and_rr(uint dest, uint src)    { emit_op_rr(0x21, dest, src); }
-    void emit_or_rr(uint dest, uint src)     { emit_op_rr(0x09, dest, src); }
-    void emit_xor_rr(uint dest, uint src)    { emit_op_rr(0x31, dest, src); }
-    void emit_cmp_rr(uint dest, uint src)    { emit_op_rr(0x39, dest, src); }
-    void emit_test_rr(uint dest, uint src)   { emit_op_rr(0x85, dest, src); }
+    void emit_mov_rr (hwreg_t dst, hwreg_t src) { emit_op_rr(0x89, dst, src); }
+    void emit_add_rr (hwreg_t dst, hwreg_t src) { emit_op_rr(0x01, dst, src); }
+    void emit_sub_rr (hwreg_t dst, hwreg_t src) { emit_op_rr(0x29, dst, src); }
+    void emit_and_rr (hwreg_t dst, hwreg_t src) { emit_op_rr(0x21, dst, src); }
+    void emit_or_rr  (hwreg_t dst, hwreg_t src) { emit_op_rr(0x09, dst, src); }
+    void emit_xor_rr (hwreg_t dst, hwreg_t src) { emit_op_rr(0x31, dst, src); }
+    void emit_cmp_rr (hwreg_t dst, hwreg_t src) { emit_op_rr(0x39, dst, src); }
+    void emit_test_rr(hwreg_t dst, hwreg_t src) { emit_op_rr(0x85, dst, src); }
 
     void emit_setcc_al(byte cc)
     // ------------------------------------------------------------------------
     //   Emit SETcc al (low byte of rax must hold the value being tested)
     // ------------------------------------------------------------------------
     {
-        g(0x0f);
-        g(cc);
-        g(0xc0 | reg_value(HW_RAX));
+        emit8(0x0f);
+        emit8(cc);
+        emit8(0xc0 | reg_value(HW_EAX));
     }
 
     void emit_movzx_eax_al()
@@ -276,65 +232,65 @@ protected:
     //   Emit movzx eax, al
     // ------------------------------------------------------------------------
     {
-        g(0x0f);
-        g(0xb6);
-        g(0xc0 | reg_value(HW_RAX));
+        emit8(0x0f);
+        emit8(0xb6);
+        emit8(0xc0 | reg_value(HW_EAX));
     }
 
-    void emit_grp3_f7(uint r, byte ext)
+    void emit_grp3_f7(hwreg_t r, byte ext)
     // ------------------------------------------------------------------------
     //   Emit Group 3 F7 /ext on 64-bit register r (neg/not)
     // ------------------------------------------------------------------------
     {
         // /ext targets r/m; high registers need REX.B (orex x), not REX.R
         orex(1, 0, r, 0xf7);
-        g(ext | reg_value(r));
+        emit8(ext | reg_value(r));
     }
 
-    void emit_grp5_ff(uint r, byte ext)
+    void emit_grp5_ff(hwreg_t r, byte ext)
     // ------------------------------------------------------------------------
     //   Emit Group 5 FF /ext on 64-bit register r (inc/dec)
     // ------------------------------------------------------------------------
     {
         // /ext targets r/m; high registers need REX.B (orex x), not REX.R
         orex(1, 0, r, 0xff);
-        g(ext | reg_value(r));
+        emit8(ext | reg_value(r));
     }
 
     void emit_modrm_frame(byte reg_field, int disp)
     // ------------------------------------------------------------------------
-    //   Emit ModRM(+SIB)+disp for [hw_frame()+disp]; reg_field is ModRM.reg
+    //   Emit ModRM(+SIB)+disp for [HW_FRAME+disp]; reg_field is ModRM.reg
     // ------------------------------------------------------------------------
     {
-        uint frame = hw_frame();
+        uint frame = HW_FRAME;
         if (disp)
         {
-            g(byte((2 << 6) | ((reg_field & 7) << 3) | 4));
-            g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
+            emit8(byte((2 << 6) | ((reg_field & 7) << 3) | 4));
+            emit8(byte((reg_value(HW_ESP) << 3) | reg_value(frame)));
             emit32le(uint32_t(disp));
             return;
         }
         // rbp/r13 cannot use mod=00 without a displacement
         if (reg_value(frame) == 5)
         {
-            g(byte((1 << 6) | ((reg_field & 7) << 3) | reg_value(frame)));
-            g(0);
+            emit8(byte((1 << 6) | ((reg_field & 7) << 3) | reg_value(frame)));
+            emit8(0);
             return;
         }
-        g(byte(((reg_field & 7) << 3) | reg_value(frame)));
+        emit8(byte(((reg_field & 7) << 3) | reg_value(frame)));
         if (reg_value(frame) == 4)
-            g(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
+            emit8(byte((reg_value(HW_ESP) << 3) | reg_value(frame)));
     }
 
     void emit_rex_frame_rm()
     // ------------------------------------------------------------------------
-    //   REX.W (x86-64) and REX.B when hw_frame() is r8–r15
+    //   REX.W (x86-64) and REX.B when HW_FRAME is r8–r15
     // ------------------------------------------------------------------------
     {
-        uint frame = hw_frame();
-        int w = (ptr_size() == 8) ? 8 : 0;
+        uint frame = HW_FRAME;
+        int w = (ptr64()) ? 8 : 0;
         if (w || frame >= 8)
-            g(0x40 | w | (rex_b(frame) ? 1 : 0));
+            emit8(0x40 | w | (rex_b(frame) ? 1 : 0));
     }
 
     void emit_grp5_frame(byte n, byte op_ext)
@@ -343,7 +299,7 @@ protected:
     // ------------------------------------------------------------------------
     {
         emit_rex_frame_rm();
-        g(0xff);
+        emit8(0xff);
         emit_modrm_frame(op_ext, local_disp(n));
     }
 
@@ -355,43 +311,43 @@ protected:
         emit_rex_frame_rm();
         if (imm == int8_t(imm))
         {
-            g(0x83);
+            emit8(0x83);
             emit_modrm_frame(op_ext, local_disp(n));
-            g(byte(int8_t(imm)));
+            emit8(byte(int8_t(imm)));
         }
         else
         {
-            g(0x81);
+            emit8(0x81);
             emit_modrm_frame(op_ext, local_disp(n));
             emit32le(uint32_t(imm));
         }
     }
 
-    void emit_shift_cl(uint dest, byte ext)
+    void emit_shift_cl(hwreg_t dst, byte ext)
     // ------------------------------------------------------------------------
-    //   Emit d3 /ext dest, cl (shl/sar/shr by rcx)
+    //   Emit d3 /ext dst, cl (shl/sar/shr by rcx)
     // ------------------------------------------------------------------------
     {
-        orex(1, HW_RCX, dest, 0xd3);
-        g(ext | reg_value(dest));
+        orex(1, HW_ECX, dst, 0xd3);
+        emit8(ext | reg_value(dst));
     }
 
-    void emit_shift_imm8(uint dest, byte ext, byte amt)
+    void emit_shift_imm8(hwreg_t dst, byte ext, byte amt)
     // ------------------------------------------------------------------------
-    //   Emit c1 /ext dest, imm8 (shl/sar/shr by immediate); amt==1 uses d1
+    //   Emit c1 /ext dst, imm8 (shl/sar/shr by immediate); amt==1 uses d1
     // ------------------------------------------------------------------------
     {
-        byte mask = ptr_size() == 8 ? 63 : 31;
+        byte mask = ptr64() ? 63 : 31;
         amt = byte(amt & mask);
         if (amt == 1)
         {
-            orex(1, 0, dest, 0xd1);
-            g(ext | reg_value(dest));
+            orex(1, 0, dst, 0xd1);
+            emit8(ext | reg_value(dst));
             return;
         }
-        orex(1, 0, dest, 0xc1);
-        g(ext | reg_value(dest));
-        g(amt);
+        orex(1, 0, dst, 0xc1);
+        emit8(ext | reg_value(dst));
+        emit8(amt);
     }
 
     size_t emit_jcc_rel32(byte cc)
@@ -399,8 +355,8 @@ protected:
     //   Emit 0f cc rel32 and return the offset patch site
     // ------------------------------------------------------------------------
     {
-        g(0x0f);
-        g(cc);
+        emit8(0x0f);
+        emit8(cc);
         size_t pos = cursor();
         emit32le(0);
         return pos;
@@ -411,9 +367,9 @@ protected:
     //   Emit 7x rel8 (cc is the near form 0x8x; short is cc-0x10)
     // ------------------------------------------------------------------------
     {
-        g(byte(cc - 0x10));
+        emit8(byte(cc - 0x10));
         size_t pos = cursor();
-        g(0);
+        emit8(0);
         return pos;
     }
 
@@ -422,7 +378,7 @@ protected:
     //   Emit jmp rel32 (e9) and return the disp32 patch site
     // ------------------------------------------------------------------------
     {
-        g(0xe9);
+        emit8(0xe9);
         size_t pos = cursor();
         emit32le(0);
         return pos;
@@ -433,9 +389,9 @@ protected:
     //   Emit jmp rel8 (eb) and return the disp8 patch site
     // ------------------------------------------------------------------------
     {
-        g(0xeb);
+        emit8(0xeb);
         size_t pos = cursor();
-        g(0);
+        emit8(0);
         return pos;
     }
 
@@ -447,15 +403,15 @@ protected:
         int32_t off8 = int32_t(target) - int32_t(cursor()) - 2;
         if (off8 >= -128 && off8 <= 127)
         {
-            g(0xeb);
-            g(byte(int8_t(off8)));
+            emit8(0xeb);
+            emit8(byte(int8_t(off8)));
             return;
         }
-        g(0xe9);
+        emit8(0xe9);
         size_t pos = cursor();
         emit32le(0);
         int32_t off = int32_t(target) - int32_t(pos) - 4;
-        code().patch32(pos, uint32_t(off));
+        code().patch32le(pos, uint32_t(off));
     }
 
     static constexpr byte SSE_ADD = 0x58;
@@ -468,8 +424,8 @@ protected:
     //   Emit call rax (ff d0)
     // ------------------------------------------------------------------------
     {
-        g(0xff);
-        g(0xd0);
+        emit8(0xff);
+        emit8(0xd0);
     }
 
     void emit_int3()
@@ -477,7 +433,7 @@ protected:
     //   Emit int3 / ud2 trap (cc)
     // ------------------------------------------------------------------------
     {
-        g(0xcc);
+        emit8(0xcc);
     }
 
     void emit_cmp_rax_imm32(uint32_t imm)
@@ -485,7 +441,7 @@ protected:
     //   Emit cmp rax, imm32
     // ------------------------------------------------------------------------
     {
-        orex(1, HW_RAX, 0, 0x3d);
+        orex(1, HW_EAX, 0, 0x3d);
         emit32le(imm);
     }
 
@@ -494,7 +450,7 @@ protected:
     //   Emit ALU rax, imm32 (op = 05 add, 2d sub, 25 and, 0d or, 35 xor)
     // ------------------------------------------------------------------------
     {
-        orex(1, HW_RAX, 0, op);
+        orex(1, HW_EAX, 0, op);
         emit32le(imm);
     }
 
@@ -503,8 +459,8 @@ protected:
     //   Emit imul rax, rax, imm32
     // ------------------------------------------------------------------------
     {
-        orex(1, HW_RAX, 0, 0x69);
-        g(modrm_rr(HW_RAX, HW_RAX));
+        orex(1, HW_EAX, 0, 0x69);
+        emit8(modrm_rr(HW_EAX, HW_EAX));
         emit32le(imm);
     }
 
@@ -513,8 +469,8 @@ protected:
     //   Emit mov [rax], cl
     // ------------------------------------------------------------------------
     {
-        g(0x88);
-        g(0x08);
+        emit8(0x88);
+        emit8(0x08);
     }
 
     void emit_store_u16_at_rax_rcx()
@@ -522,9 +478,9 @@ protected:
     //   Emit mov [rax], cx
     // ------------------------------------------------------------------------
     {
-        g(0x66);
-        g(0x89);
-        g(0x08);
+        emit8(0x66);
+        emit8(0x89);
+        emit8(0x08);
     }
 
     void emit_store_u32_at_rax_rcx()
@@ -532,8 +488,8 @@ protected:
     //   Emit mov [rax], ecx
     // ------------------------------------------------------------------------
     {
-        g(0x89);
-        g(0x08);
+        emit8(0x89);
+        emit8(0x08);
     }
 
     void emit_load_u8_zext_rax()
@@ -541,8 +497,8 @@ protected:
     //   Emit mov al, [rax]; movzx eax, al
     // ------------------------------------------------------------------------
     {
-        g(0x8a);
-        g(0x00);
+        emit8(0x8a);
+        emit8(0x00);
         emit_movzx_eax_al();
     }
 
@@ -551,12 +507,12 @@ protected:
     //   Emit mov ax, [rax]; movzx eax, ax
     // ------------------------------------------------------------------------
     {
-        g(0x66);
-        g(0x8b);
-        g(0x00);
-        g(0x0f);
-        g(0xb7);
-        g(0xc0 | reg_value(HW_RAX));
+        emit8(0x66);
+        emit8(0x8b);
+        emit8(0x00);
+        emit8(0x0f);
+        emit8(0xb7);
+        emit8(0xc0 | reg_value(HW_EAX));
     }
 
     void emit_load_u32_rax()
@@ -564,8 +520,8 @@ protected:
     //   Emit mov eax, [rax]
     // ------------------------------------------------------------------------
     {
-        g(0x8b);
-        g(0x00);
+        emit8(0x8b);
+        emit8(0x00);
     }
 
     void emit_load_s8_sext_rax()
@@ -573,11 +529,11 @@ protected:
     //   Emit movsx rax/eax, byte ptr [rax]
     // ------------------------------------------------------------------------
     {
-        if (ptr_size() == 8)
-            g(0x48);
-        g(0x0f);
-        g(0xbe);
-        g(0x00);
+        if (ptr64())
+            emit8(0x48);
+        emit8(0x0f);
+        emit8(0xbe);
+        emit8(0x00);
     }
 
     void emit_load_s16_sext_rax()
@@ -585,11 +541,11 @@ protected:
     //   Emit movsx eax/rax, word ptr [rax] (no 66 — that would target ax only)
     // ------------------------------------------------------------------------
     {
-        if (ptr_size() == 8)
-            g(0x48);
-        g(0x0f);
-        g(0xbf);
-        g(0x00);
+        if (ptr64())
+            emit8(0x48);
+        emit8(0x0f);
+        emit8(0xbf);
+        emit8(0x00);
     }
 
     void emit_load_s32_sext_rax()
@@ -597,16 +553,16 @@ protected:
     //   Emit movsxd rax, dword ptr [rax] (64-bit) or mov eax, [rax] (32-bit)
     // ------------------------------------------------------------------------
     {
-        if (ptr_size() == 8)
+        if (ptr64())
         {
-            g(0x48);
-            g(0x63);
-            g(0x00);
+            emit8(0x48);
+            emit8(0x63);
+            emit8(0x00);
         }
         else
         {
-            g(0x8b);
-            g(0x00);
+            emit8(0x8b);
+            emit8(0x00);
         }
     }
 
@@ -615,10 +571,10 @@ protected:
     //   REX prefix for SSE xmm load/store with [rsp+frame+disp] addressing
     // ------------------------------------------------------------------------
     {
-        if (ptr_size() == 8)
-            g(0x49 | (rex_r(xmm) ? 4 : 0));
+        if (ptr64())
+            emit8(0x49 | (rex_r(xmm) ? 4 : 0));
         else if (rex_r(xmm))
-            g(0x40 | 4);
+            emit8(0x40 | 4);
     }
 
     void emit_sse_scalar_op(byte prefix, byte op, byte modrm)
@@ -626,22 +582,52 @@ protected:
     //   Emit SSE scalar op xmm0, xmm1 (prefix 0xf3=float, 0xf2=double)
     // ------------------------------------------------------------------------
     {
-        g(prefix);
-        g(0x0f);
-        g(op);
-        g(modrm);
+        emit8(prefix);
+        emit8(0x0f);
+        emit8(op);
+        emit8(modrm);
     }
 
-    void emit_sub_rsp_imm8(byte imm);
-    void emit_add_rsp_imm8(byte imm);
-    void emit_add_esp_imm(byte imm);
+    void emit_sub_rsp_imm8(byte imm)
+    // ------------------------------------------------------------------------
+    //   Emit sub rsp/esp, imm8
+    // ------------------------------------------------------------------------
+    {
+        if (ptr64())
+            emit8(0x48);
+        emit8(0x83);
+        emit8(0xec);
+        emit8(imm);
+    }
+
+    void emit_add_rsp_imm8(byte imm)
+    // ------------------------------------------------------------------------
+    //   Emit add rsp/esp, imm8
+    // ------------------------------------------------------------------------
+    {
+        if (ptr64())
+            emit8(0x48);
+        emit8(0x83);
+        emit8(0xc4);
+        emit8(imm);
+    }
+
+    void emit_add_esp_imm(byte imm)
+    // ------------------------------------------------------------------------
+    //   Emit add esp, imm8 (cdecl stack cleanup on i386)
+    // ------------------------------------------------------------------------
+    {
+        emit8(0x83);
+        emit8(0xc4);
+        emit8(byte(imm));
+    }
 
     void emit_insn_ret()
     // ------------------------------------------------------------------------
     //   Emit near return (c3)
     // ------------------------------------------------------------------------
     {
-        g(0xc3);
+        emit8(0xc3);
     }
 
     void emit_jmp_rax()
@@ -649,46 +635,176 @@ protected:
     //   Emit jmp rax
     // ------------------------------------------------------------------------
     {
-        g(0xff);
-        g(0xe0);
+        emit8(0xff);
+        emit8(0xe0);
     }
 
-    void emit_cdq();
-    void emit_xor_rdx_rdx();
-    void emit_idiv_rcx();
-    void emit_div_rcx();
+    void emit_cdq()
+    // ------------------------------------------------------------------------
+    //   Sign-extend eax into edx:eax (cdq/cqo)
+    // ------------------------------------------------------------------------
+    {
+        if (ptr64())
+            emit8(0x48);
+        emit8(0x99);
+    }
+
+    void emit_xor_rdx_rdx()
+    // ------------------------------------------------------------------------
+    //   Clear edx/rdx
+    // ------------------------------------------------------------------------
+    {
+        emit_xor_rr(HW_EDX, HW_EDX);
+    }
+
+    void emit_idiv_rcx()
+    // ------------------------------------------------------------------------
+    //   Signed divide edx:eax by rcx/ecx
+    // ------------------------------------------------------------------------
+    {
+        orex(1, 0, HW_ECX, 0xf7);
+        emit8(0xf9);
+    }
+
+    void emit_div_rcx()
+    // ------------------------------------------------------------------------
+    //   Unsigned divide edx:eax by rcx/ecx
+    // ------------------------------------------------------------------------
+    {
+        orex(1, 0, HW_ECX, 0xf7);
+        emit8(0xf1);
+    }
 
     void emit_imul_rax_rcx()
     // ------------------------------------------------------------------------
     //   Emit imul rax, rcx
     // ------------------------------------------------------------------------
     {
-        orex(1, HW_RAX, HW_RCX, 0x0f);
-        g(0xaf);
-        g(modrm_rr(HW_RAX, HW_RCX));
+        orex(1, HW_EAX, HW_ECX, 0x0f);
+        emit8(0xaf);
+        emit8(modrm_rr(HW_EAX, HW_ECX));
     }
 
-    void emit_mov_frame_rax();
-    void emit_set_arg0_rax();
-    void emit_push_reg(uint r);
-    void emit_pop_reg(uint r);
-    void emit_set_arg0_r(uint r);
-    void emit_set_arg0_imm(uint64_t imm);
-    void emit_set_arg1_imm(uint64_t imm);
-    void emit_cleanup_call_args(uint argc);
-    size_t reserve_pc_in_rax();
-    void patch_pc_rel(size_t disp_at, size_t target);
+    void emit_mov_frame_rax()
+    // ------------------------------------------------------------------------
+    //   Reload frame pointer register from rax
+    // ------------------------------------------------------------------------
+    {
+        emit_mov_rr(HW_FRAME, HW_EAX);
+    }
 
-    void emit_btx_imm8(uint r, byte ext, byte bit)
+    void emit_set_arg0_rax()
+    // ------------------------------------------------------------------------
+    //   Pass rax as first C helper argument
+    // ------------------------------------------------------------------------
+    {
+        if (ptr64())
+            emit_mov_rr(HW_ARG0, HW_EAX);
+        else
+            emit_push_reg(HW_EAX);
+    }
+
+    void emit_push_reg(hwreg_t r)
+    // ------------------------------------------------------------------------
+    //   Push a general-purpose register (cdecl / SysV argument)
+    // ------------------------------------------------------------------------
+    {
+        if (ptr64() && rex_b(r))
+            emit8(0x41);
+        emit8(byte(0x50 + reg_value(r)));
+    }
+
+    void emit_pop_reg(hwreg_t r)
+    // ------------------------------------------------------------------------
+    //   Pop into a general-purpose register
+    // ------------------------------------------------------------------------
+    {
+        if (ptr64() && rex_b(r))
+            emit8(0x41);
+        emit8(byte(0x58 + reg_value(r)));
+    }
+
+    void emit_set_arg0_r(hwreg_t r)
+    // ------------------------------------------------------------------------
+    //   Pass register r as first C helper argument
+    // ------------------------------------------------------------------------
+    {
+        if (ptr64())
+            emit_mov_rr(HW_ARG0, r);
+        else
+            emit_push_reg(r);
+    }
+
+    void emit_set_arg0_imm(uint64_t imm)
+    // ------------------------------------------------------------------------
+    //   Pass immediate as first C helper argument
+    // ------------------------------------------------------------------------
+    {
+        if (ptr64())
+            load_hw_imm(HW_ARG0, imm);
+        else
+        {
+            load_hw_imm(HW_EAX, imm);
+            emit_push_reg(HW_EAX);
+        }
+    }
+
+    void emit_set_arg1_imm(uint64_t imm)
+    // ------------------------------------------------------------------------
+    //   Pass immediate as second C helper argument (cdecl: push first)
+    // ------------------------------------------------------------------------
+    {
+        if (ptr64())
+            load_hw_imm(HW_ARG1, imm);
+        else
+        {
+            load_hw_imm(HW_EAX, imm);
+            emit_push_reg(HW_EAX);
+        }
+    }
+
+    void emit_cleanup_call_args(uint argc)
+    // ------------------------------------------------------------------------
+    //   Caller pops stack arguments after cdecl call on i386
+    // ------------------------------------------------------------------------
+    {
+        if (pointer_size() == 4 && argc)
+            emit_add_esp_imm(byte(argc * pointer_size()));
+    }
+
+
+    size_t reserve_pc_in_rax()
+    // ------------------------------------------------------------------------
+    //   Materialize a patchable PC value in rax
+    // ------------------------------------------------------------------------
+    {
+        if (ptr64())
+        {
+            // lea rip on amd64
+            emit8(0x48);
+            emit8(0x8d);
+            emit8(0x05);
+        }
+        else
+        {
+            // mov imm on i386
+            emit8(0xb8);
+        }
+        size_t pos = cursor();
+        emit32le(0);
+        return pos;
+    }
+
+    void emit_btx_imm8(hwreg_t r, byte ext, byte bit)
     // ------------------------------------------------------------------------
     //   Emit 0f ba /ext r, imm8 (BT/BTS/BTR/BTC); sets CF from the bit
     // ------------------------------------------------------------------------
     {
-        byte mask = ptr_size() == 8 ? 63 : 31;
+        byte mask = ptr64() ? 63 : 31;
         orex(1, 0, r, 0x0f);
-        g(0xba);
-        g(byte(0xc0 | (ext << 3) | reg_value(r)));
-        g(byte(bit & mask));
+        emit8(0xba);
+        emit8(byte(0xc0 | (ext << 3) | reg_value(r)));
+        emit8(byte(bit & mask));
     }
 
     void emit_pred_clear_bit(byte p)
@@ -715,32 +831,21 @@ protected:
         emit_btx_imm8(hw_flags(), /*BT*/ 4, p);
     }
 
-    byte setcc_from_rel(cstring rel)
-    // ------------------------------------------------------------------------
-    //   Map a comparison name to a SETcc opcode byte
-    // ------------------------------------------------------------------------
-    {
-        if (!strcmp(rel, "eq"))  return SETCC_EQ;
-        if (!strcmp(rel, "ne"))  return SETCC_NE;
-        if (!strcmp(rel, "lt"))  return SETCC_LT;
-        if (!strcmp(rel, "le"))  return SETCC_LE;
-        if (!strcmp(rel, "ltu")) return SETCC_LTU;
-        if (!strcmp(rel, "leu")) return SETCC_LEU;
-        return SETCC_EQ;
-    }
 
+    byte            setcc_from_rel(cstring rel);
+    void            patch_pc_rel(size_t disp_at, size_t target);
     void            orex(int ll, int r, int x, byte c);
     void            emit_rex_modrm(int ll, int r, int x, int b, byte op);
-    void            load_hw_imm(uint r, uint64_t imm);
-    void            load_local_frame(byte n, uint r);
-    void            store_local_frame(uint r, byte n);
-    void            load_local(byte n, uint r);
+    void            load_hw_imm(hwreg_t r, uint64_t imm);
+    void            load_local_frame(byte n, hwreg_t r);
+    void            store_local_frame(hwreg_t r, byte n);
+    void            load_local(byte n, hwreg_t r);
     void            load_float_local(byte n, uint xmm);
     void            store_float_local(byte n, uint xmm);
     void            load_double_local(byte n, uint xmm);
     void            store_double_local(byte n, uint xmm);
     void            set_pred_cmp(byte p, byte cc);
-    void            store_local(uint r, byte n);
+    void            store_local(hwreg_t r, byte n);
     void            mov_local(byte d, byte s);
     void            swap_locals(byte d, byte s);
     void            store_imm(byte d, value_t v);
@@ -760,7 +865,7 @@ protected:
     void            decr_local(byte d);
     void            sext_local(byte d, byte w);
     void            zext_local(byte d, byte w);
-    void            sext_reg(uint r, byte w);
+    void            sext_reg(hwreg_t r, byte w);
     void            load_signext_mem(byte w);
     void            store_mem(byte d, byte s, uint sz);
     void            load_mem(byte d, byte s, uint sz);
@@ -791,11 +896,13 @@ protected:
     void            load_global(byte d, byte s);
     void            reload_frame_reg();
     void            reload_flags_reg();
-    void            reload_shadows();
     void            reload_rt_regs();
     void            br_via_ip();
+    void            do_prologue();
     void            do_ret();
-    void            call_ptr(void *fn);
+    void            call_ptr(void (*fn)());
+    template <typename T, typename ...U>
+    void            call_ptr(T (*fn)(U...)) { return call(((void (*)()) fn)); }
     void            emit_trap(cstring msg);
     void            emit_runtime_call(cstring fn);
     void            emit_runtime_call(cstring fn, tok_t a);

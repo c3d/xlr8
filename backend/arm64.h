@@ -69,47 +69,27 @@ struct arm64 : backend
 //   AArch64 code generator implementing every built-in opcode
 // ----------------------------------------------------------------------------
 {
+    arm64();
     static backend *make()              { return new arm64; }
 
-    arm64();
-
-    cstring machine_defs() const override;
-    uint nb_regs() const override;
-    uint ptr_size() const override;
-    uint reg_iret() const override;
-
-    uint gjmp(uint t) override;
-    void gsym_addr(uint t, uint a) override;
-    void gsyscall(void (*target)()) override;
-    void finish_translation() override;
-    void begin_translation() override;
-    void patch_branch_site(size_t insn_pos, size_t target_native) override;
-    void relocate(void *base) override;
-    size_t emit_over_callees_branch() override;
-    void emit_user(emit_args &args) override;
-
-#define OP(op, code, decl) virtual void emit_##op(emit_args &args);
-#include "opcodes.tbl"
-
-#define NATIVE(op, code, decl) virtual void emit_sys_##op(emit_args &args);
-#include "native.tbl"
+#include "backend-iface.h"
 
 protected:
     void patch_imm64_at(void *mem, size_t at, uint r, uint64_t v);
 
     enum hwreg_t : uint
     {
-        HW_LOC0  = 0,       // shadow frame[0] .. frame[15]
-        HW_LOC15 = 15,
-        HW_IP    = 16,      // intra-procedure call scratch (AAPCS IP0)
-        HW_FRAME = 19,      // callee-saved, rt.frame base for spill
-        HW_ANCHOR = 27,     // callee-saved, stable copy of frame across sys
-        HW_RT    = 21,      // reserved: &runtime
-        HW_LINK  = 28,      // callee-saved, saved link (not a bytecode local)
-        HW_FLAGS = 22,      // callee-saved, rt.flags (64-bit predicates)
-        HW_SCR_VAL  = 23,   // scratch: values (swap, arithmetic)
-        HW_SCR_ADDR = 24,   // scratch: addresses
-        HW_SCR_OFF  = 25,   // scratch: offsets
+        HW_LOC0     = 0, // shadow frame[0] .. frame[15]
+        HW_LOC15    = 15,
+        HW_IP       = 16, // intra-procedure call scratch (AAPCS IP0)
+        HW_FRAME    = 19, // callee-saved, rt.frame base for spill
+        HW_ANCHOR   = 27, // callee-saved, stable copy of frame across sys
+        HW_RT       = 21, // reserved: &runtime
+        HW_LINK     = 28, // callee-saved, saved link (not a bytecode local)
+        HW_FLAGS    = 22, // callee-saved, rt.flags (64-bit predicates)
+        HW_SCR_VAL  = 23, // scratch: values (swap, arithmetic)
+        HW_SCR_ADDR = 24, // scratch: addresses
+        HW_SCR_OFF  = 25, // scratch: offsets
     };
 
     static inline uint xreg(byte n)
@@ -723,7 +703,6 @@ protected:
     void spill_frame();
     void restore_frame_ptr();
     void reload_frame_reg();
-    void reload_shadows();
     void reload_flags_reg();
     void set_pred_cmp(byte p, byte cond);
     void touch_local(byte d);

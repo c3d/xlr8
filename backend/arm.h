@@ -70,46 +70,28 @@ struct arm : backend
 //   32-bit ARM code generator implementing every built-in opcode
 // ----------------------------------------------------------------------------
 {
-    static backend *make()              { return new arm; }
-
     arm();
+    static arm *make() { return new arm; }
 
-    cstring machine_defs() const override;
-    uint nb_regs() const override;
-    uint ptr_size() const override;
-    uint reg_iret() const override;
+#include "backend-iface.h"
 
-    uint gjmp(uint t) override;
-    void gsym_addr(uint t, uint a) override;
-    void gsyscall(void (*target)()) override;
-    void finish_translation() override;
-    void begin_translation() override;
-    void patch_branch_site(size_t insn_pos, size_t target_native) override;
-    size_t emit_over_callees_branch() override;
-    void emit_user(emit_args &args) override;
-
-#define OP(op, code, decl) virtual void emit_##op(emit_args &args);
-#include "opcodes.tbl"
-
-#define NATIVE(op, code, decl) virtual void emit_sys_##op(emit_args &args);
-#include "native.tbl"
 
 protected:
     enum hwreg_t : uint
     {
-        HW_LOC0  = 0,       // shadow frame[0] .. frame[3]
-        HW_LOC3  = 3,
-        HW_SCR_VAL  = 4,    // dedicated scratch (not a shadow)
-        HW_SCR_OFF  = 5,    // dedicated scratch (not a shadow)
+        HW_LOC0     = 0, // shadow frame[0] .. frame[3]
+        HW_LOC3     = 3,
+        HW_SCR_VAL  = 4, // dedicated scratch (not a shadow)
+        HW_SCR_OFF  = 5, // dedicated scratch (not a shadow)
         HW_SCR_ADDR = 8,
-        HW_SB    = 9,       // leave r9 alone (platform/PIC sb on some ABIs)
-        HW_FLAGS = 10,      // callee-saved, rt.flags (low 32 of predicates)
-        HW_FRAME = 11,      // callee-saved fp, rt.frame base for spill
-        HW_IP    = 12,      // intra-procedure call scratch (AAPCS IP)
+        HW_SB       = 9,  // leave r9 alone (platform/PIC sb on some ABIs)
+        HW_FLAGS    = 10, // callee-saved, rt.flags (low 32 of predicates)
+        HW_FRAME    = 11, // callee-saved fp, rt.frame base for spill
+        HW_IP       = 12, // intra-procedure call scratch (AAPCS IP)
     };
 
-    static const uint ARM_SHADOW_COUNT = 4;
-    static const uint ARM_SLOT_SIZE = 8; // sizeof(ularge_t)
+    static const uint  ARM_SHADOW_COUNT = 4;
+    static const uint  ARM_SLOT_SIZE    = 8; // sizeof(ularge_t)
 
     static inline uint slot_off(byte n)
     // ------------------------------------------------------------------------
@@ -533,7 +515,6 @@ protected:
     void call_abs(void *fn);
     void spill_frame();
     void reload_frame_reg();
-    void reload_shadows();
     void reload_flags_reg();
     void touch_local(byte d);
     void mov_local(byte d, byte s);

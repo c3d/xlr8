@@ -9,7 +9,7 @@ or any backend. Do not claim success without evidence from the steps below.
 | Nickname     | Role              | Architecture | JIT backend   |
 |--------------|-------------------|--------------|---------------|
 | **macOS**    | Dev / source      | aarch64      | arm64         |
-| **turbo**    | Linux x86-64      | x86_64       | x86_64        |
+| **turbo**    | Linux x86-64      | amd64        | amd64         |
 | **torpille** | Linux arm64       | aarch64      | arm64         |
 | **risky**    | Linux RISC-V      | riscv64      | riscv64       |
 | **turbo-x86** | Linux i386       | i686         | i386          |
@@ -148,7 +148,7 @@ different ABI handling:
 - Prefer `#if defined(__APPLE__)` / `#elif defined(__linux__)` in the
   smallest possible functions.
 - Document in the commit message which platforms were validated.
-- A fix for torpille must not be reported as done until turbo (x86_64) still
+- A fix for torpille must not be reported as done until turbo (amd64) still
   passes mandatory validation.
 
 ## Anti-patterns (do not repeat)
@@ -167,7 +167,7 @@ different ABI handling:
 
 1. Record parallel baseline on all six machines at `mac/xlr8`.
 2. Restore **torpille** (arm64 Linux JIT, especially float ops) without
-   breaking **turbo** (x86_64).
+   breaking **turbo** (amd64).
 3. Keep **macOS** at 224/224 reference and `-O`.
 4. Track **risky**, **turbo-x86**, **turbo-arm** status; do not regress green
    platforms while fixing red ones.

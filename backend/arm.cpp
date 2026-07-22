@@ -60,31 +60,36 @@ cstring arm::machine_defs() const
 }
 
 
-uint arm::nb_regs() const
+uint arm::registers() const
 // ----------------------------------------------------------------------------
 //   Return number of bytecode registers
 // ----------------------------------------------------------------------------
 {
-    record(arm, "nb_regs()");
+    record(arm, "registers()");
     return 25;
 }
-uint arm::ptr_size() const
+
+
+uint arm::pointer_size() const
 // ----------------------------------------------------------------------------
 //   Return pointer size in bytes
 // ----------------------------------------------------------------------------
 {
-    record(arm, "ptr_size()");
+    record(arm, "pointer_size()");
     return 4;
 }
 
-uint arm::reg_iret() const
+bool arm::load(hwreg_t, local_t r)
 // ----------------------------------------------------------------------------
-//   Return integer return-value register index
+//
 // ----------------------------------------------------------------------------
 {
-    record(arm, "reg_iret()");
-    return 0;
 }
+
+
+bool arm::store(local_t r, hwreg_t)
+hwspec_t register_specification(hwreg_t) override;
+
 
 void arm::load_local(byte n, uint r)
 // ----------------------------------------------------------------------------
@@ -208,27 +213,6 @@ void arm::reload_frame_reg()
 }
 
 
-void arm::reload_shadows(void)
-// ----------------------------------------------------------------------------
-//   Reload shadowed bytecode locals from the runtime frame after a syscall
-// ----------------------------------------------------------------------------
-{
-    record(arm, "reload_shadows()");
-    runtime *rt = xlr8_get_runtime();
-    if (!rt || !rt->frame)
-        return;
-
-    byte locals = byte(rt->frame[-1]);
-    if (!locals)
-        locals = byte(rt->CALL_CLOBBERED_REGS);
-    if (locals > ARM_SHADOW_COUNT)
-        locals = ARM_SHADOW_COUNT;
-
-    for (uint r = 0; r < locals; r++)
-        emit32le(ldr_off(rreg(byte(r)), HW_FRAME, slot_off(byte(r))));
-}
-
-
 void arm::reload_flags_reg()
 // ----------------------------------------------------------------------------
 //   Reload r10 from runtime flags after sys or leave
@@ -240,24 +224,24 @@ void arm::reload_flags_reg()
 }
 
 
-uint arm::gjmp(uint t)
+uint arm::jump(uint t)
 // ----------------------------------------------------------------------------
 //   Emit jump with deferred fixup chain
 // ----------------------------------------------------------------------------
 {
-    record(arm, "gjmp(%u)", t);
+    record(arm, "jump(%u)", t);
     uint pos = uint(cursor());
     emit32le(0xEA000000u | (t & 0x00FFFFFFu));
     return pos;
 }
 
 
-void arm::gsym_addr(uint t, uint a)
+void arm::resolve_jump(uint t, uint a)
 // ----------------------------------------------------------------------------
 //   Patch pending jumps to address a
 // ----------------------------------------------------------------------------
 {
-    record(arm, "gsym_addr(%u, %u)", t, a);
+    record(arm, "resolve_jump(%u, %u)", t, a);
     section &sec = code();
     while (t)
     {
@@ -272,17 +256,17 @@ void arm::gsym_addr(uint t, uint a)
         }
         // ARM PC = insn_addr + 8 (same as patch_branch_site).
         int32_t offset = (int32_t(a) - int32_t(n) - 8) / 4;
-        sec.patch32(n, b_imm(offset));
+        sec.patch32le(n, b_imm(offset));
         t = next;
     }
 }
 
-void arm::gsyscall(void (*target)())
+void arm::syscall(void (*target)())
 // ----------------------------------------------------------------------------
 //   Implement a syscall to the runtime
 // ----------------------------------------------------------------------------
 {
-    record(arm, "gsyscall(%p)", target);
+    record(arm, "syscall(%p)", target);
     call_abs((void *) target);
 }
 
@@ -305,7 +289,6 @@ void arm::begin_translation()
     emit32le(mov_rr(HW_FRAME, 0));
     rtcall("xlr8_get_flags");
     emit32le(mov_rr(HW_FLAGS, 0));
-    reload_shadows();
 }
 
 
@@ -319,12 +302,12 @@ void arm::finish_translation()
 }
 
 
-size_t arm::emit_over_callees_branch()
+size_t arm::skip_callees()
 // ----------------------------------------------------------------------------
 //   Emit a forward branch over callee bodies to the epilogue
 // ----------------------------------------------------------------------------
 {
-    record(arm, "emit_over_callees_branch()");
+    record(arm, "skip_callees()");
     size_t pos = cursor();
     emit32le(b_imm(0));
     return pos;
@@ -1008,7 +991,7 @@ void arm::patch_branch_site(size_t insn_pos, size_t target_native)
         insn = b_imm(off);
     else
         insn = b_cond_imm(byte(insn >> 28), off);
-    code().patch32(insn_pos, insn);
+    code().patch32le(insn_pos, insn);
 }
 
 
@@ -1084,7 +1067,7 @@ void arm::jmp_tok(tok_t t)
 {
     record(arm, "jmp_tok(%llu)", t);
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
-    uint pos = gjmp(head);
+    uint pos = jump(head);
     record_tok_jump(t, pos);
 }
 
@@ -1100,15 +1083,14 @@ void arm::call_tok(tok_t t)
     emit32le(add_imm(0, 15, 0));
     rtcall("xlr8_push_value");
     rtcall("xlr8_sync_args");
-    reload_shadows();
     uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
-    uint pos = gjmp(head);
+    uint pos = jump(head);
     record_tok_jump(t, pos);
     int off = int(pos + 4) - int(adr_at + 8);
     if (off < 0)
-        code().patch32(adr_at, sub_imm(0, 15, uint32_t(-off)));
+        code().patch32le(adr_at, sub_imm(0, 15, uint32_t(-off)));
     else
-        code().patch32(adr_at, add_imm(0, 15, uint32_t(off)));
+        code().patch32le(adr_at, add_imm(0, 15, uint32_t(off)));
 }
 
 
@@ -1119,7 +1101,6 @@ void arm::br_via_ip()
 {
     record(arm, "br_via_ip()");
     emit32le(mov_rr(HW_IP, 0));
-    reload_shadows();
     emit32le(bx_reg(HW_IP));
 }
 
@@ -1148,16 +1129,15 @@ void arm::icall_local(byte s)
     emit32le(add_imm(0, 15, 0));
     rtcall("xlr8_push_value");
     rtcall("xlr8_sync_args");
-    reload_shadows();
     load_local(s, 0);
     rtcall("xlr8_jit_addr");
     // Soft-stack return (like call_tok); do not BLX — that unbalances SP.
     br_via_ip();
     int off = int(cursor()) - int(adr_at + 8);
     if (off < 0)
-        code().patch32(adr_at, sub_imm(0, 15, uint32_t(-off)));
+        code().patch32le(adr_at, sub_imm(0, 15, uint32_t(-off)));
     else
-        code().patch32(adr_at, add_imm(0, 15, uint32_t(off)));
+        code().patch32le(adr_at, add_imm(0, 15, uint32_t(off)));
 }
 
 
@@ -1171,15 +1151,14 @@ void arm::push_pc()
     size_t adr_at = cursor();
     emit32le(add_imm(0, 15, 0));
     rtcall("xlr8_push_value");
-    reload_shadows();
     spill_arg_regs = true;
     // Continue address is the next insn after this push_pc sequence.
     size_t after = cursor();
     int off = int(after) - int(adr_at + 8);
     if (off < 0)
-        code().patch32(adr_at, sub_imm(0, 15, uint32_t(-off)));
+        code().patch32le(adr_at, sub_imm(0, 15, uint32_t(-off)));
     else
-        code().patch32(adr_at, add_imm(0, 15, uint32_t(off)));
+        code().patch32le(adr_at, add_imm(0, 15, uint32_t(off)));
 }
 
 
@@ -1216,7 +1195,6 @@ void arm::get_arg(byte d, byte s)
     load_imm32(0, uint32_t(d));
     load_imm32(1, uint32_t(s));
     rtcall("xlr8_get_arg");
-    reload_shadows();
     touch_local(d);
 }
 
@@ -1244,7 +1222,6 @@ void arm::push_local(byte s)
     spill_frame();
     load_local(s, 0);
     rtcall("xlr8_push_value");
-    reload_shadows();
     spill_arg_regs = true;
 }
 
@@ -1260,7 +1237,6 @@ void arm::pop_local(byte d)
     // Frame may move; keep r11 in sync after stack ops (cf. arm64).
     rtcall("xlr8_get_frame");
     emit32le(mov_rr(HW_FRAME, 0));
-    reload_shadows();
     touch_local(d);
 }
 
@@ -1299,7 +1275,6 @@ void arm::store_global(byte d, byte s)
     load_imm32(0, uint32_t(d));
     load_imm32(1, uint32_t(s));
     rtcall("xlr8_store_global");
-    reload_shadows();
 }
 
 
@@ -1313,7 +1288,6 @@ void arm::load_global(byte d, byte s)
     load_imm32(0, uint32_t(d));
     load_imm32(1, uint32_t(s));
     rtcall("xlr8_load_global");
-    reload_shadows();
     touch_local(d);
 }
 

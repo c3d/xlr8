@@ -46,22 +46,21 @@ struct i386_be : x86
         return "__i386__\0__i386\0";
     }
 
-    uint nb_regs() const override    { return 8; }
-    uint ptr_size() const override   { return 4; }
-    uint reg_iret() const override   { return 0; }
+    uint registers() const override    { return 8; }
+    uint pointer_size() const override   { return 4; }
 
-    uint gjmp(uint t) override
+    uint jump(uint t) override
     // ------------------------------------------------------------------------
     //   Emit jump with deferred fixup chain
     // ------------------------------------------------------------------------
     {
-        g(0xe9);
+        emit8(0xe9);
         uint pos = uint(cursor());
         emit32le(t);
         return pos;
     }
 
-    void gsym_addr(uint t, uint a) override
+    void resolve_jump(uint t, size_t a) override
     // ------------------------------------------------------------------------
     //   Patch pending jumps to address a
     // ------------------------------------------------------------------------
@@ -79,7 +78,7 @@ struct i386_be : x86
                      | (uint32_t(sec[n + 3]) << 24);
             }
             int32_t offset = int32_t(a) - int32_t(n) - 4;
-            sec.patch32(n, uint32_t(offset));
+            sec.patch32le(n, uint32_t(offset));
             t = next;
         }
     }

@@ -72,7 +72,7 @@
 //
 //
 //  ---------------------------------------------------------------------------
-//  x86-64 (x86_64)
+//  x86-64 (amd64)
 //  ---------------------------------------------------------------------------
 //
 //     Shadow locals     r8,r9,r10,rbx  frame[0] .. frame[3] when valid (x86-64)
@@ -91,7 +91,7 @@
 //  ---------------------------------------------------------------------------
 //
 //     Same model as x86-64 but 32-bit pointers and only 8 bytecode locals
-//     in the ISA surface (nb_regs == 8).  Frame pointer ebx or a dedicated
+//     in the ISA surface (registers == 8).  Frame pointer ebx or a dedicated
 //     reg would be needed; current backend inherits the x86_64 register enum
 //     and uses [r12+disp] with 4-byte slots when built as i386.
 //

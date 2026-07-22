@@ -194,7 +194,7 @@ static void unmap_executable(void *mem, size_t sz)
 
 
 #if defined(__x86_64__) || defined(__amd64__)
-static void invoke_x86_64(runtime &rt, void *code)
+static void invoke_amd64(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
 //   Jump to generated x86-64 code with frame and flags registers primed
 // ----------------------------------------------------------------------------
@@ -351,7 +351,7 @@ static bool native_run_impl(runtime &rt, backend &be, byte_p entry)
         dump_jit_code(mem, sz, be, dump);
 
 #if defined(__x86_64__) || defined(__amd64__)
-    invoke_x86_64(rt, mem);
+    invoke_amd64(rt, mem);
 #elif defined(__i386__) || defined(__i386)
     invoke_i386(rt, mem);
 #elif defined(__aarch64__)

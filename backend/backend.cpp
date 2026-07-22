@@ -29,67 +29,38 @@
 
 #include "backend.h"
 
-#include "arm.h"
-#include "arm64.h"
-#include "i386.h"
 #include "leb128.h"
 #include "native-bridge.h"
-#include "riscv64.h"
 #include "save.h"
-#include "x86_64.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <cassert>
 
 
-RECORDER(backend,           64, "Architecture-neutral code generation");
-RECORDER(backend_ops,       64, "Architecture-neutral opcodes");
-RECORDER(backend_args,      64, "Architecture-neutral bytecode arguments");
+RECORDER(backend,           16, "Architecture-neutral code generation");
+RECORDER(backend_emit,      16, "Architecture-neutral bytecode emission");
+RECORDER(backend_ops,       16, "Architecture-neutral opcodes");
+RECORDER(backend_args,      16, "Architecture-neutral bytecode arguments");
 RECORDER(backend_error,     16, "Architecture-neutral code generation errors");
 RECORDER(backend_warning,   16, "Architecture-neutral code generation warnings");
 
+
+
+// ============================================================================
+//
+//    General options
+//
+// ============================================================================
 
 backend::backend(arch_t arch)
 // ----------------------------------------------------------------------------
 //   Initialize shared backend state
 // ----------------------------------------------------------------------------
     : current_arch(arch),
-      current_output(OUTPUT_MEMORY),
-      nocode_wanted(false),
-      verbose(false),
-      text_section(),
-      index()
+      current_output(OUTPUT_MEMORY)
 {}
-
-
-void backend::g(byte c)
-// ----------------------------------------------------------------------------
-//   Emit one byte into the current text section
-// ----------------------------------------------------------------------------
-{
-    if (nocode_wanted)
-        return;
-    text_section.append(c);
-}
-
-
-void backend::emit32le(uint32_t c)
-// ----------------------------------------------------------------------------
-//   Emit a 32-bit little-endian value
-// ----------------------------------------------------------------------------
-{
-    record(backend, "emit32le(0x%llX)", c);
-    text_section.append32le(c);
-}
-
-
-void backend::gsym(uint t)
-// ----------------------------------------------------------------------------
-//   Patch pending jumps to the current code position
-// ----------------------------------------------------------------------------
-{
-    gsym_addr(t, uint(index));
-}
 
 
 void backend::set_output(output_t output)
@@ -109,8 +80,9 @@ bool backend::set_options(cstring options)
     if (!options)
         return true;
 
-    std::string opt = options;
-    size_t pos = 0;
+    std::string opt     = options;
+    size_t      pos     = 0;
+    bool        verbose = false;
     while (pos < opt.size())
     {
         while (pos < opt.size() && std::isspace(opt[pos]))
@@ -134,7 +106,7 @@ bool backend::set_options(cstring options)
         }
         else if (token == "-m64")
         {
-            if (current_arch != ARCH_X86_64)
+            if (current_arch != ARCH_AMD64)
                 return false;
         }
         else if (token == "-marm" || token == "-marm32")
@@ -161,6 +133,10 @@ bool backend::set_options(cstring options)
         else
             return false;
     }
+
+    if (verbose)
+        recorder_trace_set("x86 amd64 arm arm64 riscv64");
+
     return true;
 }
 
@@ -168,110 +144,85 @@ bool backend::set_options(cstring options)
 
 // ============================================================================
 //
-//   Hardware register allocation
+//   Low-level code emission (shared across architectures)
 //
 // ============================================================================
 
-hwreg_t backend::load(backend::local_t loc, backend::hwspec_t spec)
+void backend::emit8(byte c)
 // ----------------------------------------------------------------------------
-//  The default allocator
+//   Emit one byte into the current text section
 // ----------------------------------------------------------------------------
 {
-    if (loc >= regalloc.size())
-    {
-        record(recorder_warning,
-               "Local %u is out of frame size %u", loc, regalloc.size());
-        regalloc.resize(loc + 1);
-    }
-
-    // Check if we have a register allocation for this local
-    hwreg_t reg = regalloc[loc];
-    if (reg != NO_REGISTER)
-    {
-        auto    existing = regmap.find(reg);
-        if (existing != regmap.end())
-        {
-            // If the register is already holding the local, return it
-            if ((*existing).second == loc)
-                return reg;
-        }
-    }
-
-    // Try to find some register satisfying the constraint (unused first)
-    hwreg_t nregs = nb_regs();
-    for (uint used = 0; used < 2; used++)
-    {
-        for (hwreg_t r = 0; r < nregs; r++)
-        {
-            auto existing = regmap.find(reg);
-            if (used || existing == regmap.end())
-            {
-                hwspec_t rspec = register_specification(r);
-                if (rspec & spec)
-                {
-                    if (used)
-                    {
-                        // Need to store to existing slot first
-                        local_t storage = (*existing).second;
-                        store(storage, r);
-                    }
-                    load(r, loc);
-                    regalloc[loc] = r;
-                    regmap[r]     = loc;
-                    return r;
-                }
-            }
-        }
-    }
-
-    record(backend_error,
-           "Unable to find register for loc %u with spec 0x%X", loc, spec);
-    return NO_REGISTER;
+    record(backend_emit, "emit8(0x%02X)", c);
+    text_section.append8(c);
 }
 
 
-size_t backend::spill_all()
+void backend::emit32le(uint32_t c)
 // ----------------------------------------------------------------------------
-//   Store all live hardware registers back to their slot
+//   Emit a 32-bit little-endian value
 // ----------------------------------------------------------------------------
 {
-    size_t count = 0;
-    for (uint loc = 0; loc < regalloc.size(); loc++)
+    record(backend_emit, "emit32le(0x%08llX)", c);
+    text_section.append32le(c);
+}
+
+
+void backend::emit32be(uint32_t c)
+// ----------------------------------------------------------------------------
+//   Emit a 32-bit big-endian value
+// ----------------------------------------------------------------------------
+{
+    record(backend_emit, "emit32be(0x%08llX)", c);
+    text_section.append32be(c);
+}
+
+
+intptr_t backend::branch_offset(byte_p bytecode, hwcode_t machine)
+// ----------------------------------------------------------------------------
+//  Record that we have a branch, mapping bytecode to machine code
+// ----------------------------------------------------------------------------
+{
+    // Lookup in labels to check if we already know the target
+    byte_p  bpc    = bytecode;
+    broff_t offset = leb128<broff_t>(bpc);
+    byte_p  target = bytecode + offset;
+    auto    label  = std::lower_bound(labels.begin(), labels.end(), target);
+
+    // If it already exists, return the offset to the label
+    if (label != labels.end() && label->machine == target)
+        return target - machine;
+
+    // If it does not, add it to the list of branches to patch
+    translation bt = { target, machine };
+    auto branch = std::lower_bound(branches.begin(), branches.end(), bt);
+    if (branch == branches.end() || *branch != bt)
+        branches.insert(branch, bt);
+    return 0;
+}
+
+
+uint backend::translate_address(byte_p bytecode, hwcode_t machine)
+// ----------------------------------------------------------------------------
+//   Add an address translation, resolve labels if necessary
+// ----------------------------------------------------------------------------
+{
+    uint count = 0;
+
+    // Check if there are branches that need patching
+    auto range = std::equal_range(branches.begin(), branches.end(), machine);
+    for (auto b = range.first; b != range.second; ++b)
     {
-        hwreg_t &hwreg = regalloc[loc];
-        if (hwreg != NO_REGISTER)
-        {
-            store(loc, hwreg);
-            hwreg = NO_REGISTER;
-            count++;
-        }
+        patch_branch(b->machine, machine);
+        count++;
     }
-    regmap.clear();
-    record(backend, "Spilled %zu registers", count);
+    if (count)
+        branches.erase(range.first, range.second);
+
+    // Record the mapping from bytecode to machine code for future branches
+    labels.emplace_back({ bytecode, machine });
+
     return count;
-}
-
-
-size_t backend::frame_size()
-// ----------------------------------------------------------------------------
-//    Return current frame size in slots
-// ----------------------------------------------------------------------------
-{
-    return regalloc.size();
-}
-
-
-size_t backend::frame_size(size_t slots)
-// ----------------------------------------------------------------------------
-//   Allocate the given number of slots
-// ----------------------------------------------------------------------------
-{
-    size_t before = regalloc.size();
-    if (size_t spilled = spill_all())
-        record(backend_warning, "Frame resizing with %zu live registers",
-               spilled);
-    regalloc.resize(slots, NO_REGISTER);
-    return before;
 }
 
 
@@ -303,30 +254,22 @@ static inline cstring opcode_name(tok_t op)
 }
 
 
-void backend::translate_subroutine(byte_p &pc, byte_p end)
+bool backend::translate(byte_p pc, byte_p end)
 // ----------------------------------------------------------------------------
-//   Translate a bytecode range, or until failure (if open-ended)
+//   Translate a bytecode range, or until failure
 // ----------------------------------------------------------------------------
 {
-    record(backend, "translate_sub(%p, %p)", pc, end);
+    record(backend, "translate subroutine %p..%p", pc, end);
 
     emit_args args(pc);
-    while (translating && (!end || pc < end))
+    while (pc < end && !args.error)
     {
-        byte_p insn        = pc;
+        // Insert translation in address map
+        byte_p insn = pc;
+        translate_address(pc, cursor());
 
-        // Check if this was already translated (e.g. through branch)
-        auto bcp = bc_positions.find(insn);
-        if (bcp != bc_positions.end())
-        {
-            uint j = gjmp(0);
-            gsym_addr(j, (*bcp).second);
-            break;
-        }
-
-        // Otherwise insert translation in map and run opcode
+        // Run that opcode
         op_t op            = op_t(*pc++);
-        bc_positions[insn] = cursor();
         args.ppc           = insn;
         args.op            = op;
         args.pc            = pc;
@@ -367,55 +310,14 @@ void backend::translate_subroutine(byte_p &pc, byte_p end)
             emit_user(args);
             break;
         }
+
+        // It's possible that the opcode changed the pc or end
+        pc  = args.pc;
+        end = args.end;
     }
     if (args.error)
         record(backend_error, "Error during translation: %+s", args.error);
-}
-
-
-bool backend::translate(byte_p &pc)
-// ----------------------------------------------------------------------------
-//   Translate bytecode until an end opcode is seen
-// ----------------------------------------------------------------------------
-{
-    record(backend, "translate(%p)", &pc);
-    translate_base        = pc;
-    pending_branch_target = 0;
-    branch_targets.clear();
-    entry_targets.clear();
-
-    begin_translation();
-    translate_subroutine(pc, nullptr);
-
-    over_callees_at = emit_over_callees_branch();
-
-    bool progress = true;
-    while (progress)
-    {
-        progress = false;
-        for (auto &entry : tok_jumps)
-        {
-            tok_t impl_tok = entry.first;
-            byte_p target = xlr8_resolve_impl(entry.first, &impl_tok);
-            record(backend, "tok callee token=%llu impl=%llu -> %p",
-                   entry.first, impl_tok, target);
-            if (!target)
-                continue;
-            if (bc_positions.count(target))
-                continue;
-            progress = true;
-            byte_p end = xlr8_bytecode_end(impl_tok);
-            record(backend, "translate_subroutine callee %p..%p", target, end);
-            translate_subroutine(target, end);
-        }
-    }
-
-    resolve_labels();
-    size_t epilogue = cursor();
-    finish_translation();
-    if (over_callees_at)
-        patch_branch_site(over_callees_at, epilogue);
-    return true;
+    return !args.error;
 }
 
 
@@ -425,7 +327,17 @@ void backend::begin_translation()
 // ----------------------------------------------------------------------------
 {
     record(backend, "begin_translation");
-    translating = true;
+
+    reg_local.clear();
+    local_reg.clear();
+    functions.clear();
+    branches.clear();
+    calls.clear();
+    labels.clear();
+
+    // Default assignment for registers and locals
+    reg_local.resize(registers(), NO_LOCAL);
+    local_reg.resize(DEFAULT_FRAME_SIZE, NO_REGISTER);
 }
 
 
@@ -435,7 +347,6 @@ void backend::finish_translation()
 // ----------------------------------------------------------------------------
 {
     record(backend, "finish_translation");
-    translating = false;
 }
 
 
@@ -445,148 +356,60 @@ void backend::emit_user(backend::emit_args &args)
 // ----------------------------------------------------------------------------
 {
     record(backend, "emit_user op=%u pc=%p", args.op, args.pc);
+    record(backend_warning,
+           "emit_user not implemented op=%u pc=%p",
+           args.op, args.pc);
+    args.error = "Not implemented";
 }
 
 
-void backend::mark_entry(byte_p target)
+bool backend::branch(emit_args &args, byte_p target)
 // ----------------------------------------------------------------------------
-//   Remember a label that may be entered without a branch insn (pca, etc.)
-// ----------------------------------------------------------------------------
-{
-    record(backend, "mark_entry target=%p", target);
-    entry_targets.insert(target);
-}
-
-
-byte_p backend::next_live_code(byte_p from)
-// ----------------------------------------------------------------------------
-//   Find next not-yet-translated branch target at or after from
+//   Check next thing to translate if we hit an uncnoditional branch
 // ----------------------------------------------------------------------------
 {
-    for (auto it = branch_targets.lower_bound(from);
-         it != branch_targets.end();
-         ++it)
+    record(backend, "branch %p to %p", args.pc, target);
+
+    // Check if we already dealt with that code
+    auto label = std::lower_bound(labels.begin(), labels.end(), target);
+    if (label == labels.end() || label->machine != target)
     {
-        if (!bc_positions.count(*it))
-            return *it;
-    }
-    return nullptr;
-}
-
-
-void backend::redirect_after_bra(byte_p target, byte_p &pc)
-// ----------------------------------------------------------------------------
-//   After unconditional bra, do not translate dead fall-through bytes
-// ----------------------------------------------------------------------------
-{
-    byte_p fallthrough = pc;
-    byte_p dest        = target;
-    byte_p ft          = fallthrough;
-
-    if (dest > ft)
-    {
-        for (byte_p t : branch_targets)
-        {
-            if (t >= ft && t < dest && !bc_positions.count(t))
-            {
-                record(backend, "redirect_after_bra resume %p", t);
-                pc = t;
-                return;
-            }
-        }
-        if (!bc_positions.count(dest))
-        {
-            byte_p ft_addr = fallthrough;
-            if (!branch_targets.count(ft_addr) && !entry_targets.count(ft_addr))
-            {
-                record(backend, "redirect_after_bra forward %p", target);
-                pc = target;
-                return;
-            }
-            record(backend, "redirect_after_bra linear %p", fallthrough);
-            return;
-        }
+        // Label was not translated yet (e.g. forward branch):
+        // Translate that instruction next
+        // In that case, we can actually skip the branch
+        record(backend, "Not translated yet, jumping to %p", target);
+        args.pc = target;
+        return true;
     }
 
-    if (!bc_positions.count(dest))
+    // Pick up the next item to translate
+    auto branch = branches.begin();
+    if (branch != branches.end())
     {
-        record(backend, "redirect_after_bra to %p", target);
-        pc = target;
-        return;
+        record(backend,
+               "Picking up branch %p at offset %u",
+               branch->bytecode, branch->machine);
+        args.pc = branch->bytecode;
+        return false;
     }
 
-    record(backend, "redirect_after_bra back-edge %p fallthrough %p",
-           target, fallthrough);
-    byte_p next = next_live_code(fallthrough);
-    if (next)
+    // No branch left, pick up the next function
+    auto fn = functions.begin();
+    if (fn != functions.end())
     {
-        record(backend, "redirect_after_bra resume %p", next);
-        pc = next;
+        byte_p fndef = fn->bytecode;
+        size_t sz    = leb128<size_t>(fndef);
+        byte_p fnend = fndef + sz;
+        args.pc      = fndef;
+        args.end     = fnend;
+        record(backend, "Picking up function %p..%p", args.pc, args.end);
+        return false;
     }
-    else
-    {
-        record(backend, "redirect_after_bra done");
-        translating = false;
-    }
-}
 
-
-void backend::ensure_branch_target_translated(byte_p target)
-// ----------------------------------------------------------------------------
-//   Translate bytecode at target if not already done (for branch fixups)
-// ----------------------------------------------------------------------------
-{
-    if (bc_positions.count(target))
-        return;
-    record(backend, "ensure_branch_target_translated %p", target);
-    byte_p pc = target;
-    save   st(translating, true);
-    translate_subroutine(pc, nullptr);
-}
-
-
-void backend::record_branch(broff_t offset, uint pos)
-// ----------------------------------------------------------------------------
-//   Record a PC-relative branch for later patching
-// ----------------------------------------------------------------------------
-{
-    record(backend, "record_branch(target=%p, insn_pos=%u, leb=%lld)",
-           (void *) pending_branch_target, pos, offset);
-    if (!pending_branch_target)
-        return;
-    branch_fixups.push_back({ pending_branch_target, pos });
-    pending_branch_target = 0;
-}
-
-
-void backend::patch_branch_site(size_t insn_pos, size_t target_native)
-// ----------------------------------------------------------------------------
-//   Default branch patching (overridden per target)
-// ----------------------------------------------------------------------------
-{
-    record(backend, "patch_branch_site(%zu, %zu)", insn_pos, target_native);
-    (void) insn_pos;
-    (void) target_native;
-}
-
-
-void backend::record_tok_jump(tok_t t, uint pos)
-// ----------------------------------------------------------------------------
-//   Record a token-based jump for later patching
-// ----------------------------------------------------------------------------
-{
-    record(backend, "record_tok_jump(%llu, %u)", t, pos);
-    tok_jumps[t] = pos;
-}
-
-
-void backend::patch_branch(uint pos, broff_t offset)
-// ----------------------------------------------------------------------------
-//   Patch a recorded branch site
-// ----------------------------------------------------------------------------
-{
-    record(backend, "patch_branch(%u, %lld)", pos, offset);
-    code().patch32(pos - 4, uint32_t(offset));
+    // Nothing left to do - Stop
+    record(backend, "Done, %p moving to %p", args.pc, args.end);
+    args.pc = args.end;
+    return false;
 }
 
 
@@ -608,8 +431,8 @@ void backend::resolve_labels()
             byte_p target = xlr8_resolve_impl(entry.first, &impl_tok);
             if (target)
             {
-                auto bc = bc_positions.find(target);
-                if (bc != bc_positions.end())
+                auto bc = code_offset.find(target);
+                if (bc != code_offset.end())
                     native = bc->second;
             }
         }
@@ -621,12 +444,12 @@ void backend::resolve_labels()
         }
         record(backend, "patching tok_jump token=%llu site=%u -> native=%zu",
                entry.first, entry.second, native);
-        gsym_addr(entry.second, uint(native));
+        resolve_jump(entry.second, uint(native));
     }
 
     for (branch_fixup &fx : branch_fixups)
     {
-        if (!bc_positions.count(fx.target))
+        if (!code_offset.count(fx.target))
         {
             if (!fx.target)
             {
@@ -637,14 +460,14 @@ void backend::resolve_labels()
             }
             ensure_branch_target_translated(fx.target);
         }
-        auto it = bc_positions.find(fx.target);
-        if (it == bc_positions.end())
+        auto it = code_offset.find(fx.target);
+        if (it == code_offset.end())
         {
-            auto next = bc_positions.lower_bound(fx.target);
-            if (next != bc_positions.end())
+            auto next = code_offset.lower_bound(fx.target);
+            if (next != code_offset.end())
                 it = next;
         }
-        if (it == bc_positions.end())
+        if (it == code_offset.end())
         {
             record(backend_warning, "branch_fixup miss target=%p insn_pos=%zu",
                    (void *) fx.target, fx.insn_pos);
@@ -657,11 +480,158 @@ void backend::resolve_labels()
 }
 
 
+
+// ============================================================================
+//
+//   Hardware register allocation
+//
+// ============================================================================
+
+hwreg_t backend::local(local_t loc, hwspec_t spec)
+// ----------------------------------------------------------------------------
+//  The default register allocator when loading locals
+// ----------------------------------------------------------------------------
+{
+    if (loc >= local_reg.size())
+    {
+        record(backend_warning,
+               "Local %u is out of frame size %u", loc, local_reg.size());
+        local_reg.resize(loc + 1);
+    }
+
+    // Check if we have a register currently holding this local
+    hwreg_t reg = local_reg[loc];
+    if (reg != NO_REGISTER)
+    {
+        assert(reg < reg_local.size() && "Register beyound hardware count");
+        local_t rloc = reg_local[reg];
+        assert(rloc == loc && "Inconsistent register <-> local mapping");
+
+        // Check if this matches the new spec
+        hwspec_t rspec = register_specification(reg);
+        if (rspec & spec)
+            return reg;
+    }
+
+    // Try to find some register satisfying the constraint (unused first)
+    hwreg_t nregs = registers();
+    for (uint used = 0; used < 2; used++)
+    {
+        for (hwreg_t r = 0; r < nregs; r++)
+        {
+            hwspec_t rspec = register_specification(r);
+            if (rspec & spec)
+            {
+                local_t rloc = reg_local[r];
+
+                // Check if we can move from a register that did not match
+                if (reg != NO_REGISTER && reg != r)
+                {
+                    if (move(r, reg))
+                    {
+                        local_reg[loc] = r;
+                        reg_local[reg] = NO_LOCAL;
+                        reg_local[r] = loc;
+                        return r;
+                    }
+                }
+
+                if (used || rloc == NO_LOCAL)
+                {
+                    if (used && rloc != NO_LOCAL)
+                    {
+                        if (!store(rloc, r))
+                            continue;
+                        local_reg[rloc] = NO_REGISTER;
+                        reg_local[r] = NO_LOCAL;
+                    }
+                    if (load(r, loc))
+                    {
+                        local_reg[loc] = r;
+                        reg_local[r] = loc;
+                        return r;
+                    }
+                }
+            }
+        }
+    }
+
+    record(backend_error,
+           "Unable to find register for loc %u with spec 0x%X", loc, spec);
+    return NO_REGISTER;
+}
+
+
+bool backend::spill(hwreg_t r)
+// ----------------------------------------------------------------------------
+//   Store all live hardware registers back to their slot
+// ----------------------------------------------------------------------------
+{
+    local_t rloc  = reg_local[r];
+    bool    found = rloc != NO_LOCAL;
+    if (found)
+    {
+        assert(local_reg[rloc] == r && "Spilling inconsistent reg/local");
+        store(rloc, r);
+        reg_local[r] = NO_LOCAL;
+        local_reg[rloc] = NO_REGISTER;
+    }
+
+    return found;
+}
+
+
+size_t backend::spill_all()
+// ----------------------------------------------------------------------------
+//   Store all live hardware registers back to their slot
+// ----------------------------------------------------------------------------
+{
+    size_t  count = 0;
+    hwreg_t nregs = registers();
+    for (hwreg_t r = 0; r < nregs; r++)
+        if (spill(r))
+            count++;
+
+    record(backend, "Spilled %zu registers", count);
+    return count;
+}
+
+
+size_t backend::frame_size()
+// ----------------------------------------------------------------------------
+//    Return current frame size in slots
+// ----------------------------------------------------------------------------
+{
+    return local_reg.size();
+}
+
+
+size_t backend::frame_size(size_t slots)
+// ----------------------------------------------------------------------------
+//   Allocate the given number of slots
+// ----------------------------------------------------------------------------
+{
+    size_t before = local_reg.size();
+    if (size_t spilled = spill_all())
+        record(backend_warning, "Frame resizing with %zu live registers",
+               spilled);
+    local_reg.resize(slots, NO_REGISTER);
+    return before;
+}
+
+
+
 // ============================================================================
 //
 //   Architecture management
 //
 // ============================================================================
+
+#include "arm.h"
+#include "arm64.h"
+#include "i386.h"
+#include "amd64.h"
+#include "riscv64.h"
 
 backend *backend::make(arch_t arch)
 // ----------------------------------------------------------------------------
@@ -670,15 +640,15 @@ backend *backend::make(arch_t arch)
 {
     switch (arch)
     {
-    case ARCH_I386:     return i386_be::make();
-    case ARCH_X86_64:   return x86_64::make();
+    case ARCH_I386:     return x86::make();
+    case ARCH_AMD64:    return amd64::make();
     case ARCH_ARM:      return arm::make();
     case ARCH_ARM64:    return arm64::make();
     case ARCH_RISCV64:  return riscv64::make();
     default:
-        record(backend_error, "Unknown arch %u, defaulting to x86-64", arch);
+        record(backend_error, "Unknown arch %u, defaulting to AMD64", arch);
     }
-    return x86_64::make();
+    return amd64::make();
 }
 
 
@@ -690,7 +660,7 @@ cstring backend::arch_name(arch_t arch)
     switch (arch)
     {
     case ARCH_I386:     return "i386";
-    case ARCH_X86_64:   return "x86_64";
+    case ARCH_AMD64:    return "amd64";
     case ARCH_ARM:      return "arm";
     case ARCH_ARM64:    return "arm64";
     case ARCH_RISCV64:  return "riscv64";

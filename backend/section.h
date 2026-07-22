@@ -41,37 +41,12 @@ struct section : std::vector<byte>
 //   A growable buffer for emitted code or data
 // ----------------------------------------------------------------------------
 {
-    void append(byte c)
+    void append8(byte c)
     // ------------------------------------------------------------------------
     //   Append one byte at the end of the section
     // ------------------------------------------------------------------------
     {
         push_back(c);
-    }
-
-    void append32le(uint32_t c)
-    // ------------------------------------------------------------------------
-    //   Append a 32-bit little-endian value
-    // ------------------------------------------------------------------------
-    {
-        push_back(byte(c));
-        push_back(byte(c >> 8));
-        push_back(byte(c >> 16));
-        push_back(byte(c >> 24));
-    }
-
-    void patch32(size_t at, uint32_t c)
-    // ------------------------------------------------------------------------
-    //   Patch a 32-bit little-endian value at a given offset
-    // ------------------------------------------------------------------------
-    {
-        if (at + 4 > size())
-            return;
-        section &s = *this;
-        s[at]      = byte(c);
-        s[at + 1]  = byte(c >> 8);
-        s[at + 2]  = byte(c >> 16);
-        s[at + 3]  = byte(c >> 24);
     }
 
     void patch8(size_t at, byte c)
@@ -85,7 +60,56 @@ struct section : std::vector<byte>
         s[at] = c;
     }
 
-    size_t allocated() const
+    void append32le(uint32_t c)
+    // ------------------------------------------------------------------------
+    //   Append a 32-bit little-endian value
+    // ------------------------------------------------------------------------
+    {
+        push_back(byte(c));
+        push_back(byte(c >> 8));
+        push_back(byte(c >> 16));
+        push_back(byte(c >> 24));
+    }
+
+    void patch32le(size_t at, uint32_t c)
+    // ------------------------------------------------------------------------
+    //   Patch a 32-bit little-endian value at a given offset
+    // ------------------------------------------------------------------------
+    {
+        if (at + 4 > size())
+            return;
+        section &s = *this;
+        s[at]      = byte(c);
+        s[at + 1]  = byte(c >> 8);
+        s[at + 2]  = byte(c >> 16);
+        s[at + 3]  = byte(c >> 24);
+    }
+
+    void append32be(uint32_t c)
+    // ------------------------------------------------------------------------
+    //   Append a 32-bit big-endian value
+    // ------------------------------------------------------------------------
+    {
+        push_back(byte(c >> 24));
+        push_back(byte(c >> 16));
+        push_back(byte(c >> 8));
+        push_back(byte(c >> 0));
+    }
+
+    void patch32be(size_t at, uint32_t c)
+    // ------------------------------------------------------------------------
+    //   Patch a 32-bit big-endian value at a given offset
+    // ------------------------------------------------------------------------
+    {
+        if (at + 4 > size())
+            return;
+        section &s = *this;
+        s[at]      = byte(c >> 24);
+        s[at + 1]  = byte(c >> 16);
+        s[at + 2]  = byte(c >> 8);
+        s[at + 3]  = byte(c >> 0);
+    }
+size_t allocated() const
     // ------------------------------------------------------------------------
     //   Return reserved capacity (TinyCC-compatible name)
     // ------------------------------------------------------------------------

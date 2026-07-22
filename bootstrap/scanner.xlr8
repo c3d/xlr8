@@ -44,8 +44,8 @@
 
 !G_STREAM       0       // Input stream index (0 = stdin)
 !G_SCANNED      1       // Heap pointer: NUL-terminated scanned token text
-!G_SCAN_LEN     2       // Length of scanned text (bytes used)
-!G_SCAN_CAP     3       // Capacity of scanned buffer
+!G_SRSPEC_LEN     2       // Length of scanned text (bytes used)
+!G_SRSPEC_CAP     3       // Capacity of scanned buffer
 !G_PROG         4       // Heap pointer: bytecode being built
 !G_PROG_LEN     5       // Current program size (pc())
 !G_PROG_CAP     6       // Capacity of program buffer
@@ -97,7 +97,7 @@
 !PEND_PATCHES   16
 
 // Initial buffer sizes
-!INIT_SCAN_CAP  256
+!INIT_SRSPEC_CAP  256
 !INIT_PROG_CAP  4096
 !INIT_SYM_CAP   64
 !INIT_VEC_CAP   64
@@ -186,13 +186,13 @@
     sto *G_STREAM 1
 
     // Scanned-text buffer
-    sys kmalloc 1 *INIT_SCAN_CAP
+    sys kmalloc 1 *INIT_SRSPEC_CAP
     beq 1 :init_fail
     sto *G_SCANNED 1
     int 1 0
-    sto *G_SCAN_LEN 1
-    nat 1 *INIT_SCAN_CAP
-    sto *G_SCAN_CAP 1
+    sto *G_SRSPEC_LEN 1
+    nat 1 *INIT_SRSPEC_CAP
+    sto *G_SRSPEC_CAP 1
 
     // Program bytecode buffer
     sys kmalloc 1 *INIT_PROG_CAP
@@ -321,7 +321,7 @@
 =str_clear
     enter 2
     int 1 +0
-    sto *G_SCAN_LEN 1
+    sto *G_SRSPEC_LEN 1
     rcl 0 *G_SCANNED
     st1 0 1
     leave ret
@@ -330,15 +330,15 @@
 =str_append_ch
     enter 5
     get 1 0                          // R1 = character to append
-    rcl 2 *G_SCAN_LEN
-    rcl 3 *G_SCAN_CAP
+    rcl 2 *G_SRSPEC_LEN
+    rcl 3 *G_SRSPEC_CAP
     cmpult 0 2 3
     bfalse 0 :grow
     rcl 0 *G_SCANNED
     add 0 2
     st1 0 1
     incr 2
-    sto *G_SCAN_LEN 2
+    sto *G_SRSPEC_LEN 2
     rcl 0 *G_SCANNED
     add 0 2
     int 4 +0
@@ -353,13 +353,13 @@
     sys realloc 2 0
     beq 2 :oom
     sto *G_SCANNED 2
-    sto *G_SCAN_CAP 3
+    sto *G_SRSPEC_CAP 3
     rcl 0 *G_SCANNED
-    rcl 2 *G_SCAN_LEN
+    rcl 2 *G_SRSPEC_LEN
     add 0 2
     st1 0 1
     incr 2
-    sto *G_SCAN_LEN 2
+    sto *G_SRSPEC_LEN 2
     rcl 0 *G_SCANNED
     add 0 2
     int 4 +0
@@ -906,7 +906,7 @@
     rcl 10 *G_SCANNED
     int 2 0
 .char_loop
-    rcl 3 *G_SCAN_LEN
+    rcl 3 *G_SRSPEC_LEN
     cmpult 0 2 3
     bfalse 0 :done
     copy 1 10
@@ -1047,7 +1047,7 @@
     int 2 +0
 
 .ar_loop
-    rcl 3 *G_SCAN_LEN
+    rcl 3 *G_SRSPEC_LEN
     cmpult 0 2 3
     bfalse 0 :ar_done
 
@@ -1272,11 +1272,11 @@
     int 2 1                          // R2 = source index
     int 4 0                          // R4 = dest index (rewrite in place)
     int 5 0                          // R5 = last char
-    rcl 0 *G_SCAN_LEN
+    rcl 0 *G_SRSPEC_LEN
     cmpleu 0 0 2
     bfalse 0 :loop
 .loop
-    rcl 0 *G_SCAN_LEN
+    rcl 0 *G_SRSPEC_LEN
     cmpultu 0 2 0
     bfalse 0 :finish
     ld1 5 1
@@ -1298,7 +1298,7 @@
     incr 4
     bra :loop
 .finish
-    sto *G_SCAN_LEN 4
+    sto *G_SRSPEC_LEN 4
     copy 0 4
     leave ret
 ;
@@ -1459,7 +1459,7 @@
     call *as_text
     rcl 1 *G_SCANNED
     copy 0 1
-    rcl 2 *G_SCAN_LEN
+    rcl 2 *G_SRSPEC_LEN
     copy 1 2
     call *prog_append_bytes
     int 0 +1
@@ -1759,7 +1759,7 @@ incr 0
 int 1 +0
 st1 0 1
 nat 1 3
-sto *G_SCAN_LEN 1
+sto *G_SRSPEC_LEN 1
 call *as_real
 beq 0 :scan_fail
 rcl 0 *G_FP_SIZE
