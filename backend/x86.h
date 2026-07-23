@@ -73,8 +73,8 @@ struct x86 : backend
 //   Shared x86 family code generator implementing every opcode
 // ----------------------------------------------------------------------------
 {
-    x86(arch_t arch);
-    static x86 *make() { return new x86(ARCH_I386); }
+    x86(runtime &rt, arch_t arch);
+    static x86 *make(runtime &rt) { return new x86(rt, ARCH_I386); }
 
 #include "backend-iface.h"
 

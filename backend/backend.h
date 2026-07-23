@@ -41,6 +41,8 @@
 #include <vector>
 
 
+struct runtime;
+
 struct backend
 // ----------------------------------------------------------------------------
 //   Code generation backend (TinyCC's TCCState analogue)
@@ -117,7 +119,7 @@ struct backend
 
 
     virtual         ~backend()   = default;
-    static backend  *make(arch_t arch = ARCH_NATIVE);
+    static backend  *make(runtime &rt, arch_t arch = ARCH_NATIVE);
     static cstring   arch_name(arch_t arch = ARCH_NATIVE);
 
     bool             set_options(cstring options);
@@ -127,6 +129,7 @@ struct backend
     static cstring   opcode_name(op_t op);
 
     bool             translate(byte_p start, byte_p end);
+    hwcode_t         translate(tok_t tok);
 
     section         &code()                     { return text_section; }
     hwcode_t         cursor() const             { return text_section.size(); }
@@ -255,12 +258,13 @@ struct backend
 #include "native.tbl"
 
     virtual void emit_user(emit_args &args);
+    virtual bool dispatch_sys(emit_args &args);
     virtual bool branch(emit_args &args, byte_p target);
 
 protected:
-    backend(arch_t arch);       // Only create backends through the factory
+    backend(runtime &r, arch_t arch);       // Only create backends through the factory
 
-
+    runtime &rt;
     arch_t   current_arch;
     output_t current_output;
     byte_p   translating;

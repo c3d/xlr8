@@ -54,11 +54,12 @@ RECORDER(backend_warning,   16, "Architecture-neutral code generation warnings")
 //
 // ============================================================================
 
-backend::backend(arch_t arch)
+backend::backend(runtime &rt, arch_t arch)
 // ----------------------------------------------------------------------------
 //   Initialize shared backend state
 // ----------------------------------------------------------------------------
-    : current_arch(arch),
+    : rt(rt),
+      current_arch(arch),
       current_output(OUTPUT_MEMORY)
 {}
 
@@ -389,6 +390,31 @@ bool backend::translate(byte_p pc, byte_p end)
 }
 
 
+bool backend::dispatch_sys(emit_args &args)
+// ----------------------------------------------------------------------------
+//   Parse syscall arguments from sys opcode
+// ----------------------------------------------------------------------------
+{
+    byte_p pc  = args.pc;
+    byte_p end = args.end;
+    tok_t  sys = args.tok;
+
+#define NATIVE(op, decl, code)                  \
+    if (sys == runtime::sys_##op)               \
+    {                                           \
+        decl;                                   \
+        args.pc = pc;                           \
+        if (pc <= end)                          \
+            emit_sys_##op(args);                \
+        args.pc = pc;                           \
+        return pc <= end;                       \
+    }
+#include "native.tbl"
+
+    return false;
+}
+
+
 void backend::begin_translation()
 // ----------------------------------------------------------------------------
 //   Emit prologue at start of translated code
@@ -481,6 +507,24 @@ bool backend::branch(emit_args &args, byte_p target)
 }
 
 
+hwcode_t backend::translate(tok_t tok)
+// ----------------------------------------------------------------------------
+//   Find the bytecode associated with a token and translate it if needed
+// ----------------------------------------------------------------------------
+{
+    size_t sz    = 0;
+    byte_p start = rt.tok(tok, &sz);
+    byte_p end   = start + sz;
+    auto   fn    = lowerbound(functions, start);
+    if (fn != functions.end())
+        return fn->hwcode;
+
+    hwcode_t entry = cursor();
+    functions.emplace_back(translation{start, entry}); // Generate only once
+    if (!translate(start, end))
+        record(backend_error, "Error translating token %u at %u", tok, entry);
+    return entry;
+}
 
 
 
@@ -647,23 +691,23 @@ size_t backend::frame_size(size_t slots)
 #include "amd64.h"
 #include "riscv64.h"
 
-backend *backend::make(arch_t arch)
+backend *backend::make(runtime &rt, arch_t arch)
 // ----------------------------------------------------------------------------
 //   Create a code generator for the requested architecture
 // ----------------------------------------------------------------------------
 {
     switch (arch)
     {
-    case ARCH_I386:             return x86::make();
+    case ARCH_I386:             return x86::make(rt);
     case ARCH_AMD64:
-    case ARCH_AMD64_WIN:        return amd64::make(arch);
-    case ARCH_ARM:              return arm::make();
-    case ARCH_ARM64:            return arm64::make();
-    case ARCH_RISCV64:          return riscv64::make();
+    case ARCH_AMD64_WIN:        return amd64::make(rt, arch);
+    case ARCH_ARM:              return arm::make(rt);
+    case ARCH_ARM64:            return arm64::make(rt);
+    case ARCH_RISCV64:          return riscv64::make(rt);
     default:
         record(backend_error, "Unknown arch %u, defaulting to AMD64", arch);
     }
-    return amd64::make(ARCH_AMD64);
+    return amd64::make(rt, ARCH_AMD64);
 }
 
 

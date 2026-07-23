@@ -71,9 +71,12 @@ struct amd64 : x86
 //   64-bit x86 code generator
 // ----------------------------------------------------------------------------
 {
-    static backend *make(arch_t arch)           { return new amd64(arch); }
+    static backend *make(runtime &rt, arch_t arch)
+    {
+        return new amd64(rt, arch);
+    }
 
-    amd64(arch_t arch): x86(arch) { }
+    amd64(runtime &rt, arch_t arch);
 
     cstring     machine_defs() const                            override;
     reginfo     register_definition(hwreg_t reg) const          override;

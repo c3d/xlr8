@@ -64,8 +64,8 @@ struct riscv64 : backend
 //   RISC-V 64 code generator implementing every built-in opcode
 // ----------------------------------------------------------------------------
 {
-    riscv64();
-    static backend *make()              { return new riscv64; }
+    riscv64(runtime &rt);
+    static backend *make(runtime &rt) { return new riscv64(rt); }
 
 #  include "backend-iface.h"
 

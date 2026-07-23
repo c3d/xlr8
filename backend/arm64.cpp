@@ -78,11 +78,11 @@ void arm64::store_local(uint r, byte n)
 }
 
 
-arm64::arm64()
+arm64::arm64(runtime &rt)
 // ----------------------------------------------------------------------------
 //   Construct an AArch64 code generator
 // ----------------------------------------------------------------------------
-    : backend(ARCH_ARM64)
+    : backend(rt, ARCH_ARM64)
 {
     record(arm64, "arm64()");
 }

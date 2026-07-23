@@ -69,8 +69,8 @@ struct arm64 : backend
 //   AArch64 code generator implementing every built-in opcode
 // ----------------------------------------------------------------------------
 {
-    arm64();
-    static backend *make()              { return new arm64; }
+    arm64(runtime &rt);
+    static backend *make(runtime &rt) { return new arm64(rt); }
 
 #include "backend-iface.h"
 

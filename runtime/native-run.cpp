@@ -380,7 +380,7 @@ bool runtime::run_native(byte_p entry)
 {
     if (!entry)
         entry = this->entry;
-    backend *be = backend::make(backend::ARCH_NATIVE);
+    backend *be = backend::make(*this, backend::ARCH_NATIVE);
     if (!be)
     {
         error("No native backend for this CPU");

@@ -40,11 +40,11 @@ RECORDER(arm_error,       64, "32-bit ARM code generation errors");
 RECORDER(arm_warning,     64, "32-bit ARM code generation warnings");
 
 
-arm::arm()
+arm::arm(runtime &rt)
 // ----------------------------------------------------------------------------
 //   Construct a 32-bit ARM code generator
 // ----------------------------------------------------------------------------
-    : backend(ARCH_ARM)
+    : backend(rt, ARCH_ARM)
 {
     record(arm, "arm()");
 }

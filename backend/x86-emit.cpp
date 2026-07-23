@@ -311,30 +311,8 @@ EMIT(sys)
 //   Emit bytecode for the sys opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_sys(%llu, %p, %p)", e.tok, e.pc, e.pc);
-    emit_set_arg0_r(hw_flags());
-    call_ptr(xlr8_runtime_fn("xlr8_set_flags"));
-    emit_cleanup_call_args(1);
-    emit_set_arg1_imm(uint64_t(uintptr_t(e.pc)));
-    emit_set_arg0_imm(uint64_t(e.tok));
-    call_ptr((void *) xlr8_sys);
-    emit_cleanup_call_args(2);
-    reload_rt_regs();
-    reload_flags_reg();
-    emit_set_arg0_imm(uint64_t(uintptr_t(e.pc)));
-    call_ptr((void *) xlr8_after_sys);
-    emit_cleanup_call_args(1);
-    // after_sys returns a continue address in rax.  i386 reload_rt_regs()
-    // calls C helpers that clobber caller-saved regs (eax/ecx/edx), so
-    // keep the result on the stack — not in hw_scr()/ecx.
-    emit_push_reg(HW_RAX);
-    reload_rt_regs();
-    emit_pop_reg(HW_RAX);
-    orex(1, HW_RAX, 0, 0x85);
-    emit8(modrm_rr(HW_RAX, HW_RAX));
-    emit8(0x74);
-    emit8(0x02);
-    br_via_ip();
+    record(x86_ops, "emit_sys %llu args=%p", e.tok, e.pc);
+    dispatch_sys(e);
 }
 
 

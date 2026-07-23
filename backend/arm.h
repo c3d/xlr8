@@ -70,8 +70,8 @@ struct arm : backend
 //   32-bit ARM code generator implementing every built-in opcode
 // ----------------------------------------------------------------------------
 {
-    arm();
-    static arm *make() { return new arm; }
+    arm(runtime &rt);
+    static arm *make(runtime &rt) { return new arm(rt); }
 
 #include "backend-iface.h"
 

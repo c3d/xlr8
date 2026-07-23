@@ -37,11 +37,11 @@ RECORDER(amd64_warning,     16, "X86-64/AMD64 family code generation warnings");
 
 
 
-amd64::amd64(arch_t arch)
+amd64::amd64(runtime &rt, arch_t arch)
 // ----------------------------------------------------------------------------
 //   Construct an amd64 family code generator
 // ----------------------------------------------------------------------------
-    : x86(arch)
+    : x86(rt, arch)
 {
     record(amd64, "amd64(%+s)", arch_name(arch));
 }

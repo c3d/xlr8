@@ -40,11 +40,11 @@ RECORDER(x86_error,       64, "x86 family code generation errors");
 RECORDER(x86_warning,     64, "x86 family code generation warnings");
 
 
-x86::x86(arch_t arch)
+x86::x86(runtime &rt, arch_t arch)
 // ----------------------------------------------------------------------------
 //   Construct an x86 family code generator
 // ----------------------------------------------------------------------------
-    : backend(arch)
+    : backend(rt, arch)
 {
     record(x86, "New backend arch=%+s", arch_name(arch));
 }
@@ -1083,15 +1083,8 @@ void x86::jmp_tok(tok_t t)
 // ----------------------------------------------------------------------------
 {
     record(x86, "jmp_tok %llu", t);
-    auto it = labels.find(t);
-    if (it != labels.end())
-    {
-        emit_jmp_to(it->second);
-        return;
-    }
-    uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
-    uint pos = jump(head);
-    record_tok_jump(t, pos);
+    hwcode_t target = translate(t);
+    emit_jmp_to(target);
 }
 
 

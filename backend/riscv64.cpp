@@ -78,11 +78,11 @@ void riscv64::store_local(uint r, byte n)
 }
 
 
-riscv64::riscv64()
+riscv64::riscv64(runtime &rt)
 // ----------------------------------------------------------------------------
 //   Construct a RISC-V 64 code generator
 // ----------------------------------------------------------------------------
-    : backend(ARCH_RISCV64)
+    : backend(rt, ARCH_RISCV64)
 {
     record(riscv64, "riscv64()");
 }
