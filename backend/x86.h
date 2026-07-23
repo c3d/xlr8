@@ -79,7 +79,7 @@ struct x86 : backend
 #include "backend-iface.h"
 
 protected:
-    enum hwreg_t : ::hwreg_t
+    enum x86reg_t : hwreg_t
     // ------------------------------------------------------------------------
     //    Shared register names for x86 and amd64
     // ------------------------------------------------------------------------
@@ -100,25 +100,46 @@ protected:
         HW_R13,
         HW_R14,
         HW_R15,
-        HW_XMM0,
-        HW_XMM1,
-        HW_XMM2,
-        HW_XMM3,
-        HW_XMM4,
-        HW_XMM5,
-        HW_XMM6,
-        HW_XMM7,
-        HW_XMM8,
-        HW_XMM9,
-        HW_XMM10,
-        HW_XMM11,
-        HW_XMM12,
-        HW_XMM13,
-        HW_XMM14,
+
+        HW_XMM0D,
+        HW_XMM1D,
+        HW_XMM2D,
+        HW_XMM3D,
+        HW_XMM4D,
+        HW_XMM5D,
+        HW_XMM6D,
+        HW_XMM7D,
+        HW_XMM8D,
+        HW_XMM9D,
+        HW_XMM10D,
+        HW_XMM11D,
+        HW_XMM12D,
+        HW_XMM13D,
+        HW_XMM14D,
+        HW_XMM15D,
+
+        HW_XMM0F,
+        HW_XMM1F,
+        HW_XMM2F,
+        HW_XMM3F,
+        HW_XMM4F,
+        HW_XMM5F,
+        HW_XMM6F,
+        HW_XMM7F,
+        HW_XMM8F,
+        HW_XMM9F,
+        HW_XMM10F,
+        HW_XMM11F,
+        HW_XMM12F,
+        HW_XMM13F,
+        HW_XMM14F,
+        HW_XMM15F,
+
         HW_COUNT,
 
         HW_FRAME   = HW_RBP,
         HW_SCRATCH = HW_RCX,
+        HW_NONE    = 0,
     };
 
     bool win64_abi() const
@@ -137,7 +158,20 @@ protected:
         return arch() != ARCH_I386;
     }
 
-    hwreg_t hw_flags() const
+    x86reg_t hw(hwreg_t r)
+    // ------------------------------------------------------------------------
+    //   Convert hwreg_t to x86reg_t
+    // ------------------------------------------------------------------------
+    {
+        if (r >= HW_COUNT)
+        {
+            record(x86_error, "Invalid hardware register index %u", r);
+            r = HW_RAX;
+        }
+        return x86reg_t(r);
+    }
+
+    x86reg_t hw_flags() const
     // ------------------------------------------------------------------------
     //   Register used for hardware flags
     // ------------------------------------------------------------------------
@@ -146,7 +180,7 @@ protected:
         return ptr64() ? HW_R15 : HW_RSI;
     }
 
-    hwreg_t hw_arg0() const
+    x86reg_t hw_arg0() const
     // ------------------------------------------------------------------------
     //   First integer C-helper argument register (SysV rdi / Win64 rcx)
     // ------------------------------------------------------------------------
@@ -154,7 +188,7 @@ protected:
         return win64_abi() ? HW_RCX : HW_RDI;
     }
 
-    hwreg_t hw_arg1() const
+    x86reg_t hw_arg1() const
     // ------------------------------------------------------------------------
     //   Second integer C-helper argument register (SysV rsi / Win64 rdx)
     // ------------------------------------------------------------------------
@@ -162,7 +196,7 @@ protected:
         return win64_abi() ? HW_RDX : HW_RSI;
     }
 
-    static inline uint reg_value(hwreg_t r)
+    static inline uint reg_value(x86reg_t r)
     // ------------------------------------------------------------------------
     //   Low three bits of a hardware register number
     // ------------------------------------------------------------------------
@@ -170,7 +204,7 @@ protected:
         return r & 7;
     }
 
-    static inline bool rex_b(hwreg_t r)
+    static inline bool rex_b(x86reg_t r)
     // ------------------------------------------------------------------------
     //   REX.B bit for extended register r
     // ------------------------------------------------------------------------
@@ -178,7 +212,7 @@ protected:
         return (r >> 3) & 1;
     }
 
-    static inline bool rex_x(hwreg_t x)
+    static inline bool rex_x(x86reg_t x)
     // ------------------------------------------------------------------------
     //   REX.X bit for extended index register x
     // ------------------------------------------------------------------------
@@ -186,7 +220,7 @@ protected:
         return (x >> 3) & 1;
     }
 
-    static inline bool rex_r(hwreg_t r)
+    static inline bool rex_r(x86reg_t r)
     // ------------------------------------------------------------------------
     //   REX.R bit for extended register r
     // ------------------------------------------------------------------------
@@ -194,7 +228,7 @@ protected:
         return (r >> 3) & 1;
     }
 
-    static inline byte modrm_rr(hwreg_t r, hwreg_t x)
+    static inline byte modrm_rr(x86reg_t r, x86reg_t x)
     // ------------------------------------------------------------------------
     //   ModR/M byte for op r, x (register-direct, both in registers)
     // ------------------------------------------------------------------------
@@ -202,7 +236,7 @@ protected:
         return byte(0xc0 | (reg_value(r) << 3) | reg_value(x));
     }
 
-    static inline byte modrm_rm(hwreg_t r, hwreg_t b)
+    static inline byte modrm_rm(x86reg_t r, x86reg_t b)
     // ------------------------------------------------------------------------
     //   ModR/M byte for op r, [b] (register r, memory at base b)
     // ------------------------------------------------------------------------
@@ -210,7 +244,7 @@ protected:
         return byte(0x00 | (reg_value(r) << 3) | reg_value(b));
     }
 
-    static inline byte modrm_mr(hwreg_t b, hwreg_t r)
+    static inline byte modrm_mr(x86reg_t b, x86reg_t r)
     // ------------------------------------------------------------------------
     //   ModR/M byte for op [b], r (memory at base b, register r)
     // ------------------------------------------------------------------------
@@ -256,7 +290,7 @@ protected:
     static constexpr byte SETCC_LTU = 0x92; // setb / setnae
     static constexpr byte SETCC_LEU = 0x96; // setbe / setna
 
-    void emit_op_rr(byte op, hwreg_t dest, hwreg_t src, int ll = 1)
+    void emit_op_rr(byte op, x86reg_t dest, x86reg_t src, int ll = 1)
     // ------------------------------------------------------------------------
     //   Emit a two-register ALU opcode: op dest, src
     // ------------------------------------------------------------------------
@@ -265,14 +299,86 @@ protected:
         emit8(modrm_rr(src, dest));
     }
 
-    void emit_mov_rr (hwreg_t dst, hwreg_t src) { emit_op_rr(0x89, dst, src); }
-    void emit_add_rr (hwreg_t dst, hwreg_t src) { emit_op_rr(0x01, dst, src); }
-    void emit_sub_rr (hwreg_t dst, hwreg_t src) { emit_op_rr(0x29, dst, src); }
-    void emit_and_rr (hwreg_t dst, hwreg_t src) { emit_op_rr(0x21, dst, src); }
-    void emit_or_rr  (hwreg_t dst, hwreg_t src) { emit_op_rr(0x09, dst, src); }
-    void emit_xor_rr (hwreg_t dst, hwreg_t src) { emit_op_rr(0x31, dst, src); }
-    void emit_cmp_rr (hwreg_t dst, hwreg_t src) { emit_op_rr(0x39, dst, src); }
-    void emit_test_rr(hwreg_t dst, hwreg_t src) { emit_op_rr(0x85, dst, src); }
+    void emit_mov_rr (x86reg_t d, x86reg_t s) { emit_op_rr(0x89, d, s); }
+    void emit_add_rr (x86reg_t d, x86reg_t s) { emit_op_rr(0x01, d, s); }
+    void emit_sub_rr (x86reg_t d, x86reg_t s) { emit_op_rr(0x29, d, s); }
+    void emit_and_rr (x86reg_t d, x86reg_t s) { emit_op_rr(0x21, d, s); }
+    void emit_or_rr  (x86reg_t d, x86reg_t s) { emit_op_rr(0x09, d, s); }
+    void emit_xor_rr (x86reg_t d, x86reg_t s) { emit_op_rr(0x31, d, s); }
+    void emit_cmp_rr (x86reg_t d, x86reg_t s) { emit_op_rr(0x39, d, s); }
+    void emit_test_rr(x86reg_t d, x86reg_t s) { emit_op_rr(0x85, d, s); }
+    void emit_xchg_rr(x86reg_t d, x86reg_t s) { emit_op_rr(0x87, d, s); }
+
+    void emit_imul_rr(x86reg_t d, x86reg_t s)
+    // ------------------------------------------------------------------------
+    //   Emit imul d, s (0F AF /r — dest in ModRM.reg, unlike emit_op_rr)
+    // ------------------------------------------------------------------------
+    {
+        orex(1, d, s, 0x0f);
+        emit8(0xaf);
+        emit8(modrm_rr(d, s));
+    }
+
+    void emit_idiv_r(x86reg_t s)
+    // ------------------------------------------------------------------------
+    //   Emit idiv s (F7 /7); dividend is implicit rdx:rax
+    // ------------------------------------------------------------------------
+    {
+        emit_grp3_f7(s, 0xf8);
+    }
+
+    void emit_div_r(x86reg_t s)
+    // ------------------------------------------------------------------------
+    //   Emit div s (F7 /6); dividend is implicit rdx:rax
+    // ------------------------------------------------------------------------
+    {
+        emit_grp3_f7(s, 0xf0);
+    }
+
+    void emit_divmod_rr(x86reg_t d, x86reg_t s, bool mod, bool sgn)
+    // ------------------------------------------------------------------------
+    //   Emit (i)div s with dividend in d; result (quot/rem) written back to d
+    // ------------------------------------------------------------------------
+    {
+        if (d != HW_RAX)
+            emit_mov_rr(HW_RAX, d);
+        if (sgn)
+            emit_cdq();
+        else
+            emit_xor_rdx_rdx();
+        emit_grp3_f7(s, sgn ? 0xf8 : 0xf0);
+        if (mod && d != HW_RDX)
+            emit_mov_rr(d, HW_RDX);
+        else if (!mod && d != HW_RAX)
+            emit_mov_rr(d, HW_RAX);
+    }
+    void emit_udiv_rr(x86reg_t d, x86reg_t s) { emit_divmod_rr(d, s, 0, 0); }
+    void emit_idiv_rr(x86reg_t d, x86reg_t s) { emit_divmod_rr(d, s, 0, 1); }
+    void emit_umod_rr(x86reg_t d, x86reg_t s) { emit_divmod_rr(d, s, 1, 0); }
+    void emit_imod_rr(x86reg_t d, x86reg_t s) { emit_divmod_rr(d, s, 1, 1); }
+
+    void emit_divmod_imm(x86reg_t d, uint64_t imm, bool mod, bool sgn)
+    // ------------------------------------------------------------------------
+    //   Emit (i)div by immediate; dividend in d, result written back to d
+    // ------------------------------------------------------------------------
+    {
+        if (d != HW_RAX)
+            emit_mov_rr(HW_RAX, d);
+        load_hw_imm(HW_RCX, imm);
+        if (sgn)
+            emit_cdq();
+        else
+            emit_xor_rdx_rdx();
+        emit_grp3_f7(HW_RCX, sgn ? 0xf8 : 0xf0);
+        if (mod && d != HW_RDX)
+            emit_mov_rr(d, HW_RDX);
+        else if (!mod && d != HW_RAX)
+            emit_mov_rr(d, HW_RAX);
+    }
+    void emit_udiv_imm(x86reg_t d, uint64_t imm) { emit_divmod_imm(d, imm, 0, 0); }
+    void emit_idiv_imm(x86reg_t d, uint64_t imm) { emit_divmod_imm(d, imm, 0, 1); }
+    void emit_umod_imm(x86reg_t d, uint64_t imm) { emit_divmod_imm(d, imm, 1, 0); }
+    void emit_imod_imm(x86reg_t d, uint64_t imm) { emit_divmod_imm(d, imm, 1, 1); }
 
     void emit_setcc_al(byte cc)
     // ------------------------------------------------------------------------
@@ -294,23 +400,23 @@ protected:
         emit8(0xc0 | reg_value(HW_RAX));
     }
 
-    void emit_grp3_f7(hwreg_t r, byte ext)
+    void emit_grp3_f7(x86reg_t r, byte ext)
     // ------------------------------------------------------------------------
     //   Emit Group 3 F7 /ext on 64-bit register r (neg/not)
     // ------------------------------------------------------------------------
     {
         // /ext targets r/m; high registers need REX.B (orex x), not REX.R
-        orex(1, 0, r, 0xf7);
+        orex(1, HW_NONE, r, 0xf7);
         emit8(ext | reg_value(r));
     }
 
-    void emit_grp5_ff(hwreg_t r, byte ext)
+    void emit_grp5_ff(x86reg_t r, byte ext)
     // ------------------------------------------------------------------------
     //   Emit Group 5 FF /ext on 64-bit register r (inc/dec)
     // ------------------------------------------------------------------------
     {
         // /ext targets r/m; high registers need REX.B (orex x), not REX.R
-        orex(1, 0, r, 0xff);
+        orex(1, HW_NONE, r, 0xff);
         emit8(ext | reg_value(r));
     }
 
@@ -319,24 +425,26 @@ protected:
     //   Emit ModRM(+SIB)+disp for [HW_FRAME+disp]; reg_field is ModRM.reg
     // ------------------------------------------------------------------------
     {
-        hwreg_t frame = HW_FRAME;
-        if (disp)
+        if (disp < -128 || disp > 127)
         {
-            emit8(byte((2 << 6) | ((reg_field & 7) << 3) | 4));
-            emit8(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
+            // [HW_FRAME + disp32]
+            emit8(byte(0x80 | ((reg_field & 7) << 3) | 4));
+            emit8(byte((reg_value(HW_RSP) << 3) | reg_value(HW_FRAME)));
             emit32le(uint32_t(disp));
             return;
         }
-        // rbp/r13 cannot use mod=00 without a displacement
-        if (reg_value(frame) == 5)
+
+        // rbp/r13 cannot use mod=00 without a displacement, emit imm8(0)
+        uint fr = reg_value(HW_FRAME);
+        if (fr == 5 || disp)
         {
-            emit8(byte((1 << 6) | ((reg_field & 7) << 3) | reg_value(frame)));
-            emit8(0);
+            emit8(byte((1 << 6) | ((reg_field & 7) << 3) | fr));
+            emit8(byte(disp));
             return;
         }
-        emit8(byte(((reg_field & 7) << 3) | reg_value(frame)));
-        if (reg_value(frame) == 4)
-            emit8(byte((reg_value(HW_RSP) << 3) | reg_value(frame)));
+        emit8(byte(((reg_field & 7) << 3) | fr));
+        if (fr == 4)
+            emit8(byte((reg_value(HW_RSP) << 3) | fr);
     }
 
     void emit_rex_frame_rm()
@@ -344,7 +452,7 @@ protected:
     //   REX.W (x86-64) and REX.B when HW_FRAME is r8–r15
     // ------------------------------------------------------------------------
     {
-        hwreg_t frame = HW_FRAME;
+        x86reg_t frame = HW_FRAME;
         int w = (ptr64()) ? 8 : 0;
         if (w || frame >= 8)
             emit8(0x40 | w | (rex_b(frame) ? 1 : 0));
@@ -380,16 +488,93 @@ protected:
         }
     }
 
-    void emit_shift_cl(hwreg_t dst, byte ext)
+    void emit_alu_imm(x86reg_t d, byte op_ext, int64_t imm)
     // ------------------------------------------------------------------------
-    //   Emit d3 /ext dst, cl (shl/sar/shr by rcx)
+    //   Emit add/sub/and/or/xor d, imm (83/81); large imm via scratch + rr
     // ------------------------------------------------------------------------
     {
-        orex(1, HW_RCX, dst, 0xd3);
-        emit8(ext | reg_value(dst));
+        if (imm != int32_t(imm))
+        {
+            x86reg_t t = d == HW_RCX ? HW_RAX : HW_RCX;
+            load_hw_imm(t, uint64_t(imm));
+            switch (op_ext)
+            {
+            case 0: emit_add_rr(d, t); break;
+            case 5: emit_sub_rr(d, t); break;
+            case 4: emit_and_rr(d, t); break;
+            case 1: emit_or_rr (d, t); break;
+            case 6: emit_xor_rr(d, t); break;
+            default:
+                record(x86_error, "emit_alu_imm bad ext %u", op_ext);
+                break;
+            }
+            return;
+        }
+        int32_t i32 = int32_t(imm);
+        if (i32 == int8_t(i32))
+        {
+            orex(1, HW_NONE, d, 0x83);
+            emit8(byte(0xc0 | (op_ext << 3) | reg_value(d)));
+            emit8(byte(int8_t(i32)));
+        }
+        else
+        {
+            orex(1, HW_NONE, d, 0x81);
+            emit8(byte(0xc0 | (op_ext << 3) | reg_value(d)));
+            emit32le(uint32_t(i32));
+        }
     }
 
-    void emit_shift_imm8(hwreg_t dst, byte ext, byte amt)
+    void emit_imul_imm(x86reg_t d, int64_t imm)
+    // ------------------------------------------------------------------------
+    //   Emit imul d, d, imm (6B/69); large imm via scratch + imul_rr
+    // ------------------------------------------------------------------------
+    {
+        if (imm != int32_t(imm))
+        {
+            x86reg_t t = d == HW_RCX ? HW_RAX : HW_RCX;
+            load_hw_imm(t, uint64_t(imm));
+            emit_imul_rr(d, t);
+            return;
+        }
+        int32_t i32 = int32_t(imm);
+        if (i32 == int8_t(i32))
+        {
+            orex(1, d, d, 0x6b);
+            emit8(modrm_rr(d, d));
+            emit8(byte(int8_t(i32)));
+        }
+        else
+        {
+            orex(1, d, d, 0x69);
+            emit8(modrm_rr(d, d));
+            emit32le(uint32_t(i32));
+        }
+    }
+
+    void emit_shift_rr(x86reg_t d, x86reg_t s, byte ext)
+    // ------------------------------------------------------------------------
+    //   Emit d = d shift s (D3 /ext). Count must be in CL; move/xchg if needed.
+    // ------------------------------------------------------------------------
+    {
+        if (s != HW_RCX)
+        {
+            if (d == HW_RCX)
+            {
+                // rcx=value, s=count → xchg, shift s by cl, xchg back
+                emit_xchg_rr(HW_RCX, s);
+                orex(1, HW_NONE, s, 0xd3);
+                emit8(ext | reg_value(s));
+                emit_xchg_rr(HW_RCX, s);
+                return;
+            }
+            emit_mov_rr(HW_RCX, s);
+        }
+        orex(1, HW_NONE, d, 0xd3);
+        emit8(ext | reg_value(d));
+    }
+
+    void emit_shift_imm8(x86reg_t dst, byte ext, byte amt)
     // ------------------------------------------------------------------------
     //   Emit c1 /ext dst, imm8 (shl/sar/shr by immediate); amt==1 uses d1
     // ------------------------------------------------------------------------
@@ -398,50 +583,54 @@ protected:
         amt = byte(amt & mask);
         if (amt == 1)
         {
-            orex(1, 0, dst, 0xd1);
+            orex(1, HW_NONE, dst, 0xd1);
             emit8(ext | reg_value(dst));
             return;
         }
-        orex(1, 0, dst, 0xc1);
+        orex(1, HW_NONE, dst, 0xc1);
         emit8(ext | reg_value(dst));
         emit8(amt);
     }
 
-    void emit_jcc_rel32(byte cc)
+    hwcode_t emit_jcc_rel32(byte cc)
     // ------------------------------------------------------------------------
     //   Emit 0f cc rel32 and return the offset patch site
     // ------------------------------------------------------------------------
     {
         emit8(0x0f);
         emit8(cc);
-        emit32le(branch_offset());
+        emit32le(0);
+        return cursor() - 4;
     }
 
-    void emit_jcc_rel8(byte cc)
+    hwcode_t emit_jcc_rel8(byte cc)
     // ------------------------------------------------------------------------
     //   Emit 7x rel8 (cc is the near form 0x8x; short is cc-0x10)
     // ------------------------------------------------------------------------
     {
         emit8(byte(cc - 0x10));
-        emit8(branch_offset8());
+        emit8(0);
+        return cursor() - 1;
     }
 
-    void emit_near_jmp_rel32()
+    hwcode_t emit_near_jmp_rel32()
     // ------------------------------------------------------------------------
     //   Emit jmp rel32 (e9) and return the disp32 patch site
     // ------------------------------------------------------------------------
     {
         emit8(0xe9);
-        emit32le(branch_offset());
+        emit32le(0);
+        return cursor() - 4;
     }
 
-    void emit_jmp_rel8()
+    hwcode_t emit_jmp_rel8()
     // ------------------------------------------------------------------------
     //   Emit jmp rel8 (eb) and return the disp8 patch site
     // ------------------------------------------------------------------------
     {
         emit8(0xeb);
-        emit8(branch_offset8());
+        emit8(0);
+        return cursor() - 1;
     }
 
     void emit_jmp_to(hwcode_t target)
@@ -489,7 +678,7 @@ protected:
     //   Emit cmp rax, imm32
     // ------------------------------------------------------------------------
     {
-        orex(1, HW_RAX, 0, 0x3d);
+        orex(1, HW_RAX, HW_NONE, 0x3d);
         emit32le(imm);
     }
 
@@ -498,7 +687,7 @@ protected:
     //   Emit ALU rax, imm32 (op = 05 add, 2d sub, 25 and, 0d or, 35 xor)
     // ------------------------------------------------------------------------
     {
-        orex(1, HW_RAX, 0, op);
+        orex(1, HW_RAX, HW_NONE, op);
         emit32le(imm);
     }
 
@@ -507,7 +696,7 @@ protected:
     //   Emit imul rax, rax, imm32
     // ------------------------------------------------------------------------
     {
-        orex(1, HW_RAX, 0, 0x69);
+        orex(1, HW_RAX, HW_NONE, 0x69);
         emit8(modrm_rr(HW_RAX, HW_RAX));
         emit32le(imm);
     }
@@ -614,26 +803,44 @@ protected:
         }
     }
 
-    void emit_sse_rex_r(hwreg_t xmm)
+    void emit_sse_rex_r(x86reg_t xmm)
     // ------------------------------------------------------------------------
-    //   REX prefix for SSE xmm load/store with [rsp+frame+disp] addressing
+    //   REX prefix for SSE xmm load/store with [rbp+disp] addressing
     // ------------------------------------------------------------------------
     {
         if (ptr64())
-            emit8(0x49 | (rex_r(xmm) ? 4 : 0));
+            emit8(0x40 | (rex_r(xmm) ? 4 : 0) | (rex_b(HW_FRAME) ? 1 : 0));
         else if (rex_r(xmm))
             emit8(0x40 | 4);
     }
 
-    void emit_sse_scalar_op(byte prefix, byte op, byte modrm)
+    void emit_sse_scalar_op(byte prefix, byte op, x86reg_t d, x86reg_t s)
     // ------------------------------------------------------------------------
-    //   Emit SSE scalar op xmm0, xmm1 (prefix 0xf3=float, 0xf2=double)
+    //   Emit SSE scalar op d, s (prefix 0xf3=float, 0xf2=double)
     // ------------------------------------------------------------------------
     {
         emit8(prefix);
+        if (rex_r(d) || rex_b(s))
+            emit8(byte(0x40 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
         emit8(0x0f);
         emit8(op);
-        emit8(modrm);
+        emit8(modrm_rr(d, s));
+    }
+
+    void emit_load_xmm_imm(x86reg_t xmm, uint64_t bits, bool is_double)
+    // ------------------------------------------------------------------------
+    //   Emit a movd xmm, r32 or movq xmm, r64 to load a float/double constant
+    // ------------------------------------------------------------------------
+    {
+        load_hw_imm(HW_RAX, bits);
+        emit8(0x66);         // movd/movq xmm, rax
+        if (is_double && ptr64())
+            emit8(0x48 | (rex_r(xmm) ? 4 : 0));  // REX.W + R
+        else if (rex_r(xmm))
+            emit8(0x40 | 4);
+        emit8(0x0f);
+        emit8(0x6e);
+        emit8(byte(0xc0 | (reg_value(xmm) << 3) | reg_value(HW_RAX)));
     }
 
     void emit_sub_rsp_imm8(byte imm)
@@ -710,8 +917,7 @@ protected:
     //   Signed divide edx:eax by rcx/ecx
     // ------------------------------------------------------------------------
     {
-        orex(1, 0, HW_RCX, 0xf7);
-        emit8(0xf9);
+        emit_idiv_r(HW_RCX);
     }
 
     void emit_div_rcx()
@@ -719,18 +925,7 @@ protected:
     //   Unsigned divide edx:eax by rcx/ecx
     // ------------------------------------------------------------------------
     {
-        orex(1, 0, HW_RCX, 0xf7);
-        emit8(0xf1);
-    }
-
-    void emit_imul_rax_rcx()
-    // ------------------------------------------------------------------------
-    //   Emit imul rax, rcx
-    // ------------------------------------------------------------------------
-    {
-        orex(1, HW_RAX, HW_RCX, 0x0f);
-        emit8(0xaf);
-        emit8(modrm_rr(HW_RAX, HW_RCX));
+        emit_div_r(HW_RCX);
     }
 
     void emit_mov_frame_rax()
@@ -752,7 +947,7 @@ protected:
             emit_push_reg(HW_RAX);
     }
 
-    void emit_push_reg(hwreg_t r)
+    void emit_push_reg(x86reg_t r)
     // ------------------------------------------------------------------------
     //   Push a general-purpose register (cdecl / SysV argument)
     // ------------------------------------------------------------------------
@@ -762,7 +957,7 @@ protected:
         emit8(byte(0x50 + reg_value(r)));
     }
 
-    void emit_pop_reg(hwreg_t r)
+    void emit_pop_reg(x86reg_t r)
     // ------------------------------------------------------------------------
     //   Pop into a general-purpose register
     // ------------------------------------------------------------------------
@@ -772,7 +967,7 @@ protected:
         emit8(byte(0x58 + reg_value(r)));
     }
 
-    void emit_set_arg0_r(hwreg_t r)
+    void emit_set_arg0_r(x86reg_t r)
     // ------------------------------------------------------------------------
     //   Pass register r as first C helper argument
     // ------------------------------------------------------------------------
@@ -820,13 +1015,13 @@ protected:
             emit_add_esp_imm(byte(argc * pointer_size()));
     }
 
-    void emit_btx_imm8(hwreg_t r, byte ext, byte bit)
+    void emit_btx_imm8(x86reg_t r, byte ext, byte bit)
     // ------------------------------------------------------------------------
     //   Emit 0f ba /ext r, imm8 (BT/BTS/BTR/BTC); sets CF from the bit
     // ------------------------------------------------------------------------
     {
         assert (bit < (ptr64() ? 64 : 32));
-        orex(1, 0, r, 0x0f);
+        orex(1, HW_NONE, r, 0x0f);
         emit8(0xba);
         emit8(byte(0xc0 | (ext << 3) | reg_value(r)));
         emit8(bit);
@@ -838,7 +1033,7 @@ protected:
     // ------------------------------------------------------------------------
     {
         assert (bit < (ptr64() ? 64 : 32));
-        orex(1, 0, HW_FRAME, 0x0f);
+        orex(1, HW_NONE, HW_FRAME, 0x0f);
         emit8(0xba);
         emit_modrm_frame(ext, offs);
         emit8(bit);
@@ -884,73 +1079,66 @@ protected:
     }
 
     byte            setcc_from_rel(cstring rel);
-    void            patch_pc_rel(size_t disp_at, size_t target);
-    void            orex(int ll, int r, int x, byte c);
-    void            emit_rex_modrm(int ll, int r, int x, int b, byte op);
-    void            load_hw_imm(hwreg_t r, uint64_t imm);
-    void            load_local_frame(byte n, hwreg_t r);
-    void            store_local_frame(hwreg_t r, byte n);
-    void            load_local(byte n, hwreg_t r);
-    void            load_float_local(byte n, hwreg_t xmm);
-    void            store_float_local(byte n, hwreg_t xmm);
-    void            load_double_local(byte n, hwreg_t xmm);
-    void            store_double_local(byte n, hwreg_t xmm);
+    void            orex(int ll, x86reg_t r, x86reg_t x, byte c);
+    void            emit_rex_modrm(int l,
+                                   x86reg_t r, x86reg_t x, x86reg_t b, byte op);
+    void            load_hw_imm(x86reg_t r, uint64_t imm);
+    void            load_local(local_t loc, x86reg_t r);
+    void            store_local(x86reg_t r, local_t loc);
+    x864reg_t       load_fp(local_t loc, byte sz);
+    void            store_fp(local_t loc, x86reg_t reg);
+    void            mov_local(local_t d, local_t s);
+    void            swap_locals(local_t d, local_t s);
     void            set_pred_cmp(byte p, byte cc);
-    void            store_local(hwreg_t r, byte n);
-    void            mov_local(byte d, byte s);
-    void            swap_locals(byte d, byte s);
-    void            store_imm(byte d, value_t v);
-    void            store_float(byte d, float v);
-    void            store_double(byte d, double v);
-    void            binop_local(byte d, byte s, cstring op);
-    void            binop_imm(byte d, value_t v, cstring op);
-    void            cmp_local(byte p, byte d, byte s, cstring rel);
-    void            cmp_imm(byte p, byte d, value_t v, cstring rel);
-    void            cmp_uimm(byte p, byte d, uvalue_t v, cstring rel);
+    void            store_imm(local_t d, value_t v);
+    void            store_float(local_t d, float v);
+    void            store_double(local_t d, double v);
+    void            binop_local(local_t d, local_t s, op_t op, byte fpsz=0);
+    void            binop_imm(local_t d, value_t v, op_t op);
+    void            cmp_local(byte p, local_t d, local_t s, cstring rel);
+    void            cmp_imm(byte p, local_t d, value_t v, cstring rel);
+    void            cmp_uimm(byte p, local_t d, uvalue_t v, cstring rel);
     void            set_pred(byte p, bool on);
-    void            cond_mov_local(byte p, byte d, byte s);
-    void            select_local(byte p, byte d, byte s, byte x);
-    void            neg_local(byte d);
-    void            not_local(byte d);
-    void            incr_local(byte d);
-    void            decr_local(byte d);
-    void            sext_local(byte d, byte w);
-    void            zext_local(byte d, byte w);
-    void            sext_reg(hwreg_t r, byte w);
+    void            cond_mov_local(byte p, local_t d, local_t s);
+    void            select_local(byte p, local_t d, local_t s, byte x);
+    void            neg_local(local_t d);
+    void            not_local(local_t d);
+    void            incr_local(local_t d);
+    void            decr_local(local_t d);
+    void            sext_local(local_t d, byte w);
+    void            zext_local(local_t d, byte w);
+    void            sext_reg(x86reg_t r, byte w);
     void            load_signext_mem(byte w);
-    void            store_mem(byte d, byte s, size_t sz);
-    void            load_mem(byte d, byte s, size_t sz);
-    void            store_mem_off(byte d, byte s, value_t o, size_t sz);
-    void            load_mem_off(byte d, byte s, value_t o, size_t sz);
-    void            load_signext(byte d, byte s, byte w);
-    void            load_signext_off(byte d, byte s, byte w, value_t o);
-    void            frame_addr(byte d, byte s);
+    void            store_mem(local_t d, local_t s, size_t sz);
+    void            load_mem(local_t d, local_t s, size_t sz);
+    void            store_mem_off(local_t d, local_t s, value_t o, size_t sz);
+    void            load_mem_off(local_t d, local_t s, value_t o, size_t sz);
+    void            load_signext(local_t d, local_t s, byte w);
+    void            load_signext_off(local_t d, local_t s, byte w, value_t o);
+    void            frame_addr(local_t d, local_t s);
     void            bra_offset(broff_t b);
     void            bra_pred(byte p, broff_t b, bool sense);
-    void            bra_zero(byte s, broff_t b, bool eq);
-    void            bra_signed(byte s, broff_t b, byte cc);
-    void            dbra_local(byte d, broff_t b);
+    void            bra_zero(local_t s, broff_t b, bool eq);
+    void            bra_signed(local_t s, broff_t b, byte cc);
+    void            dbra_local(local_t d, broff_t b);
     void            jmp_tok(tok_t t);
     void            call_tok(tok_t t);
-    void            ijmp_local(byte s);
-    void            icall_local(byte s);
+    void            ijmp_local(local_t s);
+    void            icall_local(local_t s);
     void            push_pc();
-    void            load_pc(byte d);
-    void            load_pca(byte d, broff_t b);
-    void            get_arg(byte d, byte s);
-    void            set_arg(byte d, byte s);
-    void            push_local(byte s);
-    void            pop_local(byte d);
+    void            load_pc(local_t d);
+    void            load_pca(local_t d, broff_t b);
+    void            get_arg(local_t d, local_t s);
+    void            set_arg(local_t d, local_t s);
+    void            push_local(local_t s);
+    void            pop_local(local_t d);
     void            push_flags();
     void            pop_flags();
-    void            store_global(byte d, byte s);
-    void            load_global(byte d, byte s);
-    void            reload_frame_reg();
-    void            reload_flags_reg();
-    void            reload_rt_regs();
+    void            store_global(local_t d, local_t s);
+    void            load_global(local_t d, local_t s);
     void            br_via_ip();
-    virtual void    do_prologue();
-    virtual void    do_ret();
+    virtual void    prologue();
+    virtual void    epilogue();
     void            call_ptr(void (*fn)());
     template <typename T, typename ...U>
     void            call_ptr(T (*fn)(U...)) { return call(((void (*)()) fn)); }
@@ -958,7 +1146,11 @@ protected:
     void            emit_runtime_call(cstring fn);
     void            emit_runtime_call(cstring fn, tok_t a);
     void            emit_runtime_call(cstring fn, byte a);
-    int             local_disp(byte n) const;
+    int             local_disp(int n) const;
+
+protected:
+    using relocations_t = std::vector<hwcode_t>;
+    relocations_t relocations;
 };
 
 #endif // X86_H

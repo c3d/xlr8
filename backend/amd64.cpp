@@ -30,10 +30,10 @@
 #include "amd64.h"
 
 
-RECORDER(amd64,            256, "X86-64/AMD64 family code generation helpers");
-RECORDER(amd64_ops,        256, "X86-64/AMD64 family opcode emission");
-RECORDER(amd64_error,       64, "X86-64/AMD64 family code generation errors");
-RECORDER(amd64_warning,     64, "X86-64/AMD64 family code generation warnings");
+RECORDER(amd64,             32, "X86-64/AMD64 family code generation helpers");
+RECORDER(amd64_ops,         32, "X86-64/AMD64 family opcode emission");
+RECORDER(amd64_error,       16, "X86-64/AMD64 family code generation errors");
+RECORDER(amd64_warning,     16, "X86-64/AMD64 family code generation warnings");
 
 
 
@@ -56,44 +56,75 @@ cstring amd64::machine_defs() const override
 }
 
 
-void amd64::begin_translation()
+amd64::reginfo amd64::register_definition(hwreg_t reg) const
 // ----------------------------------------------------------------------------
-//   Save callee-saved regs, prime frame/flags and registers for locals
+//   Return the register specification flags for amd64
 // ----------------------------------------------------------------------------
 {
-    record(amd64, "begin_translation()");
-    backend::begin_translation();
-    do_prologue();
+    static const reginfo amd64_registers[x86::HW_COUNT] =
+    {
+        {    "rax",                      0 },
+        {    "rcx",                      0 },
+        {    "rdx",                      0 },
+        {    "rbx", RSPEC_CALL | RSPEC_INT },
+        {    "rsp",                      0 },
+        {    "rbp",                      0 },
+        {    "rsi",                      0 },
+        {    "rdi",              RSPEC_INT },
+        {     "r8",              RSPEC_INT },
+        {     "r9",              RSPEC_INT },
+        {    "r10",              RSPEC_INT },
+        {    "r11", RSPEC_CALL | RSPEC_INT },
+        {    "r12",              RSPEC_INT },
+        {    "r13",              RSPEC_INT },
+        {    "r14",              RSPEC_INT },
+        {    "r15", RSPEC_CALL | RSPEC_INT },
+
+        {  "xmm0d",              RSPEC_DBL },
+        {  "xmm1d",              RSPEC_DBL },
+        {  "xmm2d",              RSPEC_DBL },
+        {  "xmm3d",              RSPEC_DBL },
+        {  "xmm4d",              RSPEC_DBL },
+        {  "xmm5d",              RSPEC_DBL },
+        {  "xmm6d",              RSPEC_DBL },
+        {  "xmm7d",              RSPEC_DBL },
+        {  "xmm8d",              RSPEC_DBL },
+        {  "xmm9d",              RSPEC_DBL },
+        { "xmm10d",              RSPEC_DBL },
+        { "xmm11d",              RSPEC_DBL },
+        { "xmm12d",              RSPEC_DBL },
+        { "xmm13d",              RSPEC_DBL },
+        { "xmm14d",              RSPEC_DBL },
+        { "xmm15d",              RSPEC_DBL },
+
+        {  "xmm0f",              RSPEC_FLT },
+        {  "xmm1f",              RSPEC_FLT },
+        {  "xmm2f",              RSPEC_FLT },
+        {  "xmm3f",              RSPEC_FLT },
+        {  "xmm4f",              RSPEC_FLT },
+        {  "xmm5f",              RSPEC_FLT },
+        {  "xmm6f",              RSPEC_FLT },
+        {  "xmm7f",              RSPEC_FLT },
+        {  "xmm8f",              RSPEC_FLT },
+        {  "xmm9f",              RSPEC_FLT },
+        { "xmm10f",              RSPEC_FLT },
+        { "xmm11f",              RSPEC_FLT },
+        { "xmm12f",              RSPEC_FLT },
+        { "xmm13f",              RSPEC_FLT },
+        { "xmm14f",              RSPEC_FLT },
+        { "xmm15f",              RSPEC_FLT },
+    };
+
+    return reg < HW_COUNT ? amd64_registers[reg] : reginfo{ "INVALID", 0 };
 }
 
 
-void amd64::finish_translation()
-// ----------------------------------------------------------------------------
-//   Restore stack and callee-saved registers, then return
-// ----------------------------------------------------------------------------
-{
-    record(amd64, "finish_translation()");
-    do_ret();
-    backend::finish_translation();
-}
-
-
-void amd64::syscall(void (*target)())
-// ----------------------------------------------------------------------------
-//   Implement a syscall to the runtime
-// ----------------------------------------------------------------------------
-{
-    record(amd64, "syscall(%p)", target);
-    call_ptr((void *) target);
-}
-
-
-void amd64::do_prologue()
+void amd64::prologue()
 // ----------------------------------------------------------------------------
 //   Emit standard function prologue
 // ----------------------------------------------------------------------------
 {
-    record(amd64, "do_prologue");
+    record(amd64, "prologue");
 
     // SysV and Win64: rbx,rbp,r12,r15 are callee-saved.  r12/r15 hold
     // frame/flags for the whole translation
@@ -104,21 +135,15 @@ void amd64::do_prologue()
 }
 
 
-void amd64::do_ret()
+void amd64::epilogue()
 // ----------------------------------------------------------------------------
 //   Emit epilogue (restore callee-saved) and return
 // ----------------------------------------------------------------------------
 {
-    record(amd64, "do_ret()");
+    record(amd64, "epilogue()");
     emit_pop_reg(HW_RBP);
     emit_pop_reg(HW_R15);
     emit_pop_reg(HW_R12);
     emit_pop_reg(HW_RBX);
     emit_insn_ret();
 }
-
-
-
-#define EMIT(op)        void amd64::emit_##op(emit_args &e)
-
-#include "x86-emit.cpp"

@@ -43,14 +43,13 @@ void            call(void (*target)())                          override;
 void            syscall(void (*target)())                       override;
 
 // Relocations
-void            relocate(void *base)                            override;
+uint            relocate(void *base)                            override;
 
 // Hardware registers
 bool            move(hwreg_t to, hwreg_t from)                  override;
-bool            load(hwreg_t, local_t r)                        override;
-bool            store(local_t r, hwreg_t)                       override;
-hwspec_t        register_specification(hwreg_t)                 override;
-cstring         register_name(hwreg_t)                          override;
+bool            load(hwreg_t hw, local_t loc)                   override;
+bool            store(local_t loc, hwreg_t hw)                  override;
+reginfo         register_definition(hwreg_t hw) const           override;
 
 // Code generation interface for opcodes
 #define OP(op, code, decl)                                              \
@@ -63,4 +62,4 @@ virtual void    emit_sys_##op(emit_args &args)                  override;
 #include "native.tbl"
 
 // Code generation for user-defined / unimplemented opcode
-void            emit_user(emit_args &args)              override;
+void            emit_user(emit_args &args)                      override;

@@ -298,7 +298,7 @@ void arm::finish_translation()
 // ----------------------------------------------------------------------------
 {
     record(arm, "finish_translation()");
-    do_ret();
+    epilogue();
 }
 
 
@@ -1292,12 +1292,12 @@ void arm::load_global(byte d, byte s)
 }
 
 
-void arm::do_ret()
+void arm::epilogue()
 // ----------------------------------------------------------------------------
 //   Emit return instruction
 // ----------------------------------------------------------------------------
 {
-    record(arm, "do_ret()");
+    record(arm, "epilogue()");
     emit32le(add_imm(13, 13, 4));
     emit32le(pop_callee_pc());
 }

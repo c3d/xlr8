@@ -65,7 +65,7 @@ EMIT(end)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_end");
-    translating = false;
+    epilogue();
 }
 
 
@@ -144,7 +144,7 @@ EMIT(ccopy)
 //   Emit bytecode for the ccopy opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_ccopy(%u, %u, %u)", e.pred, e.dst, e.src);
+    record(x86_ops, "emit_ccopy %u? %u=%u)", e.pred, e.dst, e.src);
     cond_mov_local(e.pred, e.dst, e.src);
 }
 
@@ -154,7 +154,8 @@ EMIT(select)
 //   Emit bytecode for the select opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_select(%u, %u, %u, %u)", e.pred, e.dst, e.src, e.xtra);
+    record(x86_ops, "emit_select %u = %u ? %u : %u",
+           e.dst, e.pred, e.src, e.xtra);
     select_local(e.pred, e.dst, e.src, e.xtra);
 }
 
@@ -671,7 +672,7 @@ EMIT(add)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_add(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "add");
+    binop_local(e.dst, e.src, op_add);
 }
 
 
@@ -681,7 +682,7 @@ EMIT(sub)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_sub(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "sub");
+    binop_local(e.dst, e.src, op_sub);
 }
 
 
@@ -691,7 +692,7 @@ EMIT(mul)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_mul(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "imul");
+    binop_local(e.dst, e.src, op_mul);
 }
 
 
@@ -701,7 +702,7 @@ EMIT(umul)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_umul(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "imul");
+    binop_local(e.dst, e.src, op_umul);
 }
 
 
@@ -711,7 +712,7 @@ EMIT(div)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_div(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "idiv");
+    binop_local(e.dst, e.src, op_div);
 }
 
 
@@ -721,7 +722,7 @@ EMIT(udiv)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_udiv(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "div");
+    binop_local(e.dst, e.src, op_udiv);
 }
 
 
@@ -731,7 +732,7 @@ EMIT(mod)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_mod(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "idiv_mod");
+    binop_local(e.dst, e.src, op_mod);
 }
 
 
@@ -741,7 +742,7 @@ EMIT(umod)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_umod(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "div_mod");
+    binop_local(e.dst, e.src, op_umod);
 }
 
 
@@ -751,7 +752,7 @@ EMIT(and)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_and(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "and");
+    binop_local(e.dst, e.src, op_and);
 }
 
 
@@ -761,7 +762,7 @@ EMIT(or)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_or(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "or");
+    binop_local(e.dst, e.src, op_or);
 }
 
 
@@ -771,7 +772,7 @@ EMIT(xor)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_xor(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "xor");
+    binop_local(e.dst, e.src, op_xor);
 }
 
 
@@ -781,7 +782,7 @@ EMIT(shl)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_shl(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "shl");
+    binop_local(e.dst, e.src, op_shl);
 }
 
 
@@ -791,7 +792,7 @@ EMIT(shr)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_shr(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "sar");
+    binop_local(e.dst, e.src, op_shr);
 }
 
 
@@ -801,7 +802,7 @@ EMIT(ushr)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_ushr(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "shr");
+    binop_local(e.dst, e.src, op_ushr);
 }
 
 
@@ -851,7 +852,7 @@ EMIT(addi)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_addi(%u, %lld)", e.dst, e.kint);
-    binop_imm(e.dst, e.kint, "add");
+    binop_imm(e.dst, e.kint, op_addi);
 }
 
 
@@ -861,7 +862,7 @@ EMIT(addu)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_addu(%u, %llu)", e.dst, e.knat);
-    binop_imm(e.dst, e.knat, "add");
+    binop_imm(e.dst, e.knat, op_addu);
 }
 
 
@@ -871,7 +872,7 @@ EMIT(subi)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_subi(%u, %lld)", e.dst, e.kint);
-    binop_imm(e.dst, e.kint, "sub");
+    binop_imm(e.dst, e.kint, op_subi);
 }
 
 
@@ -881,7 +882,7 @@ EMIT(subu)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_subu(%u, %llu)", e.dst, e.knat);
-    binop_imm(e.dst, e.knat, "sub");
+    binop_imm(e.dst, e.knat, op_subu);
 }
 
 
@@ -891,7 +892,7 @@ EMIT(muli)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_muli(%u, %lld)", e.dst, e.kint);
-    binop_imm(e.dst, e.kint, "imul");
+    binop_imm(e.dst, e.kint, op_muli);
 }
 
 
@@ -901,7 +902,7 @@ EMIT(mulu)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_mulu(%u, %llu)", e.dst, e.knat);
-    binop_imm(e.dst, e.knat, "imul");
+    binop_imm(e.dst, e.knat, op_mulu);
 }
 
 
@@ -911,7 +912,7 @@ EMIT(divi)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_divi(%u, %lld)", e.dst, e.kint);
-    binop_imm(e.dst, e.kint, "idiv_imm");
+    binop_imm(e.dst, e.kint, op_divi);
 }
 
 
@@ -921,7 +922,7 @@ EMIT(divu)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_divu(%u, %llu)", e.dst, e.knat);
-    binop_imm(e.dst, e.knat, "div_imm");
+    binop_imm(e.dst, e.knat, op_divu);
 }
 
 
@@ -931,7 +932,7 @@ EMIT(modi)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_modi(%u, %lld)", e.dst, e.kint);
-    binop_imm(e.dst, e.kint, "idiv_mod_imm");
+    binop_imm(e.dst, e.kint, op_modi);
 }
 
 
@@ -941,7 +942,7 @@ EMIT(modu)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_modu(%u, %llu)", e.dst, e.knat);
-    binop_imm(e.dst, e.knat, "div_mod_imm");
+    binop_imm(e.dst, e.knat, op_modu);
 }
 
 
@@ -951,7 +952,7 @@ EMIT(andu)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_andu(%u, %llu)", e.dst, e.knat);
-    binop_imm(e.dst, e.knat, "and");
+    binop_imm(e.dst, e.knat, op_andu);
 }
 
 
@@ -961,7 +962,7 @@ EMIT(oru)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_oru(%u, %llu)", e.dst, e.knat);
-    binop_imm(e.dst, e.knat, "or");
+    binop_imm(e.dst, e.knat, op_oru);
 }
 
 
@@ -971,7 +972,7 @@ EMIT(xoru)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_xoru(%u, %llu)", e.dst, e.knat);
-    binop_imm(e.dst, e.knat, "xor");
+    binop_imm(e.dst, e.knat, op_xoru);
 }
 
 
@@ -981,7 +982,7 @@ EMIT(shlu)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_shlu(%u, %u)", e.dst, e.kshift);
-    binop_imm(e.dst, e.kshift, "shl_imm");
+    binop_imm(e.dst, e.kshift, op_shlu);
 }
 
 
@@ -991,7 +992,7 @@ EMIT(shru)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_shru(%u, %u)", e.dst, e.kshift);
-    binop_imm(e.dst, e.kshift, "sar_imm");
+    binop_imm(e.dst, e.kshift, op_shru);
 }
 
 
@@ -1001,7 +1002,7 @@ EMIT(ushru)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_ushru(%u, %u)", e.dst, e.kshift);
-    binop_imm(e.dst, e.kshift, "shr_imm");
+    binop_imm(e.dst, e.kshift, op_ushru);
 }
 
 
@@ -1221,7 +1222,7 @@ EMIT(fadd)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_fadd(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "fadd");
+    binop_local(e.dst, e.src, op_fadd);
 }
 
 
@@ -1231,7 +1232,7 @@ EMIT(fsub)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_fsub(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "fsub");
+    binop_local(e.dst, e.src, op_fsub);
 }
 
 
@@ -1241,7 +1242,7 @@ EMIT(fmul)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_fmul(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "fmul");
+    binop_local(e.dst, e.src, op_fmul);
 }
 
 
@@ -1251,7 +1252,7 @@ EMIT(fdiv)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_fdiv(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "fdiv");
+    binop_local(e.dst, e.src, op_fdiv);
 }
 
 
@@ -1261,7 +1262,7 @@ EMIT(dadd)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_dadd(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "dadd");
+    binop_local(e.dst, e.src, op_dadd);
 }
 
 
@@ -1271,7 +1272,7 @@ EMIT(dsub)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_dsub(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "dsub");
+    binop_local(e.dst, e.src, op_dsub);
 }
 
 
@@ -1281,7 +1282,7 @@ EMIT(dmul)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_dmul(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "dmul");
+    binop_local(e.dst, e.src, op_dmul);
 }
 
 
@@ -1291,7 +1292,7 @@ EMIT(ddiv)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_ddiv(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "ddiv");
+    binop_local(e.dst, e.src, op_ddiv);
 }
 
 

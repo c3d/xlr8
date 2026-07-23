@@ -50,7 +50,7 @@
 //    Frame pointer     edi (HW_RDI)     rt.frame, callee-saved (avoid ebx PIC/GOT)
 //    Flags/predicates  esi (HW_RSI)     rt.flags, callee-saved
 //    Scratch           ecx (HW_RCX)     general temp
-//    Prologue saves    ebx,esi,edi,ebp  (SysV callee-saved); restored in do_ret
+//    Prologue saves    ebx,esi,edi,ebp  (SysV callee-saved); restored in epilogue
 //
 //  Bytecode PC is the translator cursor, not a fixed HW register.  Runtime is
 //  reached via xlr8_get_runtime() in spill/sys paths.
@@ -58,6 +58,12 @@
 //  ===========================================================================
 
 #include "x86.h"
+
+
+RECORDER_DECLARE(amd64);
+RECORDER_DECLARE(amd64_ops);
+RECORDER_DECLARE(amd64_error);
+RECORDER_DECLARE(amd64_warning);
 
 
 struct amd64 : x86
@@ -69,15 +75,13 @@ struct amd64 : x86
 
     amd64(arch_t arch): x86(arch) { }
 
-protected:
-    void            do_prologue()       override;
-    void            do_ret()            override;
-};
+    cstring     machine_defs() const                            override;
+    reginfo     register_definition(hwreg_t reg) const          override;
 
-RECORDER_DECLARE(amd64);
-RECORDER_DECLARE(amd64_ops);
-RECORDER_DECLARE(amd64_error);
-RECORDER_DECLARE(amd64_warning);
+protected:
+    void        prologue()                                      override;
+    void        epilogue()                                      override;
+};
 
 
 #endif // AMD64_H

@@ -570,7 +570,7 @@ protected:
     void pop_flags();
     void store_global(byte d, byte s);
     void load_global(byte d, byte s);
-    void do_ret();
+    void epilogue();
     void trap(cstring msg);
     void rtcall(cstring fn);
     void rtcall(cstring fn, tok_t a);

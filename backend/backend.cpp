@@ -160,13 +160,15 @@ bool backend::set_options(cstring options)
 //
 // ============================================================================
 
-void backend::emit8(byte c)
+hwcode_t backend::emit8(byte c)
 // ----------------------------------------------------------------------------
 //   Emit one byte into the current text section
 // ----------------------------------------------------------------------------
 {
-    record(backend_emit, "emit8(0x%02X)", c);
+    record(backend_emit, "emit8 0x%02X", c);
+    hwcode_t pos = text_section.size();
     text_section.append8(c);
+    return pos;
 }
 
 
@@ -175,7 +177,7 @@ void backend::emit32le(uint32_t c)
 //   Emit a 32-bit little-endian value
 // ----------------------------------------------------------------------------
 {
-    record(backend_emit, "emit32le(0x%08llX)", c);
+    record(backend_emit, "emit32le 0x%08llX", c);
     text_section.append32le(c);
 }
 
@@ -309,7 +311,7 @@ static const cstring opcode_name_table[] =
 };
 
 
-static inline cstring opcode_name(tok_t op)
+cstring backend::opcode_name(op_t op)
 // ----------------------------------------------------------------------------
 //   Return the name of the given opcode
 // ----------------------------------------------------------------------------
@@ -560,6 +562,17 @@ hwreg_t backend::local(local_t loc, hwspec_t spec)
     record(backend_error,
            "Unable to find register for loc %u with spec 0x%X", loc, spec);
     return NO_REGISTER;
+}
+
+
+bool backend::saved(local_t loc, hwreg_t reg)
+// ----------------------------------------------------------------------------
+//   After a store, record where we saved a given register
+// ----------------------------------------------------------------------------
+{
+    reg_local[reg] = loc;
+    local_reg[loc] = reg;
+    return true;
 }
 
 

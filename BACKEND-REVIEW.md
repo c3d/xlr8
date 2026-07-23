@@ -639,7 +639,7 @@ matching arm64/x86.
 
 ### 6.9 [P1] ~~Missing callee-saved register save/restore~~ ✅ FIXED
 
-**File**: `arm.cpp` (`begin_translation` / `do_ret`), `arm.h` (`push_callee_lr` /
+**File**: `arm.cpp` (`begin_translation` / `epilogue`), `arm.h` (`push_callee_lr` /
 `pop_callee_pc`)
 
 Was: prologue only saved LR.

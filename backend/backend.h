@@ -88,6 +88,34 @@ struct backend
 #  endif
     };
 
+    enum hwflag_t : hwspec_t
+    // ------------------------------------------------------------------------
+    //   Specification flags for register selection
+    // ------------------------------------------------------------------------
+    {
+        RSPEC_TEMP = 0,       // Temporary register, no persistent alloc
+        RSPEC_I8   = 1 << 0,  // Can store   signed  8-bit value
+        RSPEC_I16  = 1 << 1,  // Can store   signed 16-bit value
+        RSPEC_I32  = 1 << 2,  // Can store   signed 32-bit value
+        RSPEC_I64  = 1 << 3,  // Can store   signed 64-bit value
+        RSPEC_U8   = 1 << 4,  // Can store unsigned  8-bit value
+        RSPEC_U16  = 1 << 5,  // Can store unsigned 16-bit value
+        RSPEC_U32  = 1 << 6,  // Can store unsigned 32-bit value
+        RSPEC_U64  = 1 << 7,  // Can store unsigned 64-bit value
+        RSPEC_PTR  = 1 << 8,  // Can store addresses
+        RSPEC_FLT  = 1 << 9,  // Can store 32-bit FP
+        RSPEC_DBL  = 1 << 10, // Can store 64-bit FP
+        RSPEC_BRA  = 1 << 11, // Can store a branch target
+        RSPEC_CMP  = 1 << 12, // Can store a comparision / predicate
+        RSPEC_CALL = 1 << 13, // Safe across calls
+
+        RSPEC_NEG  = RSPEC_I8  | RSPEC_I16 | RSPEC_I32 | RSPEC_I64,
+        RSPEC_POS  = RSPEC_U8  | RSPEC_U16 | RSPEC_U32 | RSPEC_U64,
+        RSPEC_INT  = RSPEC_NEG | RSPEC_POS,
+        RSPEC_FP   = RSPEC_FLT | RSPEC_DBL,
+    };
+
+
     virtual         ~backend()   = default;
     static backend  *make(arch_t arch = ARCH_NATIVE);
     static cstring   arch_name(arch_t arch = ARCH_NATIVE);
@@ -96,6 +124,7 @@ struct backend
     void             set_output(output_t output);
     arch_t           arch() const               { return current_arch; }
     output_t         output() const             { return current_output; }
+    static cstring   opcode_name(op_t op);
 
     bool             translate(byte_p start, byte_p end);
 
@@ -127,12 +156,14 @@ struct backend
 
     virtual void     begin_translation();
     virtual void     finish_translation();
-    virtual hwreg_t  local(local_t r, hwspec_t spec = 0);
+    virtual hwreg_t  local(local_t loc, hwspec_t spec = RSPEC_INT);
+    virtual hwreg_t  saved(local_t loc, hwreg_t reg);
 
     virtual bool     spill(hwreg_t r);
     virtual size_t   spill_all();
     virtual size_t   frame_size();
     virtual size_t   frame_size(size_t slots);
+
 
 
     // ========================================================================
@@ -150,7 +181,7 @@ struct backend
     virtual void     patch_branch(hwcode_t data, hwcode_t tgt)  = 0;
     virtual void     call(void (*target)())                     = 0;
     virtual void     syscall(void (*target)())                  = 0;
-    virtual void     relocate(void *base)                       = 0;
+    virtual uint     relocate(void *base)                       = 0;
 
 
     // ========================================================================
@@ -160,40 +191,24 @@ struct backend
     // ========================================================================
 
     virtual bool     move(hwreg_t to, hwreg_t from)             = 0;
-    virtual bool     load(hwreg_t, local_t r)                   = 0;
-    virtual bool     store(local_t r, hwreg_t)                  = 0;
-    virtual hwspec_t register_specification(hwreg_t)            = 0;
-    virtual cstring  register_name(hwreg_t)                     = 0;
+    virtual bool     load(hwreg_t, local_t r, hwspec_t spec)    = 0;
+    virtual bool     store(local_t r, hwreg_t, hwspec_t spec)   = 0;
+
+    struct reginfo { cstring  name; hwspec_t spec; };
+    virtual reginfo  register_definition(hwreg_t) const         = 0;
+    hwspec_t         register_specification(hwreg_t r) const
+    {
+        return register_definition(r).spec;
+    }
+    cstring register_name(hwreg_t r) const
+    {
+        return register_definition(r).name;
+    }
 
     const hwreg_t    NO_REGISTER        = hwreg_t(-1);
     const local_t    NO_LOCAL           = local_t(-1);
     const uint       DEFAULT_FRAME_SIZE = 8;
 
-    enum hwflag_t : hwspec_t
-    // ------------------------------------------------------------------------
-    //   Specification flags
-    // ------------------------------------------------------------------------
-    {
-        RSPEC_I8   = 1 << 0,  // Can store   signed  8-bit value
-        RSPEC_I16  = 1 << 1,  // Can store   signed 16-bit value
-        RSPEC_I32  = 1 << 2,  // Can store   signed 32-bit value
-        RSPEC_I64  = 1 << 3,  // Can store   signed 64-bit value
-        RSPEC_U8   = 1 << 4,  // Can store unsigned  8-bit value
-        RSPEC_U16  = 1 << 5,  // Can store unsigned 16-bit value
-        RSPEC_U32  = 1 << 6,  // Can store unsigned 32-bit value
-        RSPEC_U64  = 1 << 7,  // Can store unsigned 64-bit value
-        RSPEC_PTR  = 1 << 8,  // Can store addresses
-        RSPEC_FLT  = 1 << 9,  // Can store 32-bit FP
-        RSPEC_DBL  = 1 << 10, // Can store 64-bit FP
-        RSPEC_BRA  = 1 << 11, // Can store a branch target
-        RSPEC_CMP  = 1 << 12, // Can store a comparision / predicate
-        RSPEC_CALL = 1 << 13, // Safe across calls
-
-        RSPEC_NEG  = RSPEC_I8  | RSPEC_I16 | RSPEC_I32 | RSPEC_I64,
-        RSPEC_POS  = RSPEC_U8  | RSPEC_U16 | RSPEC_U32 | RSPEC_U64,
-        RSPEC_INT  = RSPEC_NEG | RSPEC_POS,
-        RSPEC_FP   = RSPEC_FLT | RSPEC_DBL,
-    };
 
 
     // ========================================================================

@@ -209,7 +209,7 @@ EMIT(ret)
 // ----------------------------------------------------------------------------
 {
     record(arm_ops, "emit_ret()");
-    // Bytecode ret: soft-stack return address, not the JIT epilogue (do_ret).
+    // Bytecode ret: soft-stack return address, not the JIT epilogue (epilogue).
     rtcall("xlr8_pop_value");
     br_via_ip();
 }

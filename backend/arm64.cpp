@@ -320,7 +320,7 @@ void arm64::finish_translation()
 // ----------------------------------------------------------------------------
 {
     record(arm64, "finish_translation()");
-    do_ret();
+    epilogue();
 }
 
 
@@ -1447,12 +1447,12 @@ void arm64::load_global(byte d, byte s)
     touch_local(d);
 }
 
-void arm64::do_ret()
+void arm64::epilogue()
 // ----------------------------------------------------------------------------
 //   Return from generated code to the native runner
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "do_ret()");
+    record(arm64, "epilogue()");
     emit32le(ldp_pop(30));
     emit32le(ret_insn());
 }

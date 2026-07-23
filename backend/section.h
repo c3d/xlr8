@@ -49,7 +49,7 @@ struct section : std::vector<byte>
         push_back(c);
     }
 
-    void patch8(size_t at, byte c)
+    void patch8(hwcode_t at, byte c)
     // ------------------------------------------------------------------------
     //   Patch a single byte at a given offset
     // ------------------------------------------------------------------------
@@ -71,7 +71,7 @@ struct section : std::vector<byte>
         push_back(byte(c >> 24));
     }
 
-    void patch32le(size_t at, uint32_t c)
+    void patch32le(hwcode_t at, uint32_t c)
     // ------------------------------------------------------------------------
     //   Patch a 32-bit little-endian value at a given offset
     // ------------------------------------------------------------------------
@@ -85,6 +85,21 @@ struct section : std::vector<byte>
         s[at + 3]  = byte(c >> 24);
     }
 
+    uint32_t value32le(hwcode_t at)
+    // ------------------------------------------------------------------------
+    //   Return the existing little-endian 32-bit value stored here
+    // ------------------------------------------------------------------------
+    {
+        if (at + 4 > size())
+            return uint32_t(0xDEADBEEF);
+        section &s = *this;
+        return
+            uint32_t(s[at + 0]) << 0  |
+            uint32_t(s[at + 1]) << 8  |
+            uint32_t(s[at + 2]) << 16 |
+            uint32_t(s[at + 3]) << 24;
+    }
+
     void append32be(uint32_t c)
     // ------------------------------------------------------------------------
     //   Append a 32-bit big-endian value
@@ -96,7 +111,7 @@ struct section : std::vector<byte>
         push_back(byte(c >> 0));
     }
 
-    void patch32be(size_t at, uint32_t c)
+    void patch32be(hwcode_t at, uint32_t c)
     // ------------------------------------------------------------------------
     //   Patch a 32-bit big-endian value at a given offset
     // ------------------------------------------------------------------------
@@ -109,7 +124,23 @@ struct section : std::vector<byte>
         s[at + 2]  = byte(c >> 8);
         s[at + 3]  = byte(c >> 0);
     }
-size_t allocated() const
+
+    uint32_t value32be(hwcode_t at)
+    // ------------------------------------------------------------------------
+    //   Return the existing big-endian 32-bit value stored here
+    // ------------------------------------------------------------------------
+    {
+        if (at + 4 > size())
+            return uint32_t(0xDEADBEEF);
+        section &s = *this;
+        return
+            uint32_t(s[at + 0]) << 24 |
+            uint32_t(s[at + 1]) << 16 |
+            uint32_t(s[at + 2]) << 8  |
+            uint32_t(s[at + 3]) << 0;
+    }
+
+    size_t allocated() const
     // ------------------------------------------------------------------------
     //   Return reserved capacity (TinyCC-compatible name)
     // ------------------------------------------------------------------------

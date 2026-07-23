@@ -313,7 +313,7 @@ void riscv64::finish_translation()
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "finish_translation()");
-    do_ret();
+    epilogue();
 }
 
 
@@ -1587,12 +1587,12 @@ void riscv64::load_global(byte d, byte s)
 }
 
 
-void riscv64::do_ret()
+void riscv64::epilogue()
 // ----------------------------------------------------------------------------
 //   Emit return instruction
 // ----------------------------------------------------------------------------
 {
-    record(riscv64, "do_ret()");
+    record(riscv64, "epilogue()");
     emit32le(ret_insn());
 }
 
