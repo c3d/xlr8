@@ -28,7 +28,7 @@
 SOURCES=backend.cpp		\
 	x86.cpp amd64.cpp	\
 	arm.cpp arm64.cpp	\
-	riscv64.cpp
+	riscv64.cpp riscv32.cpp
 
 PRODUCTS=backend.lib
 

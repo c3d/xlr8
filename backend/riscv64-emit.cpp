@@ -233,7 +233,7 @@ EMIT(ppc)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_ppc");
-    load_imm64(HW_IP, uint64_t(e.pc));
+    load_ptr_imm(HW_IP, uint64_t(uintptr_t(e.pc)));
     emit_push(HW_IP);
 }
 
@@ -245,7 +245,7 @@ EMIT(pc)
 {
     riscv64reg_t r = hw_local(e.dst);
     record(riscv64_ops, "emit_pc %u reg %u", e.dst, r);
-    load_imm64(r, uint64_t(e.pc));
+    load_ptr_imm(r, uint64_t(uintptr_t(e.pc)));
 }
 
 
@@ -256,7 +256,7 @@ EMIT(pca)
 {
     riscv64reg_t r = hw_local(e.dst);
     record(riscv64_ops, "emit_pca %u reg %u = %lld)", e.dst, e.broff);
-    load_imm64(r, uint64_t(e.ppc + e.broff));
+    load_ptr_imm(r, uint64_t(uintptr_t(e.ppc + e.broff)));
 }
 
 
@@ -266,10 +266,11 @@ EMIT(enter)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_enter %u", e.dst);
-    // Save ra and old frame pointer
-    emit32le(addi(xn(HW_SP), xn(HW_SP), -16));
-    emit32le(sd_off(xn(HW_RA),    xn(HW_SP), 8));
-    emit32le(sd_off(xn(HW_FRAME), xn(HW_SP), 0));
+    // Save ra and old frame pointer (2 ABI words)
+    int link = 2 * int(pointer_size());
+    emit32le(addi(xn(HW_SP), xn(HW_SP), -link));
+    emit_store_abi_word(HW_RA,    HW_SP, pointer_size());
+    emit_store_abi_word(HW_FRAME, HW_SP, 0);
     emit32le(mv_rr(xn(HW_FRAME), xn(HW_SP)));
     // Allocate locals
     uint bytes = uint(e.dst) * uint(sizeof(ularge_t));
@@ -294,10 +295,11 @@ EMIT(leave)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_leave");
+    int link = 2 * int(pointer_size());
     emit32le(mv_rr(xn(HW_SP), xn(HW_FRAME)));
-    emit32le(ld_off(xn(HW_FRAME), xn(HW_SP), 0));
-    emit32le(ld_off(xn(HW_RA),    xn(HW_SP), 8));
-    emit32le(addi(xn(HW_SP), xn(HW_SP), 16));
+    emit_load_abi_word(HW_FRAME, HW_SP, 0);
+    emit_load_abi_word(HW_RA,    HW_SP, pointer_size());
+    emit32le(addi(xn(HW_SP), xn(HW_SP), link));
     frame_active = false;
     if (e.pc < e.end && op_t(*e.pc) == op_ret)
     {
@@ -373,7 +375,7 @@ EMIT(sto)
 {
     riscv64reg_t  r     = hw_local(e.src);
     uintptr_t gaddr = uintptr_t(&rt.globals[e.dst]);
-    load_imm64(HW_IP, gaddr);
+    load_ptr_imm(HW_IP, uint64_t(gaddr));
     emit_store_off(HW_IP, r, 0);
     record(riscv64_ops, "store_global g[%u]=%u addr %p reg %u",
            e.dst, e.src, gaddr, r);
@@ -387,7 +389,7 @@ EMIT(rcl)
 {
     riscv64reg_t r = hw_local(e.dst);
     uintptr_t gaddr = uintptr_t(&rt.globals[e.src]);
-    load_imm64(HW_IP, gaddr);
+    load_ptr_imm(HW_IP, uint64_t(gaddr));
     emit_load_off(r, HW_IP, 0);
     record(riscv64_ops, "load_global g[%u]=%u addr %p reg %u",
            e.dst, e.src, gaddr, r);

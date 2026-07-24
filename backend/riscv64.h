@@ -34,8 +34,9 @@
 //  ===========================================================================
 //
 //  Locals use [x8 - (local+1)*8]; x8 is adjusted by op_enter and op_leave.
-//  Args use [x8 + arg*8 + 16] (skip saved FP+RA).
+//  Args use [x8 + arg*8 + 2*pointer_size()] (skip saved FP+RA).
 //  Flags (predicates) live in x9 (HW_FLAGS).
+//  RV32 subclasses override pointer_size and ABI word load/store hooks.
 //
 //  Register map:
 //
@@ -67,7 +68,7 @@ struct riscv64 : backend
 //   RISC-V 64 code generator implementing every built-in opcode
 // ----------------------------------------------------------------------------
 {
-    riscv64(runtime &rt);
+    riscv64(runtime &rt, arch_t arch = ARCH_RISCV64);
     static backend *make(runtime &rt) { return new riscv64(rt); }
 
 #include "backend-iface.h"
@@ -188,7 +189,7 @@ protected:
     //   Return stack displacement for argument (skip saved FP+RA)
     // ------------------------------------------------------------------------
     {
-        return n * int(sizeof(ularge_t)) + 16;
+        return n * int(sizeof(ularge_t)) + 2 * int(pointer_size());
     }
 
 
@@ -848,10 +849,15 @@ protected:
     //
     // ========================================================================
 
-    void            emit_load_off(riscv64reg_t rd, riscv64reg_t rn, int offs);
-    void            emit_store_off(riscv64reg_t rn, riscv64reg_t rt, int offs);
-    void            emit_push(riscv64reg_t r);
-    void            emit_pop(riscv64reg_t r);
+    virtual void    emit_store_abi_word(riscv64reg_t rs2, riscv64reg_t rs1,
+                                        int offs);
+    virtual void    emit_load_abi_word(riscv64reg_t rd, riscv64reg_t rs1,
+                                       int offs);
+    virtual void    load_ptr_imm(riscv64reg_t r, uint64_t v);
+    virtual void    emit_load_off(riscv64reg_t rd, riscv64reg_t rn, int offs);
+    virtual void    emit_store_off(riscv64reg_t rn, riscv64reg_t rt, int offs);
+    virtual void    emit_push(riscv64reg_t r);
+    virtual void    emit_pop(riscv64reg_t r);
 
     void            load_local(local_t loc, riscv64reg_t r);
     void            store_local(riscv64reg_t r, local_t loc);
@@ -904,7 +910,7 @@ protected:
     void            load_global(local_t d, local_t s);
     virtual void    prologue();
     virtual void    epilogue();
-    void            call_ptr(void (*fn)());
+    virtual void    call_ptr(void (*fn)());
     template <typename T, typename ...U>
     void            call_ptr(T (*fn)(U...)) { return call(((void (*)()) fn)); }
     void            dispatch(local_t loc, byte_p &pc, byte cond);

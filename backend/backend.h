@@ -68,6 +68,7 @@ struct backend
         ARCH_ARM,
         ARCH_ARM64,
         ARCH_RISCV64,
+        ARCH_RISCV32,
 
         ARCH_NATIVE =
 #  if defined(__x86_64__) || defined(__amd64__)
@@ -82,6 +83,8 @@ struct backend
         ARCH_ARM
 #  elif defined(__riscv) && __riscv_xlen == 64
         ARCH_RISCV64
+#  elif defined(__riscv) && __riscv_xlen == 32
+        ARCH_RISCV32
 #  elif defined(__i386__) || defined(__i386)
         ARCH_I386
 #  else

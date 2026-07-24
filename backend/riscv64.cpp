@@ -41,13 +41,13 @@ RECORDER(riscv64_error,     64, "RISC-V 64-bit code generation errors");
 RECORDER(riscv64_warning,   64, "RISC-V 64-bit code generation warnings");
 
 
-riscv64::riscv64(runtime &rt)
+riscv64::riscv64(runtime &rt, arch_t arch)
 // ----------------------------------------------------------------------------
-//   Construct a RISC-V 64 code generator
+//   Construct a RISC-V code generator (RV64 by default; RV32 may subclass)
 // ----------------------------------------------------------------------------
-    : backend(rt, ARCH_RISCV64)
+    : backend(rt, arch)
 {
-    record(riscv64, "New backend arch=%+s", arch_name(ARCH_RISCV64));
+    record(riscv64, "New backend arch=%+s", arch_name(arch));
 }
 
 
@@ -306,21 +306,19 @@ void riscv64::prologue()
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "prologue");
-    // 13 callee-saved: ra, s0(fp), s1(flags), s2-s11.  13*8=104; pad to 112.
-    emit32le(addi(xn(HW_SP), xn(HW_SP), -112));
-    emit32le(sd_off(xn(HW_RA),    xn(HW_SP), 104));
-    emit32le(sd_off(xn(HW_FRAME), xn(HW_SP),  96));
-    emit32le(sd_off(xn(HW_FLAGS), xn(HW_SP),  88));
-    emit32le(sd_off(xn(HW_X18),   xn(HW_SP),  80));
-    emit32le(sd_off(xn(HW_X19),   xn(HW_SP),  72));
-    emit32le(sd_off(xn(HW_X20),   xn(HW_SP),  64));
-    emit32le(sd_off(xn(HW_X21),   xn(HW_SP),  56));
-    emit32le(sd_off(xn(HW_X22),   xn(HW_SP),  48));
-    emit32le(sd_off(xn(HW_X23),   xn(HW_SP),  40));
-    emit32le(sd_off(xn(HW_X24),   xn(HW_SP),  32));
-    emit32le(sd_off(xn(HW_X25),   xn(HW_SP),  24));
-    emit32le(sd_off(xn(HW_X26),   xn(HW_SP),  16));
-    emit32le(sd_off(xn(HW_X27),   xn(HW_SP),   8));
+    // 13 callee-saved: ra, s0(fp), s1(flags), s2-s11.  Align to 16 bytes.
+    static const riscv64reg_t saved[] = {
+        HW_RA, HW_FRAME, HW_FLAGS,
+        HW_X18, HW_X19, HW_X20, HW_X21, HW_X22, HW_X23,
+        HW_X24, HW_X25, HW_X26, HW_X27
+    };
+    const uint n = uint(sizeof(saved) / sizeof(saved[0]));
+    const uint wsz = pointer_size();
+    uint bytes = n * wsz;
+    bytes = (bytes + 15u) & ~15u;
+    emit32le(addi(xn(HW_SP), xn(HW_SP), -int(bytes)));
+    for (uint i = 0; i < n; i++)
+        emit_store_abi_word(saved[i], HW_SP, int(bytes - wsz * (i + 1)));
 }
 
 
@@ -330,20 +328,18 @@ void riscv64::epilogue()
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "epilogue");
-    emit32le(ld_off(xn(HW_X27),   xn(HW_SP),   8));
-    emit32le(ld_off(xn(HW_X26),   xn(HW_SP),  16));
-    emit32le(ld_off(xn(HW_X25),   xn(HW_SP),  24));
-    emit32le(ld_off(xn(HW_X24),   xn(HW_SP),  32));
-    emit32le(ld_off(xn(HW_X23),   xn(HW_SP),  40));
-    emit32le(ld_off(xn(HW_X22),   xn(HW_SP),  48));
-    emit32le(ld_off(xn(HW_X21),   xn(HW_SP),  56));
-    emit32le(ld_off(xn(HW_X20),   xn(HW_SP),  64));
-    emit32le(ld_off(xn(HW_X19),   xn(HW_SP),  72));
-    emit32le(ld_off(xn(HW_X18),   xn(HW_SP),  80));
-    emit32le(ld_off(xn(HW_FLAGS), xn(HW_SP),  88));
-    emit32le(ld_off(xn(HW_FRAME), xn(HW_SP),  96));
-    emit32le(ld_off(xn(HW_RA),    xn(HW_SP), 104));
-    emit32le(addi(xn(HW_SP), xn(HW_SP), 112));
+    static const riscv64reg_t saved[] = {
+        HW_RA, HW_FRAME, HW_FLAGS,
+        HW_X18, HW_X19, HW_X20, HW_X21, HW_X22, HW_X23,
+        HW_X24, HW_X25, HW_X26, HW_X27
+    };
+    const uint n = uint(sizeof(saved) / sizeof(saved[0]));
+    const uint wsz = pointer_size();
+    uint bytes = n * wsz;
+    bytes = (bytes + 15u) & ~15u;
+    for (uint i = n; i-- > 0; )
+        emit_load_abi_word(saved[i], HW_SP, int(bytes - wsz * (i + 1)));
+    emit32le(addi(xn(HW_SP), xn(HW_SP), int(bytes)));
     emit32le(ret_insn());
 }
 
@@ -354,7 +350,7 @@ void riscv64::call_ptr(void (*fn)())
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "call_ptr %p", fn);
-    load_imm64(HW_IP, uint64_t(fn));
+    load_ptr_imm(HW_IP, uint64_t(uintptr_t(fn)));
     emit32le(jalr_ra(xn(HW_IP)));
 }
 
@@ -365,6 +361,33 @@ void riscv64::call_ptr(void (*fn)())
 //   Emit helpers
 //
 // ============================================================================
+
+void riscv64::emit_store_abi_word(riscv64reg_t rs2, riscv64reg_t rs1, int offs)
+// ----------------------------------------------------------------------------
+//   Store one ABI pointer/link word (sd on RV64)
+// ----------------------------------------------------------------------------
+{
+    emit32le(sd_off(xn(rs2), xn(rs1), offs));
+}
+
+
+void riscv64::emit_load_abi_word(riscv64reg_t rd, riscv64reg_t rs1, int offs)
+// ----------------------------------------------------------------------------
+//   Load one ABI pointer/link word (ld on RV64)
+// ----------------------------------------------------------------------------
+{
+    emit32le(ld_off(xn(rd), xn(rs1), offs));
+}
+
+
+void riscv64::load_ptr_imm(riscv64reg_t r, uint64_t v)
+// ----------------------------------------------------------------------------
+//   Materialize a code/data pointer (64-bit on RV64)
+// ----------------------------------------------------------------------------
+{
+    load_imm64(r, v);
+}
+
 
 void riscv64::emit_load_off(riscv64reg_t rd, riscv64reg_t rn, int offs)
 // ----------------------------------------------------------------------------
@@ -408,20 +431,20 @@ void riscv64::emit_store_off(riscv64reg_t rn, riscv64reg_t rt, int offs)
 
 void riscv64::emit_push(riscv64reg_t r)
 // ----------------------------------------------------------------------------
-//   Push a register (16-byte aligned: addi sp, -16; sd r, 0(sp))
+//   Push a register (16-byte aligned stack slot)
 // ----------------------------------------------------------------------------
 {
     emit32le(addi(xn(HW_SP), xn(HW_SP), -16));
-    emit32le(sd_off(xn(r), xn(HW_SP), 0));
+    emit_store_abi_word(r, HW_SP, 0);
 }
 
 
 void riscv64::emit_pop(riscv64reg_t r)
 // ----------------------------------------------------------------------------
-//   Pop a register (ld r, 0(sp); addi sp, 16)
+//   Pop a register from a 16-byte aligned stack slot
 // ----------------------------------------------------------------------------
 {
-    emit32le(ld_off(xn(r), xn(HW_SP), 0));
+    emit_load_abi_word(r, HW_SP, 0);
     emit32le(addi(xn(HW_SP), xn(HW_SP), 16));
 }
 
@@ -450,7 +473,8 @@ void riscv64::load_uimm32(riscv64reg_t r, uint32_t v)
     emit32le(lui(rd, uint32_t(hi) & 0xfffffu));
     if (lo)
         emit32le(addi(rd, rd, lo));
-    if (v & 0x80000000u)
+    // On RV64, lui sign-extends into bits 63:32; clear when MSB of lo is set.
+    if ((v & 0x80000000u) && pointer_size() == 8)
     {
         emit32le(slli(rd, rd, 32));
         emit32le(srli(rd, rd, 32));
@@ -474,7 +498,7 @@ void riscv64::load_imm64(riscv64reg_t r, uint64_t v)
     uint32_t lo = uint32_t(v);
     uint32_t hi = uint32_t(v >> 32);
     load_uimm32(r, lo);
-    if (!hi)
+    if (!hi || pointer_size() < 8)
         return;
     load_uimm32(HW_IP, hi);
     emit32le(slli(xn(HW_IP), xn(HW_IP), 32));
@@ -1100,7 +1124,20 @@ void riscv64::store_mem(local_t d, local_t s, size_t sz, value_t offs)
     case 1: emit32le(sb_off(xn(sr), xn(addr), 0)); break;
     case 2: emit32le(sh_off(xn(sr), xn(addr), 0)); break;
     case 4: emit32le(sw_off(xn(sr), xn(addr), 0)); break;
-    case 8: emit32le(sd_off(xn(sr), xn(addr), 0)); break;
+    case 8:
+        if (pointer_size() == 8)
+        {
+            emit32le(sd_off(xn(sr), xn(addr), 0));
+        }
+        else
+        {
+            // ILP32: store low word; zero high half of ularge slot
+            emit32le(sw_off(xn(sr), xn(addr), 0));
+            riscv64reg_t zero = (addr == HW_IP) ? HW_X6 : HW_IP;
+            emit32le(addi(xn(zero), 0, 0));
+            emit32le(sw_off(xn(zero), xn(addr), 4));
+        }
+        break;
     }
 }
 
@@ -1129,8 +1166,19 @@ void riscv64::load_mem(local_t d, local_t s, size_t sz, value_t offs)
         // fallthrough
     case 1: emit32le(lbu_off(xn(dr), xn(addr), 0)); break;
     case 2: emit32le(lhu_off(xn(dr), xn(addr), 0)); break;
-    case 4: emit32le(lwu_off(xn(dr), xn(addr), 0)); break;
-    case 8: emit32le(ld_off(xn(dr), xn(addr), 0));  break;
+    case 4:
+        // lwu is RV64-only; RV32 uses lw
+        if (pointer_size() == 8)
+            emit32le(lwu_off(xn(dr), xn(addr), 0));
+        else
+            emit32le(lw_off(xn(dr), xn(addr), 0));
+        break;
+    case 8:
+        if (pointer_size() == 8)
+            emit32le(ld_off(xn(dr), xn(addr), 0));
+        else
+            emit32le(lw_off(xn(dr), xn(addr), 0)); // low half of ularge
+        break;
     }
 }
 
