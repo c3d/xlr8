@@ -57,26 +57,11 @@ static backend *xlr8_backend = nullptr;
 
 static void dump_jit_code(void *mem, size_t sz, backend &be, cstring path)
 // ----------------------------------------------------------------------------
-//   Write JIT code to a file and log llvm-objdump disassembly via recorder
+//   Write llvm-objdump disassembly of JIT code to path (instruction listing)
 // ----------------------------------------------------------------------------
 {
     if (!path || !*path)
         return;
-
-    FILE *out = fopen(path, "wb");
-    if (!out)
-    {
-        record(native_run_error,
-               "JIT dump cannot open %s: %s", path, strerror(errno));
-        return;
-    }
-    fwrite(mem, 1, sz, out);
-    fclose(out);
-    record(native_run, "JIT dump %zu bytes -> %s", sz, path);
-
-    for (auto const &label : be.address_translations())
-        record(native_run, "  bc %p -> native %zu",
-               label.bytecode, label.hwcode);
 
 #if defined(__aarch64__)
     const char *arch = "aarch64";
@@ -91,47 +76,125 @@ static void dump_jit_code(void *mem, size_t sz, backend &be, cstring path)
 #endif
 
     if (!arch)
+    {
+        record(native_run_error, "JIT disasm: unsupported host arch");
         return;
+    }
 
+    // Raw blob + assemble intermediates; the user path gets the listing.
+    size_t plen = strlen(path);
+    char  *bin_path = (char *) malloc(plen + 5);  // .bin
+    char  *asm_path = (char *) malloc(plen + 9);  // .tmp.asm
+    char  *obj_path = (char *) malloc(plen + 5);  // .tmp.o
+    if (!bin_path || !asm_path || !obj_path)
+    {
+        free(bin_path);
+        free(asm_path);
+        free(obj_path);
+        record(native_run_error, "JIT disasm OOM");
+        return;
+    }
+    snprintf(bin_path, plen + 5, "%s.bin", path);
+    snprintf(asm_path, plen + 9, "%s.tmp.asm", path);
+    snprintf(obj_path, plen + 5, "%s.o", path);
+
+    FILE *out = fopen(bin_path, "wb");
+    if (!out)
+    {
+        record(native_run_error,
+               "JIT dump cannot open %s: %s", bin_path, strerror(errno));
+        free(bin_path);
+        free(asm_path);
+        free(obj_path);
+        return;
+    }
+    fwrite(mem, 1, sz, out);
+    fclose(out);
+    record(native_run, "JIT dump %zu bytes -> %s", sz, bin_path);
+
+    for (auto const &label : be.address_translations())
+        record(native_run, "  bc %p -> native %zu",
+               label.bytecode, label.hwcode);
+
+    // Assemble .byte blob then objdump into the user-facing listing file.
     const char *cmd_fmt =
-        "sh -c 'printf \".text\\n.globl _jit\\n_jit:\\n\" >\"%s.s\" && "
+        "sh -c 'printf \".text\\n.globl _jit\\n_jit:\\n\" >\"%s\" && "
         "od -An -tx1 -v \"%s\" | "
         "awk \"{for (i=1;i<=NF;i++) printf \\\" .byte 0x%%s\\\\n\\\", \\$i}\" "
-        "  >>\"%s.s\" && "
-        "llvm-mc -filetype=obj -arch=%s \"%s.s\" -o \"%s.o\" && "
-        "llvm-objdump -d --no-show-raw-insn \"%s.o\"' 2>&1";
+        ">>\"%s\" && "
+        "llvm-mc -filetype=obj -arch=%s \"%s\" -o \"%s\" && "
+        "llvm-objdump -d --no-show-raw-insn \"%s\" >\"%s\"' 2>&1";
 
     char *cmd     = nullptr;
     int   cmd_len = snprintf(nullptr, 0, cmd_fmt,
-                             path, path, path, arch, path, path, path);
+                             asm_path, bin_path, asm_path, arch,
+                             asm_path, obj_path, obj_path, path);
     if (cmd_len < 0)
     {
         record(native_run_error,
-                   "JIT disasm command format error: %s",
+               "JIT disasm command format error: %s",
                strerror(errno));
-        if (cmd)
-            free(cmd);
+        free(bin_path);
+        free(asm_path);
+        free(obj_path);
         return;
     }
-    cmd = (char *) malloc(cmd_len+1);
-    cmd_len = snprintf(cmd, cmd_len, cmd_fmt,
-                       path, path, path, arch, path, path, path);
-
-
-    record(native_run, "JIT disasm: \n%s", cmd);
+    cmd = (char *) malloc(size_t(cmd_len) + 1);
+    if (!cmd)
+    {
+        record(native_run_error, "JIT disasm OOM allocating command");
+        free(bin_path);
+        free(asm_path);
+        free(obj_path);
+        return;
+    }
+    snprintf(cmd, size_t(cmd_len) + 1, cmd_fmt,
+             asm_path, bin_path, asm_path, arch,
+             asm_path, obj_path, obj_path, path);
+    record(native_run, "JIT disasm:\n%s", cmd);
     FILE *pipe = popen(cmd, "r");
     free(cmd);
-    if (!pipe)
-        return;
-    char line[256];
-    while (fgets(line, sizeof(line), pipe))
+    if (pipe)
     {
-        size_t n = strlen(line);
-        if (n && line[n - 1] == '\n')
-            line[n - 1] = '\0';
-        record(native_run, "  %s", line);
+        char line[256];
+        while (fgets(line, sizeof(line), pipe))
+        {
+            size_t n = strlen(line);
+            if (n && line[n - 1] == '\n')
+                line[n - 1] = '\0';
+            if (line[0])
+                record(native_run_error, "  %s", line);
+        }
+        pclose(pipe);
     }
-    pclose(pipe);
+
+    // Echo listing to recorder for convenience
+    FILE *listing = fopen(path, "r");
+    if (listing)
+    {
+        record(native_run, "JIT listing %s:", path);
+        char line[256];
+        while (fgets(line, sizeof(line), listing))
+        {
+            size_t n = strlen(line);
+            if (n && line[n - 1] == '\n')
+                line[n - 1] = '\0';
+            record(native_run, "  %s", line);
+        }
+        fclose(listing);
+    }
+    else
+    {
+        record(native_run_error,
+               "JIT disasm produced no listing at %s", path);
+    }
+
+    unlink(asm_path);
+    unlink(obj_path);
+    unlink(bin_path);
+    free(bin_path);
+    free(asm_path);
+    free(obj_path);
 }
 
 
