@@ -61,11 +61,11 @@ EMIT(undef)
 
 EMIT(end)
 // ----------------------------------------------------------------------------
-//   Emit bytecode for the undef opcode
+//   Emit bytecode for the end opcode (stop translating this range)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_end");
-    epilogue();
+    // Epilogue is emitted by finish_translation()
     e.pc = e.end;
 }
 

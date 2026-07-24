@@ -29,9 +29,11 @@
 #include "native-bridge.h"
 #include "runtime.h"
 #include "leb128.h"
+#include "scanner.h"
 
 #include <cstring>
 #include <functional>
+#include <iostream>
 
 
 static runtime *xlr8_current_rt = nullptr;
@@ -82,4 +84,40 @@ void xlr8_undef_opcode()
 {
     record(runtime_error, "Hit 'undef' opcode at runtime");
     exit(1);
+}
+
+
+void xlr8_jit_write_integer(uvalue_t stream, value_t value)
+// ----------------------------------------------------------------------------
+//   Write a signed integer to a runtime output stream (JIT helper)
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt)
+        return;
+    if (std::ostream *out = xlr8_current_rt->ostream(stream))
+        *out << value;
+}
+
+
+void xlr8_jit_write_token(uvalue_t stream, tok_t tok)
+// ----------------------------------------------------------------------------
+//   Write a token's text to a runtime output stream (JIT helper)
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt)
+        return;
+    if (std::ostream *out = xlr8_current_rt->ostream(stream))
+        *out << xlr8_current_rt->as_text(tok);
+}
+
+
+void xlr8_jit_write_newline(uvalue_t stream)
+// ----------------------------------------------------------------------------
+//   Write a newline to a runtime output stream (JIT helper)
+// ----------------------------------------------------------------------------
+{
+    if (!xlr8_current_rt)
+        return;
+    if (std::ostream *out = xlr8_current_rt->ostream(stream))
+        (*out) << '\n';
 }

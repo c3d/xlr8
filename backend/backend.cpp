@@ -365,6 +365,8 @@ bool backend::translate(byte_p pc, byte_p end)
 {
     record(backend, "translate subroutine %p..%p", pc, end);
 
+    begin_translation();
+
     emit_args args(pc, end);
     while (pc < end && !args.error)
     {
@@ -390,7 +392,7 @@ bool backend::translate(byte_p pc, byte_p end)
 #define LEN     REG(len)
 #define IVAL    REG(ival)
 #define UVAL    REG(uval)
-#define TOK     REG(tok)
+#define TOK     args.tok = leb128<tok_t>(pc);        TRC(tok)
 #define KSHIFT  REG(kshift)
 #define BRA                           \
     args.bpc   = pc;                  \
@@ -453,6 +455,8 @@ bool backend::translate(byte_p pc, byte_p end)
         }
     }
 
+    finish_translation();
+
     if (args.error)
         record(backend_error, "Error during translation: %+s", args.error);
     return !args.error;
@@ -468,6 +472,42 @@ bool backend::dispatch_sys(emit_args &args)
     byte_p end = args.end;
     tok_t  sys = args.tok;
 
+    // Parsing macros for native.tbl argument lists (must match interpreter)
+#undef DST
+#undef SRC
+#undef XTRA
+#undef PRED
+#undef LEN
+#undef IVAL
+#undef UVAL
+#undef TOK
+#undef KSHIFT
+#undef KINT
+#undef KNAT
+#undef KLEN
+#undef KFLT
+#undef KDBL
+#undef BRA
+#undef ISTREAM
+#undef OSTREAM
+#define DST     args.dst  = *pc++;
+#define SRC     args.src  = *pc++;
+#define XTRA    args.xtra = *pc++;
+#define PRED    args.pred = *pc++;
+#define LEN     args.len  = *pc++;
+#define IVAL    args.ival = *pc++;
+#define UVAL    args.uval = *pc++;
+#define TOK     args.tok  = leb128<tok_t>(pc);
+#define KSHIFT  args.kshift = *pc++;
+#define KINT    args.kint = leb128<value_t>(pc);
+#define KNAT    args.knat = leb128<uvalue_t>(pc);
+#define KLEN    args.klen = leb128<size_t>(pc);
+#define KFLT    memcpy(&args.kflt, pc, sizeof(args.kflt)); pc += sizeof(args.kflt);
+#define KDBL    memcpy(&args.kdbl, pc, sizeof(args.kdbl)); pc += sizeof(args.kdbl);
+#define BRA     args.bpc = pc; args.broff = leb128<broff_t>(pc);
+#define ISTREAM KNAT
+#define OSTREAM KNAT
+
 #define NATIVE(op, decl, code)                  \
     if (sys == runtime::sys_##op)               \
     {                                           \
@@ -479,6 +519,7 @@ bool backend::dispatch_sys(emit_args &args)
         return pc <= end;                       \
     }
 #include "native.tbl"
+#undef NATIVE
 
     return false;
 }
@@ -683,11 +724,10 @@ size_t backend::frame_size(size_t slots)
 //
 // ============================================================================
 
-#include "arm.h"
 #include "arm64.h"
 #include "x86.h"
 #include "amd64.h"
-#include "riscv64.h"
+// arm.h / riscv64.h omitted until those backends are refactored like arm64
 
 backend *backend::make(runtime &rt, arch_t arch)
 // ----------------------------------------------------------------------------
@@ -699,9 +739,13 @@ backend *backend::make(runtime &rt, arch_t arch)
     case ARCH_I386:             return x86::make(rt);
     case ARCH_AMD64:
     case ARCH_AMD64_WIN:        return amd64::make(rt, arch);
-    case ARCH_ARM:              return arm::make(rt);
+    case ARCH_ARM:
+        record(backend_error, "arm32 backend not yet refactored");
+        return nullptr;
     case ARCH_ARM64:            return arm64::make(rt);
-    case ARCH_RISCV64:          return riscv64::make(rt);
+    case ARCH_RISCV64:
+        record(backend_error, "riscv64 backend not yet refactored");
+        return nullptr;
     default:
         record(backend_error, "Unknown arch %u, defaulting to AMD64", arch);
     }

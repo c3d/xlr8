@@ -46,6 +46,11 @@ void      xlr8_null_opcode();
 void      xlr8_user_opcode();
 void      xlr8_undef_opcode();
 
+// Minimal JIT sys helpers (AAPCS: x0=stream id / unused, x1=value)
+void      xlr8_jit_write_integer(uvalue_t stream, value_t value);
+void      xlr8_jit_write_token(uvalue_t stream, tok_t tok);
+void      xlr8_jit_write_newline(uvalue_t stream);
+
 #ifdef __cplusplus
 }
 #endif

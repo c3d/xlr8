@@ -1,5 +1,5 @@
 // ****************************************************************************
-//  arm64.cpp                                                    XLR8 project
+//  arm64.cpp                                                      XLR8 project
 // ****************************************************************************
 //
 //   File Description:
@@ -12,9 +12,10 @@
 //
 //
 //
+//
 // ****************************************************************************
 //   (C) 2026 Christophe de Dinechin <christophe@dinechin.org>
-//   This software is licensed under the terms outlined in LICENSE.txt
+//   This software is licensed under the terms outlined in the LICENSE.txt file
 // ****************************************************************************
 //   This file is part of XLR8.
 //
@@ -28,54 +29,17 @@
 
 #include "arm64.h"
 
+#include "leb128.h"
 #include "native-bridge.h"
 #include "runtime.h"
 
 #include <cstring>
 
 
-RECORDER(arm64,          256, "AArch64 code generation helpers");
-RECORDER(arm64_ops,      256, "AArch64 opcode emission");
-RECORDER(arm64_error,     64, "AArch64 code generation errors");
-RECORDER(arm64_warning,   64, "AArch64 code generation warnings");
-
-
-void arm64::load_local(byte n, uint r)
-// ----------------------------------------------------------------------------
-//   Load bytecode local n into hardware register r
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "load_local(%u, %u)", n, r);
-    if (n < LOC_SHADOW_COUNT)
-    {
-        if (r != n)
-            emit32le(mov_rr(r, n));
-    }
-    else
-    {
-        emit32le(ldr_off(r, HW_FRAME, uint(n)));
-    }
-}
-
-
-void arm64::store_local(uint r, byte n)
-// ----------------------------------------------------------------------------
-//   Store hardware register r into bytecode local n
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "store_local(%u, %u)", r, n);
-    if (n < LOC_SHADOW_COUNT)
-    {
-        if (r != n)
-            emit32le(mov_rr(n, r));
-        emit32le(str_off(xreg(n), HW_FRAME, n));
-        touch_local(n);
-    }
-    else
-    {
-        emit32le(str_off(r, HW_FRAME, uint(n)));
-    }
-}
+RECORDER(arm64,             32, "AArch64 code generation helpers");
+RECORDER(arm64_ops,         32, "AArch64 opcode emission");
+RECORDER(arm64_error,        8, "AArch64 code generation errors");
+RECORDER(arm64_warning,      8, "AArch64 code generation warnings");
 
 
 arm64::arm64(runtime &rt)
@@ -84,43 +48,489 @@ arm64::arm64(runtime &rt)
 // ----------------------------------------------------------------------------
     : backend(rt, ARCH_ARM64)
 {
-    record(arm64, "arm64()");
+    record(arm64, "New backend arch=%+s", arch_name(ARCH_ARM64));
 }
 
+
+
+// ============================================================================
+//
+//   Backend standard interface
+//
+// ============================================================================
 
 cstring arm64::machine_defs() const
 // ----------------------------------------------------------------------------
-//   Return preprocessor defines for this target
+//   Machine definition for AArch64
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "machine_defs()");
-    return "__aarch64__\0__arm64__\0";
+    return "__aarch64__\0__ARM_ARCH_ISA_A64\0";
 }
+
 
 uint arm64::registers() const
 // ----------------------------------------------------------------------------
-//   Return number of bytecode registers
+//   Return the number of hardware registers on this platform
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "registers()");
-    return 28;
+    return HW_COUNT;
 }
+
 
 uint arm64::pointer_size() const
 // ----------------------------------------------------------------------------
-//   Return pointer size in bytes
+//   The platform is 64-bit
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "pointer_size()");
     return 8;
 }
 
-void arm64::load_imm64(uint r, uint64_t v)
+
+void arm64::begin_translation()
 // ----------------------------------------------------------------------------
-//   Load a 64-bit constant into AArch64 register r (MOVZ or MOVN + MOVK)
+//   Save callee-saved regs used by the JIT
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "load_imm64(%u, %lld)", r, v);
+    record(arm64, "begin_translation");
+    frame_active = false;
+    backend::begin_translation();
+    prologue();
+}
+
+
+void arm64::finish_translation()
+// ----------------------------------------------------------------------------
+//   Restore callee-saved registers, then return
+// ----------------------------------------------------------------------------
+{
+    record(arm64, "finish_translation");
+    epilogue();
+    backend::finish_translation();
+}
+
+
+void arm64::patch(hwcode_t pos, hwcode_t pvalue, bool rel)
+// ----------------------------------------------------------------------------
+//   Patch a recorded branch (B / B.cond / CBZ / TBZ) to jump to target
+// ----------------------------------------------------------------------------
+{
+    record(arm64, "patch %+s pos=%llu target=%llu",
+           rel ? "relative" : "absolute", pos, pvalue);
+
+    section &sec = code();
+    if (!rel)
+    {
+        record(arm64_error, "Absolute patch not supported at %llu", pos);
+        return;
+    }
+
+    int64_t  byte_off = int64_t(pvalue) - int64_t(pos);
+    if (byte_off & 3)
+    {
+        record(arm64_error, "Unaligned branch patch off=%lld", byte_off);
+        return;
+    }
+    int32_t insn_off = int32_t(byte_off / 4);
+
+    uint32_t insn = sec.value32le(pos);
+    uint32_t op   = insn & 0xff000000u;
+
+    if (op == 0x14000000u || op == 0x94000000u)
+    {
+        // B / BL imm26
+        if (insn_off < -(1 << 25) || insn_off >= (1 << 25))
+        {
+            record(arm64_error, "B/BL out of range off=%d", insn_off);
+            return;
+        }
+        insn = (op == 0x94000000u) ? bl_imm(insn_off) : b_imm(insn_off);
+    }
+    else if ((insn & 0xff000010u) == 0x54000000u)
+    {
+        // B.cond imm19
+        if (insn_off < -(1 << 18) || insn_off >= (1 << 18))
+        {
+            record(arm64_error, "B.cond out of range off=%d", insn_off);
+            return;
+        }
+        insn = b_cond_imm(byte(insn & 0xfu), insn_off);
+    }
+    else if (op == 0xb4000000u || op == 0xb5000000u)
+    {
+        // CBZ / CBNZ imm19
+        if (insn_off < -(1 << 18) || insn_off >= (1 << 18))
+        {
+            record(arm64_error, "CBZ/CBNZ out of range off=%d", insn_off);
+            return;
+        }
+        uint rt = insn & 0x1fu;
+        insn = (op == 0xb4000000u) ? cbz_imm(rt, insn_off)
+                                   : cbnz_imm(rt, insn_off);
+    }
+    else if ((insn & 0x7f000000u) == 0x36000000u
+          || (insn & 0x7f000000u) == 0x37000000u)
+    {
+        // TBZ / TBNZ imm14
+        if (insn_off < -(1 << 13) || insn_off >= (1 << 13))
+        {
+            record(arm64_error, "TBZ/TBNZ out of range off=%d", insn_off);
+            return;
+        }
+        uint rt  = insn & 0x1fu;
+        uint bit = ((insn >> 26) & 0x20u) | ((insn >> 19) & 0x1fu);
+        insn = ((insn & 0x7f000000u) == 0x36000000u)
+             ? tbz_imm(rt, bit, insn_off)
+             : tbnz_imm(rt, bit, insn_off);
+    }
+    else
+    {
+        record(arm64_error, "Unknown branch insn 0x%08X at %llu", insn, pos);
+        return;
+    }
+
+    sec.patch32le(pos, insn);
+}
+
+
+void arm64::call(void (*target)())
+// ----------------------------------------------------------------------------
+//   Emit a direct call to a C function pointer
+// ----------------------------------------------------------------------------
+{
+    record(arm64, "call %p", target);
+    call_ptr(target);
+}
+
+
+void arm64::syscall(void (*target)())
+// ----------------------------------------------------------------------------
+//   Spill all locals then call a runtime helper
+// ----------------------------------------------------------------------------
+{
+    size_t spilled = spill_all();
+    record(arm64, "syscall %p spilled %zu", target, spilled);
+    call_ptr(target);
+}
+
+
+uint arm64::relocate(void *base)
+// ----------------------------------------------------------------------------
+//   Relocate absolute addresses after mapping the code
+// ----------------------------------------------------------------------------
+{
+    size_t count = relocations.size();
+    record(arm64, "relocate base=%p count=%zu", base, count);
+    // Arm64 currently emits PC-relative / absolute via movz/movk sequences;
+    // no deferred absolute reloc list is required for the smoke path.
+    relocations.clear();
+    return uint(count);
+}
+
+
+bool arm64::move(hwreg_t to, hwreg_t from)
+// ----------------------------------------------------------------------------
+//   Move between registers
+// ----------------------------------------------------------------------------
+{
+    arm64reg_t d = hw(to);
+    arm64reg_t s = hw(from);
+    if (is_fp(d) || is_fp(s))
+    {
+        if (is_flt(d) || is_flt(s))
+            emit32le(fmov_ss(vn(d), vn(s)));
+        else
+            emit32le(fmov_dd(vn(d), vn(s)));
+    }
+    else
+    {
+        emit32le(mov_rr(xn(d), xn(s)));
+    }
+    return true;
+}
+
+
+bool arm64::load(hwreg_t h, local_t n)
+// ----------------------------------------------------------------------------
+//   Load bytecode local n from frame memory into hardware register r
+// ----------------------------------------------------------------------------
+{
+    arm64reg_t r = hw(h);
+    record(arm64, "load %u=[%u]", r, n);
+
+    // Without op_enter, locals live only in registers; materialize as zero.
+    // (Accessing [x29, #-N] below SP would fault on AArch64.)
+    if (!frame_active)
+    {
+        if (is_fp(r))
+        {
+            emit32le(movz(xn(HW_SCRATCH), 0));
+            if (is_flt(r))
+                emit32le(fmov_s_w(vn(r), xn(HW_SCRATCH)));
+            else
+                emit32le(fmov_d_x(vn(r), xn(HW_SCRATCH)));
+        }
+        else
+        {
+            emit32le(movz(xn(r), 0));
+        }
+        return true;
+    }
+
+    int disp = local_disp(n);
+    if (is_fp(r))
+    {
+        // Load via scratch GPR then fmov into V
+        emit_load_off(HW_SCRATCH, HW_FRAME, disp);
+        if (is_flt(r))
+            emit32le(fmov_s_w(vn(r), xn(HW_SCRATCH)));
+        else
+            emit32le(fmov_d_x(vn(r), xn(HW_SCRATCH)));
+    }
+    else
+    {
+        emit_load_off(r, HW_FRAME, disp);
+    }
+    return true;
+}
+
+
+bool arm64::store(local_t n, hwreg_t h)
+// ----------------------------------------------------------------------------
+//   Store hardware register r into bytecode local frame slot n
+// ----------------------------------------------------------------------------
+{
+    arm64reg_t r = hw(h);
+    record(arm64, "store [%u]=%u", n, r);
+    if (!frame_active)
+    {
+        // No native frame slots yet — keep the value in the register only.
+        saved(n, h);
+        return true;
+    }
+    int disp = local_disp(n);
+
+    if (is_fp(r))
+    {
+        if (is_flt(r))
+            emit32le(fmov_w_s(xn(HW_SCRATCH), vn(r)));
+        else
+            emit32le(fmov_x_d(xn(HW_SCRATCH), vn(r)));
+        emit_store_off(HW_FRAME, HW_SCRATCH, disp);
+    }
+    else
+    {
+        emit_store_off(HW_FRAME, r, disp);
+    }
+    saved(n, h);
+    return true;
+}
+
+
+arm64::reginfo arm64::register_definition(hwreg_t reg) const
+// ----------------------------------------------------------------------------
+//   Return the register specification flags for AArch64
+// ----------------------------------------------------------------------------
+{
+    // Prefer callee-saved allocatable GPRs so values survive sys/helper calls.
+    // x0-x18 are call-clobbered — keep them non-allocatable for now.
+    // x16 SCRATCH, x22 FLAGS, x29 FRAME, x30 LR, sp: not allocatable.
+    static const reginfo arm64_registers[arm64::HW_COUNT] =
+    {
+        {  "x0",                       0 },
+        {  "x1",                       0 },
+        {  "x2",                       0 },
+        {  "x3",                       0 },
+        {  "x4",                       0 },
+        {  "x5",                       0 },
+        {  "x6",                       0 },
+        {  "x7",                       0 },
+        {  "x8",                       0 },
+        {  "x9",                       0 },
+        { "x10",                       0 },
+        { "x11",                       0 },
+        { "x12",                       0 },
+        { "x13",                       0 },
+        { "x14",                       0 },
+        { "x15",                       0 },
+        { "x16",                       0 }, // HW_SCRATCH
+        { "x17",                       0 },
+        { "x18",                       0 },
+        { "x19", RSPEC_CALL |  RSPEC_INT },
+        { "x20", RSPEC_CALL |  RSPEC_INT },
+        { "x21", RSPEC_CALL |  RSPEC_INT },
+        { "x22",                       0 }, // HW_FLAGS
+        { "x23", RSPEC_CALL |  RSPEC_INT },
+        { "x24", RSPEC_CALL |  RSPEC_INT },
+        { "x25", RSPEC_CALL |  RSPEC_INT },
+        { "x26", RSPEC_CALL |  RSPEC_INT },
+        { "x27", RSPEC_CALL |  RSPEC_INT },
+        { "x28", RSPEC_CALL |  RSPEC_INT },
+        { "x29",                       0 }, // HW_FRAME
+        { "x30",                       0 }, // HW_LR
+        {  "sp",                       0 },
+
+        {  "v0d",              RSPEC_DBL },
+        {  "v1d",              RSPEC_DBL },
+        {  "v2d",              RSPEC_DBL },
+        {  "v3d",              RSPEC_DBL },
+        {  "v4d",              RSPEC_DBL },
+        {  "v5d",              RSPEC_DBL },
+        {  "v6d",              RSPEC_DBL },
+        {  "v7d",              RSPEC_DBL },
+
+        {  "v0f",              RSPEC_FLT },
+        {  "v1f",              RSPEC_FLT },
+        {  "v2f",              RSPEC_FLT },
+        {  "v3f",              RSPEC_FLT },
+        {  "v4f",              RSPEC_FLT },
+        {  "v5f",              RSPEC_FLT },
+        {  "v6f",              RSPEC_FLT },
+        {  "v7f",              RSPEC_FLT },
+    };
+
+    return reg < HW_COUNT ? arm64_registers[reg] : reginfo{"INVALID", 0};
+}
+
+
+
+// ============================================================================
+//
+//   Internal helpers
+//
+// ============================================================================
+
+void arm64::emit_load_off(arm64reg_t rd, arm64reg_t rn, int offs)
+// ----------------------------------------------------------------------------
+//   Load 64-bit value from [rn, #offs] (LDUR for negative / unaligned)
+// ----------------------------------------------------------------------------
+{
+    uint d = xn(rd);
+    uint n = xn(rn);
+    if (offs >= 0 && (offs % 8) == 0 && (offs / 8) <= 0xfff)
+        emit32le(ldr_off(d, n, uint(offs / 8)));
+    else if (offs >= -256 && offs <= 255)
+        emit32le(ldur_imm(d, n, offs));
+    else
+    {
+        // Large offset: add scratch base
+        set_imm(HW_SCRATCH, uint64_t(int64_t(offs)));
+        emit32le(add_rrr(xn(HW_SCRATCH), n, xn(HW_SCRATCH)));
+        emit32le(ldr_idx(d, xn(HW_SCRATCH)));
+    }
+}
+
+
+void arm64::emit_store_off(arm64reg_t rn, arm64reg_t rt, int offs)
+// ----------------------------------------------------------------------------
+//   Store 64-bit value to [rn, #offs] (STUR for negative / unaligned)
+// ----------------------------------------------------------------------------
+{
+    uint n = xn(rn);
+    uint t = xn(rt);
+    if (offs >= 0 && (offs % 8) == 0 && (offs / 8) <= 0xfff)
+        emit32le(str_off(t, n, uint(offs / 8)));
+    else if (offs >= -256 && offs <= 255)
+        emit32le(stur_imm(t, n, offs));
+    else
+    {
+        set_imm(HW_SCRATCH, uint64_t(int64_t(offs)));
+        emit32le(add_rrr(xn(HW_SCRATCH), n, xn(HW_SCRATCH)));
+        emit32le(str_idx(t, xn(HW_SCRATCH)));
+    }
+}
+
+
+void arm64::emit_push(arm64reg_t r)
+// ----------------------------------------------------------------------------
+//   Push a register (16-byte aligned: stp r, xzr, [sp, #-16]!)
+// ----------------------------------------------------------------------------
+{
+    emit32le(stp_pre(xn(r), 31 /*xzr*/, xn(HW_SP), -16));
+}
+
+
+void arm64::emit_pop(arm64reg_t r)
+// ----------------------------------------------------------------------------
+//   Pop a register (ldp r, xzr, [sp], #16)
+// ----------------------------------------------------------------------------
+{
+    emit32le(ldp_post(xn(r), 31 /*xzr*/, xn(HW_SP), 16));
+}
+
+
+hwcode_t arm64::emit_b_rel()
+// ----------------------------------------------------------------------------
+//   Emit placeholder B #0; return site for patch
+// ----------------------------------------------------------------------------
+{
+    hwcode_t site = cursor();
+    emit32le(b_imm(0));
+    return site;
+}
+
+
+hwcode_t arm64::emit_bl_rel()
+// ----------------------------------------------------------------------------
+//   Emit placeholder BL #0; return site for patch
+// ----------------------------------------------------------------------------
+{
+    hwcode_t site = cursor();
+    emit32le(bl_imm(0));
+    return site;
+}
+
+
+hwcode_t arm64::emit_bcond_rel(byte cond)
+// ----------------------------------------------------------------------------
+//   Emit placeholder B.cond #0; return site for patch
+// ----------------------------------------------------------------------------
+{
+    hwcode_t site = cursor();
+    emit32le(b_cond_imm(cond, 0));
+    return site;
+}
+
+
+hwcode_t arm64::emit_cbz_rel(arm64reg_t rt)
+{
+    hwcode_t site = cursor();
+    emit32le(cbz_imm(xn(rt), 0));
+    return site;
+}
+
+
+hwcode_t arm64::emit_cbnz_rel(arm64reg_t rt)
+{
+    hwcode_t site = cursor();
+    emit32le(cbnz_imm(xn(rt), 0));
+    return site;
+}
+
+
+hwcode_t arm64::emit_tbz_rel(arm64reg_t rt, uint bit)
+{
+    hwcode_t site = cursor();
+    emit32le(tbz_imm(xn(rt), bit, 0));
+    return site;
+}
+
+
+hwcode_t arm64::emit_tbnz_rel(arm64reg_t rt, uint bit)
+{
+    hwcode_t site = cursor();
+    emit32le(tbnz_imm(xn(rt), bit, 0));
+    return site;
+}
+
+
+void arm64::set_imm(arm64reg_t r, uint64_t v)
+// ----------------------------------------------------------------------------
+//   Load a 64-bit constant into register r (MOVZ / MOVN + MOVK)
+// ----------------------------------------------------------------------------
+{
+    uint rd = xn(r);
+    record(arm64, "set_imm %u = 0x%llX", rd, v);
+
     uint64_t inv = ~v;
     int nz = 0, nz_inv = 0;
     for (int i = 0; i < 4; i++)
@@ -131,7 +541,6 @@ void arm64::load_imm64(uint r, uint64_t v)
             nz_inv++;
     }
 
-    // Prefer MOVN when fewer halfwords need patching (e.g. -1 → MOVN #0).
     if (nz_inv < nz)
     {
         int start = 0;
@@ -144,496 +553,306 @@ void arm64::load_imm64(uint r, uint64_t v)
             }
         }
         uint shift = uint(start) * 16;
-        emit32le(movn(r, uint32_t((inv >> shift) & 0xffffu), shift));
+        emit32le(movn(rd, uint32_t((inv >> shift) & 0xffffu), shift));
         for (int i = 0; i < 4; i++)
         {
             if (i == start)
                 continue;
             uint16_t hw = uint16_t((v >> (16 * i)) & 0xffffu);
             if (hw != 0xffffu)
-                emit32le(movk(r, hw, uint(i) * 16));
+                emit32le(movk(rd, hw, uint(i) * 16));
         }
         return;
     }
 
-    emit32le(movz(r, uint32_t(v) & 0xffffu));
+    emit32le(movz(rd, uint32_t(v) & 0xffffu));
     if ((v >> 16) & 0xffffu)
-        emit32le(movk(r, uint32_t(v >> 16), 16));
+        emit32le(movk(rd, uint32_t(v >> 16), 16));
     if ((v >> 32) & 0xffffu)
-        emit32le(movk(r, uint32_t(v >> 32), 32));
+        emit32le(movk(rd, uint32_t(v >> 32), 32));
     if ((v >> 48) & 0xffffu)
-        emit32le(movk(r, uint32_t(v >> 48), 48));
+        emit32le(movk(rd, uint32_t(v >> 48), 48));
 }
 
 
-void arm64::call_abs(void *fn)
+arm64::arm64reg_t arm64::load_fp(local_t loc, byte sz)
 // ----------------------------------------------------------------------------
-//   Emit an absolute call to fn using x16 as scratch
+//   Allocate an FP register for local and ensure it holds the value
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "call_abs(%p)", fn);
-    load_imm64(HW_IP, uint64_t(fn));
-    emit32le(blr(HW_IP));
+    hwspec_t spec = sz == 64 ? RSPEC_DBL : RSPEC_FLT;
+    arm64reg_t r = hw(local(loc, spec));
+    record(arm64, "load_fp%u [%u]=%u", sz, loc, r);
+    return r;
 }
 
 
-void arm64::touch_local(byte d)
+void arm64::store_fp(local_t loc, arm64reg_t r)
 // ----------------------------------------------------------------------------
-//   Note that bytecode local d was modified in a hardware register
+//   Mark FP register as holding local (already in register)
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "touch_local(%u)", d);
-    if (d <= 1)
-        spill_arg_regs = true;
+    record(arm64, "store_fp [%u]=%u", loc, r);
+    store(loc, r);
 }
 
 
-void arm64::spill_frame(void)
+void arm64::load_local(local_t loc, arm64reg_t r)
 // ----------------------------------------------------------------------------
-//   Store live bytecode locals in x0-x15 into the runtime frame at x19
+//   Load bytecode local into a hardware register
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "spill_frame()");
-    restore_frame_ptr();
-    runtime *rt = xlr8_get_runtime();
-    if (!rt || !rt->frame)
-        return;
-
-    // Only spill slots that exist in the current frame record
-    byte locals = byte(rt->frame[-1]);
-    if (!locals)
-        locals = byte(rt->CALL_CLOBBERED_REGS);
-    if (locals > 16)
-        locals = 16;
-
-    // Pointer stores may update frame slots without touching shadow registers.
-    // Reload shadows from frame instead of overwriting memory with stale values.
-    if (frame_memory_touched)
-    {
-        for (uint r = 0; r < locals; r++)
-            emit32le(ldr_off(xreg(byte(r)), HW_FRAME, r));
-        frame_memory_touched = false;
-        return;
-    }
-
-    for (uint r = 0; r < locals; r++)
-    {
-        // x0/x1 become syscall arguments; only sync them once after a change
-        if (r <= 1 && !spill_arg_regs)
-            continue;
-        emit32le(str_off(xreg(byte(r)), HW_FRAME, r));
-    }
+    record(arm64, "load_local [%u]->%u", loc, r);
+    load(r, loc);
 }
 
 
-void arm64::restore_frame_ptr()
+void arm64::store_local(arm64reg_t r, local_t loc)
 // ----------------------------------------------------------------------------
-//   Reload x19 from the callee-saved frame anchor in x27
+//   Store hardware register into bytecode local
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "restore_frame_ptr()");
-    emit32le(mov_rr(HW_FRAME, HW_ANCHOR));
+    record(arm64, "store_local %u->[%u]", r, loc);
+    store(loc, r);
 }
 
 
-void arm64::reload_frame_reg()
-// ----------------------------------------------------------------------------
-//   Reload x19 from x0 after xlr8_enter or xlr8_leave, then refresh x27
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "reload_frame_reg()");
-    emit32le(reload_frame());
-    emit32le(mov_rr(HW_ANCHOR, HW_FRAME));
-}
-
-
-void arm64::reload_flags_reg()
-// ----------------------------------------------------------------------------
-//   Reload x22 from runtime flags after xlr8_leave
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "reload_flags_reg()");
-    rtcall("xlr8_get_flags");
-    emit32le(mov_rr(HW_FLAGS, 0));
-}
-
-
-uint arm64::jump(uint t)
-// ----------------------------------------------------------------------------
-//   Emit jump with deferred fixup chain (placeholder holds previous head)
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "jump(%u)", t);
-    uint pos = uint(cursor());
-    emit32le(b_imm(0));
-    jump_chain[pos] = t;
-    return pos;
-}
-
-void arm64::resolve_jump(uint t, uint a)
-// ----------------------------------------------------------------------------
-//   Patch pending jumps to address a
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "resolve_jump(%u, %u)", t, a);
-    section &sec = code();
-    while (t)
-    {
-        uint n = t;
-        uint next = 0;
-        auto it = jump_chain.find(n);
-        if (it != jump_chain.end())
-            next = it->second;
-        int32_t offset = (int32_t(a) - int32_t(n)) / 4;
-        record(arm64, "resolve_jump patch site=%u next=%u offset=%d", n, next, offset);
-        sec.patch32le(n, b_imm(offset));
-        t = next;
-    }
-}
-
-
-void arm64::syscall(void (*target)())
-// ----------------------------------------------------------------------------
-//   Implement a syscall to the runtime
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "syscall(%p)", target);
-    call_abs((void *) target);
-}
-
-
-void arm64::begin_translation()
-// ----------------------------------------------------------------------------
-//   Save invoke LR on the JIT stack, then reload shadows
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "begin_translation()");
-    frame_memory_touched = false;
-    emit32le(stp_push(30));
-    emit32le(mov_rr(HW_ANCHOR, HW_FRAME));
-}
-
-
-void arm64::finish_translation()
-// ----------------------------------------------------------------------------
-//   Emit epilogue at end of translated code
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "finish_translation()");
-    epilogue();
-}
-
-
-void arm64::mov_local(byte d, byte s)
+void arm64::mov_local(local_t dst, local_t src)
 // ----------------------------------------------------------------------------
 //   Copy value between bytecode locals
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "mov_local(%u, %u)", d, s);
-    if (d < LOC_SHADOW_COUNT && s < LOC_SHADOW_COUNT)
-    {
-        emit32le(mov_rr(xreg(d), xreg(s)));
-        emit32le(str_off(xreg(d), HW_FRAME, d));
-    }
-    else
-        load_local(s, HW_SCR_VAL), store_local(HW_SCR_VAL, d);
-    touch_local(d);
+    record(arm64, "mov_local [%u]=[%u]", dst, src);
+    hwreg_t sreg = local(src);
+    hwreg_t dreg = local(dst);
+    move(dreg, sreg);
 }
 
-void arm64::swap_locals(byte d, byte s)
+
+void arm64::swap_locals(local_t d, local_t s)
 // ----------------------------------------------------------------------------
 //   Swap values of two bytecode locals
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "swap_locals(%u, %u)", d, s);
-    load_local(s, HW_SCR_VAL);
-    load_local(d, HW_SCR_ADDR);
-    store_local(HW_SCR_VAL, d);
-    store_local(HW_SCR_ADDR, s);
+    record(arm64, "swap_locals %u and %u", d, s);
+    arm64reg_t sr = hw_local(s);
+    arm64reg_t dr = hw_local(d);
+    emit32le(mov_rr(xn(HW_SCRATCH), xn(dr)));
+    emit32le(mov_rr(xn(dr), xn(sr)));
+    emit32le(mov_rr(xn(sr), xn(HW_SCRATCH)));
 }
 
 
-void arm64::store_imm(byte d, value_t v)
+void arm64::store_imm(local_t d, value_t v)
 // ----------------------------------------------------------------------------
-//   Store signed integer immediate into bytecode local
+//   Store integer immediate into bytecode local
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "store_imm(%u, %lld)", d, v);
-    uint64_t imm = uint64_t(int64_t(int32_t(uint32_t(v))));
-    if (d < LOC_SHADOW_COUNT)
-        load_imm64(xreg(d), imm);
-    else
-        load_imm64(HW_SCR_VAL, imm),
-        store_local(HW_SCR_VAL, d);
-    if (d < LOC_SHADOW_COUNT)
-        emit32le(str_off(xreg(d), HW_FRAME, d));
-    touch_local(d);
+    record(arm64, "store_imm [%u]=%lld", d, v);
+    arm64reg_t dreg = hw_local(d);
+    set_imm(dreg, uint64_t(v));
 }
 
-void arm64::store_uimm(byte d, uvalue_t v)
-// ----------------------------------------------------------------------------
-//   Store unsigned integer immediate into bytecode local
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "store_uimm(%u, %llu)", d, v);
-    uint64_t imm = uint64_t(uint32_t(v));
-    if (d < LOC_SHADOW_COUNT)
-        load_imm64(xreg(d), imm);
-    else
-        load_imm64(HW_SCR_VAL, imm),
-        store_local(HW_SCR_VAL, d);
-    if (d < LOC_SHADOW_COUNT)
-        emit32le(str_off(xreg(d), HW_FRAME, d));
-    touch_local(d);
-}
 
-void arm64::store_float(byte d, float v)
+void arm64::store_float(local_t d, float v)
 // ----------------------------------------------------------------------------
 //   Store float immediate into bytecode local
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "store_float(%u, %g)", d, v);
+    record(arm64, "store_flt [%u] = %g", d, v);
+    arm64reg_t dreg = hw(local(d, RSPEC_FLT));
     uint32_t bits = 0;
-    memcpy(&bits, &v, 4);
-    if (d < LOC_SHADOW_COUNT)
-    {
-        load_imm64(xreg(d), uint64_t(bits));
-        emit32le(str_off(xreg(d), HW_FRAME, d));
-    }
-    else
-    {
-        load_imm64(HW_SCR_VAL, uint64_t(bits));
-        store_local(HW_SCR_VAL, d);
-    }
-    touch_local(d);
+    memcpy(&bits, &v, sizeof(bits));
+    set_imm(HW_SCRATCH, bits);
+    emit32le(fmov_s_w(vn(dreg), xn(HW_SCRATCH)));
 }
 
-void arm64::store_float_local(byte d, uint wn)
-// ----------------------------------------------------------------------------
-//   Store a 32-bit float from Wn into bytecode local d and its shadow
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "store_float_local(%u, %u)", d, wn);
-    if (d < LOC_SHADOW_COUNT)
-    {
-        emit32le(uxtw_x(xreg(d), wn));
-        emit32le(str_off(xreg(d), HW_FRAME, d));
-        touch_local(d);
-    }
-    else
-    {
-        emit32le(uxtw_x(HW_SCR_VAL, wn));
-        store_local(HW_SCR_VAL, d);
-    }
-}
 
-void arm64::store_double(byte d, double v)
+void arm64::store_double(local_t d, double v)
 // ----------------------------------------------------------------------------
 //   Store double immediate into bytecode local
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "store_double(%u, %g)", d, v);
-    uint64_t bits = 0; memcpy(&bits, &v, 8);
-    if (d < LOC_SHADOW_COUNT)
-    {
-        load_imm64(xreg(d), bits);
-        emit32le(str_off(xreg(d), HW_FRAME, d));
-    }
-    else
-    {
-        load_imm64(HW_SCR_VAL, bits);
-        store_local(HW_SCR_VAL, d);
-    }
-    touch_local(d);
+    record(arm64, "store_dbl [%u] = %g", d, v);
+    arm64reg_t dreg = hw(local(d, RSPEC_DBL));
+    uint64_t bits = 0;
+    memcpy(&bits, &v, sizeof(bits));
+    set_imm(HW_SCRATCH, bits);
+    emit32le(fmov_d_x(vn(dreg), xn(HW_SCRATCH)));
 }
 
-void arm64::binop_local(byte d, byte s, cstring op)
+
+void arm64::binop_local(local_t dloc, local_t sloc, op_t op, byte fp)
 // ----------------------------------------------------------------------------
 //   Apply binary operator to two bytecode locals
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "binop_local(%u, %u, %s)", d, s, op);
-    load_local(d, HW_SCR_ADDR);
-    load_local(s, HW_SCR_VAL);
-    uint rd = HW_SCR_ADDR;
-    uint rs = HW_SCR_VAL;
+    hwspec_t spec = fp == 64 ? RSPEC_DBL : fp == 32 ? RSPEC_FLT : RSPEC_INT;
+    arm64reg_t d = hw(local(dloc, spec));
+    arm64reg_t s = hw(local(sloc, spec));
+    record(arm64, "binop_local%+s [%u]=[%u] reg %u=%u",
+           opcode_name(op), dloc, sloc, d, s);
 
-    if (!strcmp(op, "add"))
-        emit32le(add_rrr(rd, rd, rs));
-    else if (!strcmp(op, "sub"))
-        emit32le(sub_rrr(rd, rd, rs));
-    else if (!strcmp(op, "mul") || !strcmp(op, "imul"))
-        emit32le(mul_rrr(rd, rd, rs));
-    else if (!strcmp(op, "and"))
-        emit32le(and_rrr(rd, rd, rs));
-    else if (!strcmp(op, "or"))
-        emit32le(orr_rrr(rd, rd, rs));
-    else if (!strcmp(op, "xor"))
-        emit32le(eor_rrr(rd, rd, rs));
-    else if (!strcmp(op, "shl"))
-        emit32le(lsl_rrr(rd, rd, rs));
-    else if (!strcmp(op, "sar") || !strcmp(op, "shr"))
-        emit32le(asr_rrr(rd, rd, rs));
-    else if (!strcmp(op, "ushr"))
-        emit32le(lsr_rrr(rd, rd, rs));
-    else if (!strcmp(op, "idiv"))
-        emit32le(sdiv_rrr(rd, rd, rs));
-    else if (!strcmp(op, "div"))
-        emit32le(udiv_rrr(rd, rd, rs));
-    else if (!strcmp(op, "idiv_mod"))
+    switch (op)
     {
-        emit32le(sdiv_rrr(HW_SCR_OFF, rd, rs));
-        emit32le(msub_rrr(rd, HW_SCR_OFF, rs, rd));
+    case op_add:
+        emit32le(add_rrr(xn(d), xn(d), xn(s)));
+        break;
+    case op_sub:
+        emit32le(sub_rrr(xn(d), xn(d), xn(s)));
+        break;
+    case op_mul:
+    case op_umul:
+        emit32le(mul_rrr(xn(d), xn(d), xn(s)));
+        break;
+    case op_div:
+        emit32le(sdiv_rrr(xn(d), xn(d), xn(s)));
+        break;
+    case op_udiv:
+        emit32le(udiv_rrr(xn(d), xn(d), xn(s)));
+        break;
+    case op_mod:
+        emit32le(sdiv_rrr(xn(HW_SCRATCH), xn(d), xn(s)));
+        emit32le(msub_rrr(xn(d), xn(HW_SCRATCH), xn(s), xn(d)));
+        break;
+    case op_umod:
+        emit32le(udiv_rrr(xn(HW_SCRATCH), xn(d), xn(s)));
+        emit32le(msub_rrr(xn(d), xn(HW_SCRATCH), xn(s), xn(d)));
+        break;
+    case op_and:
+        emit32le(and_rrr(xn(d), xn(d), xn(s)));
+        break;
+    case op_or:
+        emit32le(orr_rrr(xn(d), xn(d), xn(s)));
+        break;
+    case op_xor:
+        emit32le(eor_rrr(xn(d), xn(d), xn(s)));
+        break;
+    case op_shl:
+        emit32le(lsl_rrr(xn(d), xn(d), xn(s)));
+        break;
+    case op_shr:
+        emit32le(asr_rrr(xn(d), xn(d), xn(s)));
+        break;
+    case op_ushr:
+        emit32le(lsr_rrr(xn(d), xn(d), xn(s)));
+        break;
+    case op_fadd:
+        emit32le(fop_ss(FOP_ADD, vn(d), vn(d), vn(s)));
+        break;
+    case op_fsub:
+        emit32le(fop_ss(FOP_SUB, vn(d), vn(d), vn(s)));
+        break;
+    case op_fmul:
+        emit32le(fop_ss(FOP_MUL, vn(d), vn(d), vn(s)));
+        break;
+    case op_fdiv:
+        emit32le(fop_ss(FOP_DIV, vn(d), vn(d), vn(s)));
+        break;
+    case op_dadd:
+        emit32le(fop_dd(FOP_ADD, vn(d), vn(d), vn(s)));
+        break;
+    case op_dsub:
+        emit32le(fop_dd(FOP_SUB, vn(d), vn(d), vn(s)));
+        break;
+    case op_dmul:
+        emit32le(fop_dd(FOP_MUL, vn(d), vn(d), vn(s)));
+        break;
+    case op_ddiv:
+        emit32le(fop_dd(FOP_DIV, vn(d), vn(d), vn(s)));
+        break;
+    default:
+        record(arm64_error, "binop_local called with op %u", op);
+        break;
     }
-    else if (!strcmp(op, "div_mod"))
-    {
-        emit32le(udiv_rrr(HW_SCR_OFF, rd, rs));
-        emit32le(msub_rrr(rd, HW_SCR_OFF, rs, rd));
-    }
-    else if (!strcmp(op, "fadd") || !strcmp(op, "fsub")
-          || !strcmp(op, "fmul") || !strcmp(op, "fdiv"))
-    {
-        // Inline FP.  Results must land in zero-extended 64-bit frame slots
-        // (store_float_local); a 32-bit STR left stale high halves that
-        // corrupted spill/reload before the next emit_sys on Linux arm64.
-        uint fop = 0x2800;
-        if (!strcmp(op, "fsub")) fop = 0x3800;
-        else if (!strcmp(op, "fmul")) fop = 0x0800;
-        else if (!strcmp(op, "fdiv")) fop = 0x1800;
-        uint wd = (d < LOC_SHADOW_COUNT) ? uint(d) : rd;
-        uint ws = (s < LOC_SHADOW_COUNT) ? uint(s) : rs;
-        emit32le(fmov_s_w(0, wd));
-        emit32le(fmov_s_w(1, ws));
-        emit32le(fop_ss(fop, 0, 0, 1));
-        emit32le(fmov_w_s(wd, 0));
-        store_float_local(d, wd);
-        return;
-    }
-    else if (!strcmp(op, "dadd") || !strcmp(op, "dsub")
-          || !strcmp(op, "dmul") || !strcmp(op, "ddiv"))
-    {
-        uint fop = 0x2800;
-        if (!strcmp(op, "dsub")) fop = 0x3800;
-        else if (!strcmp(op, "dmul")) fop = 0x0800;
-        else if (!strcmp(op, "ddiv")) fop = 0x1800;
-        emit32le(fmov_d_x(0, rd));
-        emit32le(fmov_d_x(1, rs));
-        emit32le(fop_dd(fop, 0, 0, 1));
-        emit32le(fmov_x_d(rd, 0));
-    }
-    else
-        trap(op);
-
-    store_local(rd, d);
-    touch_local(d);
 }
 
 
-void arm64::binop_imm(byte d, value_t v, cstring op)
+void arm64::binop_imm(local_t dloc, value_t v, op_t op)
 // ----------------------------------------------------------------------------
 //   Apply binary operator with immediate to local
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "binop_imm(%u, %lld, %s)", d, v, op);
-    load_local(d, HW_SCR_ADDR);
-    uint rd = HW_SCR_ADDR;
+    arm64reg_t d = hw_local(dloc);
+    record(arm64, "binop_imm%+s [%u] %lld reg %u",
+           opcode_name(op), dloc, v, d);
 
-    if (!strcmp(op, "add") || !strcmp(op, "addi"))
+    switch (op)
     {
+    case op_addi:
+    case op_addu:
         if (v >= 0 && v < 4096)
-            emit32le(add_imm(rd, rd, uint32_t(v)));
+            emit32le(add_imm(xn(d), xn(d), uint(v)));
         else if (v < 0 && v > -4096)
-            emit32le(sub_imm(rd, rd, uint32_t(-v)));
+            emit32le(sub_imm(xn(d), xn(d), uint(-v)));
         else
         {
-            load_imm64(HW_SCR_VAL, uint64_t(v));
-            emit32le(add_rrr(rd, rd, HW_SCR_VAL));
+            set_imm(HW_SCRATCH, uint64_t(v));
+            emit32le(add_rrr(xn(d), xn(d), xn(HW_SCRATCH)));
         }
-    }
-    else if (!strcmp(op, "sub") || !strcmp(op, "subi"))
-    {
+        break;
+    case op_subi:
+    case op_subu:
         if (v >= 0 && v < 4096)
-            emit32le(sub_imm(rd, rd, uint32_t(v)));
+            emit32le(sub_imm(xn(d), xn(d), uint(v)));
         else if (v < 0 && v > -4096)
-            emit32le(add_imm(rd, rd, uint32_t(-v)));
+            emit32le(add_imm(xn(d), xn(d), uint(-v)));
         else
         {
-            load_imm64(HW_SCR_VAL, uint64_t(v));
-            emit32le(sub_rrr(rd, rd, HW_SCR_VAL));
+            set_imm(HW_SCRATCH, uint64_t(v));
+            emit32le(sub_rrr(xn(d), xn(d), xn(HW_SCRATCH)));
         }
+        break;
+    case op_muli:
+    case op_mulu:
+        set_imm(HW_SCRATCH, uint64_t(v));
+        emit32le(mul_rrr(xn(d), xn(d), xn(HW_SCRATCH)));
+        break;
+    case op_divi:
+        set_imm(HW_SCRATCH, uint64_t(v));
+        emit32le(sdiv_rrr(xn(d), xn(d), xn(HW_SCRATCH)));
+        break;
+    case op_divu:
+        set_imm(HW_SCRATCH, uint64_t(v));
+        emit32le(udiv_rrr(xn(d), xn(d), xn(HW_SCRATCH)));
+        break;
+    case op_modi:
+        set_imm(HW_SCRATCH, uint64_t(v));
+        emit32le(sdiv_rrr(xn(HW_X17), xn(d), xn(HW_SCRATCH)));
+        emit32le(msub_rrr(xn(d), xn(HW_X17), xn(HW_SCRATCH), xn(d)));
+        break;
+    case op_modu:
+        set_imm(HW_SCRATCH, uint64_t(v));
+        emit32le(udiv_rrr(xn(HW_X17), xn(d), xn(HW_SCRATCH)));
+        emit32le(msub_rrr(xn(d), xn(HW_X17), xn(HW_SCRATCH), xn(d)));
+        break;
+    case op_andu:
+        set_imm(HW_SCRATCH, uint64_t(v));
+        emit32le(and_rrr(xn(d), xn(d), xn(HW_SCRATCH)));
+        break;
+    case op_oru:
+        set_imm(HW_SCRATCH, uint64_t(v));
+        emit32le(orr_rrr(xn(d), xn(d), xn(HW_SCRATCH)));
+        break;
+    case op_xoru:
+        set_imm(HW_SCRATCH, uint64_t(v));
+        emit32le(eor_rrr(xn(d), xn(d), xn(HW_SCRATCH)));
+        break;
+    case op_shlu:
+        emit32le(lsl_imm64(xn(d), xn(d), uint(v) & 63u));
+        break;
+    case op_shru:
+        emit32le(asr_imm64(xn(d), xn(d), uint(v) & 63u));
+        break;
+    case op_ushru:
+        emit32le(lsr_imm64(xn(d), xn(d), uint(v) & 63u));
+        break;
+    default:
+        record(arm64_error, "binop_imm called with op %u", op);
+        break;
     }
-    else if (!strcmp(op, "imul"))
-    {
-        load_imm64(HW_SCR_VAL, uint64_t(v));
-        emit32le(mul_rrr(rd, rd, HW_SCR_VAL));
-    }
-    else if (!strcmp(op, "and"))
-    {
-        load_imm64(HW_SCR_VAL, uint64_t(v));
-        emit32le(and_rrr(rd, rd, HW_SCR_VAL));
-    }
-    else if (!strcmp(op, "or"))
-    {
-        load_imm64(HW_SCR_VAL, uint64_t(v));
-        emit32le(orr_rrr(rd, rd, HW_SCR_VAL));
-    }
-    else if (!strcmp(op, "xor"))
-    {
-        load_imm64(HW_SCR_VAL, uint64_t(v));
-        emit32le(eor_rrr(rd, rd, HW_SCR_VAL));
-    }
-    else if (!strcmp(op, "shl_imm") || !strcmp(op, "sar_imm")
-          || !strcmp(op, "shr_imm"))
-    {
-        uint amt = uint(v) & 63u;
-        if (v >= 0 && v < 64)
-        {
-            if (!strcmp(op, "shl_imm"))
-                emit32le(lsl_imm64(rd, rd, amt));
-            else if (!strcmp(op, "sar_imm"))
-                emit32le(asr_imm64(rd, rd, amt));
-            else
-                emit32le(lsr_imm64(rd, rd, amt));
-        }
-        else
-        {
-            load_imm64(HW_SCR_VAL, uint64_t(v));
-            if (!strcmp(op, "shl_imm"))
-                emit32le(lsl_rrr(rd, rd, HW_SCR_VAL));
-            else if (!strcmp(op, "sar_imm"))
-                emit32le(asr_rrr(rd, rd, HW_SCR_VAL));
-            else
-                emit32le(lsr_rrr(rd, rd, HW_SCR_VAL));
-        }
-    }
-    else if (!strcmp(op, "idiv_imm"))
-    {
-        load_imm64(HW_SCR_VAL, uint64_t(v));
-        emit32le(sdiv_rrr(rd, rd, HW_SCR_VAL));
-    }
-    else if (!strcmp(op, "div_imm"))
-    {
-        load_imm64(HW_SCR_VAL, uint64_t(v));
-        emit32le(udiv_rrr(rd, rd, HW_SCR_VAL));
-    }
-    else if (!strcmp(op, "idiv_mod_imm"))
-    {
-        load_imm64(HW_SCR_VAL, uint64_t(v));
-        emit32le(sdiv_rrr(HW_SCR_OFF, rd, HW_SCR_VAL));
-        emit32le(msub_rrr(rd, HW_SCR_OFF, HW_SCR_VAL, rd));
-    }
-    else if (!strcmp(op, "div_mod_imm"))
-    {
-        load_imm64(HW_SCR_VAL, uint64_t(v));
-        emit32le(udiv_rrr(HW_SCR_OFF, rd, HW_SCR_VAL));
-        emit32le(msub_rrr(rd, HW_SCR_OFF, HW_SCR_VAL, rd));
-    }
-    else
-        trap(op);
-
-    store_local(rd, d);
-    touch_local(d);
 }
+
 
 void arm64::set_pred(byte p, bool on)
 // ----------------------------------------------------------------------------
@@ -643,859 +862,402 @@ void arm64::set_pred(byte p, bool on)
     record(arm64, "set_pred(%u, %d)", p, on);
     if (on)
     {
-        load_imm64(HW_SCR_VAL, 1ULL << p);
-        emit32le(orr_rrr(HW_FLAGS, HW_FLAGS, HW_SCR_VAL));
+        set_imm(HW_SCRATCH, 1ULL << p);
+        emit32le(orr_rrr(xn(HW_FLAGS), xn(HW_FLAGS), xn(HW_SCRATCH)));
     }
     else
     {
-        load_imm64(HW_SCR_VAL, ~(1ULL << p));
-        emit32le(and_rrr(HW_FLAGS, HW_FLAGS, HW_SCR_VAL));
+        set_imm(HW_SCRATCH, ~(1ULL << p));
+        emit32le(and_rrr(xn(HW_FLAGS), xn(HW_FLAGS), xn(HW_SCRATCH)));
     }
 }
 
+
 void arm64::set_pred_cmp(byte p, byte cond)
 // ----------------------------------------------------------------------------
-//   Set predicate bit p according to AArch64 condition code
+//   Set predicate bit p according to AArch64 condition (after CMP)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "set_pred_cmp(%u, %u)", p, cond);
-    load_imm64(HW_SCR_ADDR, ~(1ULL << p));
-    emit32le(and_rrr(HW_FLAGS, HW_FLAGS, HW_SCR_ADDR));
-    emit32le(cset_x(HW_SCR_VAL, cond));
-    size_t cbz_pos = cursor();
-    emit32le(cbz_imm(HW_SCR_VAL, 0));
-    load_imm64(HW_SCR_ADDR, 1ULL << p);
-    emit32le(orr_rrr(HW_FLAGS, HW_FLAGS, HW_SCR_ADDR));
-    int off = int((cursor() - cbz_pos) / 4);
-    code().patch32le(cbz_pos, cbz_imm(HW_SCR_VAL, off));
+    set_imm(HW_X17, ~(1ULL << p));
+    emit32le(and_rrr(xn(HW_FLAGS), xn(HW_FLAGS), xn(HW_X17)));
+    emit32le(cset_x(xn(HW_SCRATCH), cond));
+    hwcode_t cbz_pos = emit_cbz_rel(HW_SCRATCH);
+    set_imm(HW_X17, 1ULL << p);
+    emit32le(orr_rrr(xn(HW_FLAGS), xn(HW_FLAGS), xn(HW_X17)));
+    patch(cbz_pos, cursor(), true);
 }
 
 
-void arm64::cmp_local(byte p, byte d, byte s, cstring op)
+void arm64::cmp_local(byte p, local_t d, local_t s, byte cond)
 // ----------------------------------------------------------------------------
 //   Compare two locals and set predicate p
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "cmp_local(%u, %u, %u, %s)", p, d, s, op);
-    load_local(d, HW_SCR_ADDR);
-    load_local(s, HW_SCR_VAL);
-    emit32le(cmp_rr(HW_SCR_ADDR, HW_SCR_VAL));
-    set_pred_cmp(p, cond_from_op(op));
+    arm64reg_t dr = hw_local(d);
+    arm64reg_t sr = hw_local(s);
+    record(arm64, "cmp_local cc=%u p=%u d=%u r%u s=%u r%u",
+           cond, p, d, dr, s, sr);
+    emit32le(cmp_rr(xn(dr), xn(sr)));
+    set_pred_cmp(p, cond);
 }
 
-void arm64::cmp_imm(byte p, byte d, value_t v, cstring op)
+
+void arm64::cmp_imm(byte p, local_t d, value_t v, byte cond)
 // ----------------------------------------------------------------------------
 //   Compare local with signed immediate and set predicate
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "cmp_imm(%u, %u, %lld, %s)", p, d, v, op);
-    load_local(d, HW_SCR_ADDR);
-    emit32le(cmp_r_imm(HW_SCR_ADDR, uint32_t(v)));
-    set_pred_cmp(p, cond_from_op(op));
+    arm64reg_t dr = hw_local(d);
+    record(arm64, "cmp_imm cc=%u p=%u d=%u r%u v=%lld", cond, p, d, dr, v);
+    if (v >= 0 && v < 4096)
+        emit32le(cmp_r_imm(xn(dr), uint(v)));
+    else
+    {
+        set_imm(HW_SCRATCH, uint64_t(v));
+        emit32le(cmp_rr(xn(dr), xn(HW_SCRATCH)));
+    }
+    set_pred_cmp(p, cond);
 }
 
-void arm64::cmp_uimm(byte p, byte d, uvalue_t v, cstring op)
+
+void arm64::cmp_uimm(byte p, local_t d, uvalue_t v, byte cond)
 // ----------------------------------------------------------------------------
 //   Compare local with unsigned immediate and set predicate
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "cmp_uimm(%u, %u, %llu, %s)", p, d, v, op);
-    cmp_imm(p, d, value_t(v), op);
+    cmp_imm(p, d, value_t(v), cond);
 }
 
-void arm64::cond_mov_local(byte p, byte d, byte s)
+
+void arm64::cond_mov_local(byte p, local_t d, local_t s)
 // ----------------------------------------------------------------------------
 //   Conditionally move local s into d when predicate p is set
 // ----------------------------------------------------------------------------
 {
     record(arm64, "cond_mov_local(%u, %u, %u)", p, d, s);
-    load_imm64(HW_SCR_VAL, uint64_t(1) << p);
-    emit32le(and_rrr(HW_SCR_VAL, HW_FLAGS, HW_SCR_VAL));
-    size_t cbz_pos = cursor();
-    emit32le(cbz_imm(HW_SCR_VAL, 0));
+    hwcode_t skip = emit_tbz_rel(HW_FLAGS, p);
     mov_local(d, s);
-    int off = int((cursor() - cbz_pos) / 4);
-    code().patch32le(cbz_pos, cbz_imm(HW_SCR_VAL, off));
+    patch(skip, cursor(), true);
 }
 
-void arm64::select_local(byte p, byte d, byte s, byte x)
+
+void arm64::select_local(byte p, local_t d, local_t s, byte x)
 // ----------------------------------------------------------------------------
 //   Select between locals s and x into d based on predicate p
 // ----------------------------------------------------------------------------
 {
     record(arm64, "select_local(%u, %u, %u, %u)", p, d, s, x);
-    load_imm64(HW_SCR_VAL, uint64_t(1) << p);
-    emit32le(and_rrr(HW_SCR_VAL, HW_FLAGS, HW_SCR_VAL));
-    size_t cbz_pos = cursor();
-    emit32le(cbz_imm(HW_SCR_VAL, 0));
+    hwcode_t jclear = emit_tbz_rel(HW_FLAGS, p);
     mov_local(d, s);
-    size_t b_pos = cursor();
-    emit32le(b_imm(0));
-    code().patch32le(cbz_pos, cbz_imm(HW_SCR_VAL, int((cursor() - cbz_pos) / 4)));
+    hwcode_t jend = emit_b_rel();
+    patch(jclear, cursor(), true);
     mov_local(d, x);
-    code().patch32le(b_pos, b_imm(int((cursor() - b_pos) / 4)));
+    patch(jend, cursor(), true);
 }
 
-void arm64::neg_local(byte d)
+
+void arm64::neg_local(local_t d)
 // ----------------------------------------------------------------------------
 //   Negate bytecode local d
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "neg_local(%u)", d);
-    if (d < LOC_SHADOW_COUNT)
-        emit32le(neg_rr(xreg(d)));
-    else
-    {
-        load_local(d, HW_SCR_VAL);
-        emit32le(neg_rr(HW_SCR_VAL));
-        store_local(HW_SCR_VAL, d);
-    }
-    touch_local(d);
+    arm64reg_t r = hw_local(d);
+    emit32le(neg_rr(xn(r), xn(r)));
+    record(arm64, "neg_local %u reg %u", d, r);
 }
 
-void arm64::not_local(byte d)
+
+void arm64::not_local(local_t d)
 // ----------------------------------------------------------------------------
 //   Bitwise complement of bytecode local d
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "not_local(%u)", d);
-    if (d < LOC_SHADOW_COUNT)
-        emit32le(not_rr(xreg(d)));
-    else
-    {
-        load_local(d, HW_SCR_VAL);
-        emit32le(not_rr(HW_SCR_VAL));
-        store_local(HW_SCR_VAL, d);
-    }
-    touch_local(d);
+    arm64reg_t r = hw_local(d);
+    emit32le(not_rr(xn(r), xn(r)));
+    record(arm64, "not_local %u reg %u", d, r);
 }
 
-void arm64::incr_local(byte d)
+
+void arm64::incr_local(local_t d)
 // ----------------------------------------------------------------------------
 //   Increment bytecode local d
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "incr_local(%u)", d);
-    load_local(d, HW_SCR_VAL);
-    emit32le(add_imm(HW_SCR_VAL, HW_SCR_VAL, 1));
-    store_local(HW_SCR_VAL, d);
-    touch_local(d);
+    arm64reg_t r = hw_local(d);
+    emit32le(add_imm(xn(r), xn(r), 1));
+    record(arm64, "incr_local %u reg %u", d, r);
 }
 
-void arm64::decr_local(byte d)
+
+void arm64::decr_local(local_t d)
 // ----------------------------------------------------------------------------
 //   Decrement bytecode local d
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "decr_local(%u)", d);
-    load_local(d, HW_SCR_VAL);
-    emit32le(sub_imm(HW_SCR_VAL, HW_SCR_VAL, 1));
-    store_local(HW_SCR_VAL, d);
-    touch_local(d);
+    arm64reg_t r = hw_local(d);
+    emit32le(sub_imm(xn(r), xn(r), 1));
+    record(arm64, "decr_local %u reg %u", d, r);
 }
 
-void arm64::sext_reg(uint rd, uint rn, byte w)
+
+void arm64::sext_reg(arm64reg_t r, byte w)
 // ----------------------------------------------------------------------------
-//   Sign-extend register rn to w bits into rd (shared by sext and load paths)
+//   Sign-extend register r from low w bits to 64
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "sext_reg(%u, %u, %u)", rd, rn, w);
-    if (w < 64)
-        emit32le(sbfm_width(rd, rn, w));
+    record(arm64, "sext_reg %u width %u", r, w);
+    if (w == 0 || w >= 64)
+        return;
+    emit32le(sbfm_width(xn(r), xn(r), w));
 }
 
 
-void arm64::sext_local(byte d, byte w)
+void arm64::sext_local(local_t d, byte w)
 // ----------------------------------------------------------------------------
 //   Sign-extend local d to w bits
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "sext_local(%u, %u)", d, w);
-    load_local(d, HW_SCR_ADDR);
-    sext_reg(HW_SCR_ADDR, HW_SCR_ADDR, w);
-    store_local(HW_SCR_ADDR, d);
-    touch_local(d);
+    record(arm64, "sext_local%u %u", w, d);
+    if (w < 64)
+        sext_reg(hw_local(d), w);
 }
 
-void arm64::zext_local(byte d, byte w)
+
+void arm64::zext_local(local_t d, byte w)
 // ----------------------------------------------------------------------------
 //   Zero-extend local d to w bits
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "zext_local(%u, %u)", d, w);
-    load_local(d, HW_SCR_ADDR);
+    record(arm64, "zext_local%u %u", w, d);
     if (w < 64)
-        emit32le(ubfm_width(HW_SCR_ADDR, HW_SCR_ADDR, w));
-    store_local(HW_SCR_ADDR, d);
-    touch_local(d);
-}
-
-void arm64::frame_addr(byte d, byte s)
-// ----------------------------------------------------------------------------
-//   Compute frame-relative address of local slot s into local d
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "frame_addr(%u, %u)", d, s);
-    if (s == 0)
-        emit32le(mov_rr(HW_SCR_ADDR, HW_FRAME));
-    else if (uint(s) <= 511)
-        emit32le(add_imm(HW_SCR_ADDR, HW_FRAME, uint(s) * 8));
-    else
     {
-        load_imm64(HW_SCR_VAL, uint64_t(s));
-        emit32le(frame_addr_rr(HW_SCR_ADDR, HW_SCR_VAL));
+        arm64reg_t r = hw_local(d);
+        emit32le(ubfm_width(xn(r), xn(r), w));
     }
-    store_local(HW_SCR_ADDR, d);
-    touch_local(d);
 }
 
 
-void arm64::store_mem(byte d, byte s, uint sz)
+void arm64::store_mem(local_t d, local_t s, size_t sz, value_t offs)
 // ----------------------------------------------------------------------------
-//   Store value from local s at address in local d
+//   Store value from local s at address in local d (+ offs)
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "store_mem(%u, %u, %u)", d, s, sz);
-    load_local(s, HW_SCR_VAL);
-    load_local(d, HW_SCR_ADDR);
+    arm64reg_t dr = hw_local(d);
+    arm64reg_t sr = hw_local(s);
+    record(arm64, "store_mem%zu [%u]=%u offs %lld", sz, d, s, offs);
+
+    arm64reg_t addr = dr;
+    if (offs)
+    {
+        set_imm(HW_SCRATCH, uint64_t(offs));
+        emit32le(add_rrr(xn(HW_SCRATCH), xn(dr), xn(HW_SCRATCH)));
+        addr = HW_SCRATCH;
+    }
+
     switch (sz)
     {
-    case 1: emit32le(0x39000000u | (HW_SCR_ADDR << 5) | HW_SCR_VAL); break;
-    case 2: emit32le(0x79000000u | (HW_SCR_ADDR << 5) | HW_SCR_VAL); break;
-    case 4: emit32le(str_w_off(HW_SCR_VAL, HW_SCR_ADDR, 0)); break;
-    default: emit32le(str_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
+    default:
+        record(arm64_error, "Invalid store size %zu", sz);
+        // fallthrough
+    case 1: emit32le(strb_idx(xn(sr), xn(addr))); break;
+    case 2: emit32le(strh_idx(xn(sr), xn(addr))); break;
+    case 4: emit32le(str_w_idx(xn(sr), xn(addr))); break;
+    case 8: emit32le(str_idx(xn(sr), xn(addr))); break;
     }
-    frame_memory_touched = true;
 }
 
 
-void arm64::load_mem(byte d, byte s, uint sz)
+void arm64::load_mem(local_t d, local_t s, size_t sz, value_t offs)
 // ----------------------------------------------------------------------------
-//   Load from address in local s into local d
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "load_mem(%u, %u, %u)", d, s, sz);
-    load_local(s, HW_SCR_ADDR);
-    if (d < LOC_SHADOW_COUNT)
-    {
-        switch (sz)
-        {
-        case 1: emit32le(ldrb_idx(xreg(d), HW_SCR_ADDR)); break;
-        case 2: emit32le(ldrh_idx(xreg(d), HW_SCR_ADDR)); break;
-        case 4: emit32le(ldr_w_off(xreg(d), HW_SCR_ADDR, 0)); break;
-        default: emit32le(ldr_idx(xreg(d), HW_SCR_ADDR)); break;
-        }
-        emit32le(str_off(xreg(d), HW_FRAME, d));
-    }
-    else
-    {
-        switch (sz)
-        {
-        case 1: emit32le(ldrb_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
-        case 2: emit32le(ldrh_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
-        case 4: emit32le(ldr_w_off(HW_SCR_VAL, HW_SCR_ADDR, 0)); break;
-        default: emit32le(ldr_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
-        }
-        store_local(HW_SCR_VAL, d);
-    }
-    touch_local(d);
-}
-
-
-void arm64::store_mem_off(byte d, byte s, value_t o, uint sz)
-// ----------------------------------------------------------------------------
-//   Store value from local s at address in local d plus offset
+//   Load from address in local s (+ offs) into local d
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "store_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
-    load_local(d, HW_SCR_ADDR);
-    if (o)
+    arm64reg_t dr = hw_local(d);
+    arm64reg_t sr = hw_local(s);
+    record(arm64, "load_mem%zu %u=[%u] offs %lld", sz, d, s, offs);
+
+    arm64reg_t addr = sr;
+    if (offs)
     {
-        load_imm64(HW_SCR_OFF, uint64_t(o));
-        emit32le(add_rrr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_OFF));
+        set_imm(HW_SCRATCH, uint64_t(offs));
+        emit32le(add_rrr(xn(HW_SCRATCH), xn(sr), xn(HW_SCRATCH)));
+        addr = HW_SCRATCH;
     }
-    load_local(s, HW_SCR_VAL);
+
     switch (sz)
     {
-    case 1: emit32le(0x39000000u | (HW_SCR_ADDR << 5) | HW_SCR_VAL); break;
-    case 2: emit32le(0x79000000u | (HW_SCR_ADDR << 5) | HW_SCR_VAL); break;
-    case 4: emit32le(str_w_off(HW_SCR_VAL, HW_SCR_ADDR, 0)); break;
-    default: emit32le(str_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
-    }
-    frame_memory_touched = true;
-}
-
-
-void arm64::load_mem_off(byte d, byte s, value_t o, uint sz)
-// ----------------------------------------------------------------------------
-//   Load from address s plus offset into local d
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "load_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
-    load_local(s, HW_SCR_ADDR);
-    if (o)
-    {
-        load_imm64(HW_SCR_OFF, uint64_t(o));
-        emit32le(add_rrr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_OFF));
-    }
-    if (d < LOC_SHADOW_COUNT)
-    {
-        switch (sz)
-        {
-        case 1: emit32le(ldrb_idx(xreg(d), HW_SCR_ADDR)); break;
-        case 2: emit32le(ldrh_idx(xreg(d), HW_SCR_ADDR)); break;
-        case 4: emit32le(ldr_w_off(xreg(d), HW_SCR_ADDR, 0)); break;
-        default: emit32le(ldr_idx(xreg(d), HW_SCR_ADDR)); break;
-        }
-        emit32le(str_off(xreg(d), HW_FRAME, d));
-    }
-    else
-    {
-        switch (sz)
-        {
-        case 1: emit32le(ldrb_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
-        case 2: emit32le(ldrh_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
-        case 4: emit32le(ldr_w_off(HW_SCR_VAL, HW_SCR_ADDR, 0)); break;
-        default: emit32le(ldr_idx(HW_SCR_VAL, HW_SCR_ADDR)); break;
-        }
-        store_local(HW_SCR_VAL, d);
-    }
-    touch_local(d);
-}
-
-void arm64::load_signext_mem(uint rd, uint addr_rn, byte w)
-// ----------------------------------------------------------------------------
-//   Load from [addr_rn] and sign-extend to w bits into rd
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "load_signext_mem(%u, %u, %u)", rd, addr_rn, w);
-    if (w == 8)
-        emit32le(ldrsb_idx(rd, addr_rn));
-    else if (w == 16)
-        emit32le(ldrsh_idx(rd, addr_rn));
-    else if (w == 32)
-        emit32le(ldrsw_idx(rd, addr_rn));
-    else if (w >= 64)
-        emit32le(ldr_idx(rd, addr_rn));
-    else
-    {
-        uint sz = (w + 7) / 8;
-        switch (sz)
-        {
-        case 1: emit32le(ldrb_idx(rd, addr_rn)); break;
-        case 2: emit32le(ldrh_idx(rd, addr_rn)); break;
-        case 4: emit32le(ldr_w_off(rd, addr_rn, 0)); break;
-        default: emit32le(ldr_idx(rd, addr_rn)); break;
-        }
-        sext_reg(rd, rd, w);
+    default:
+        record(arm64_error, "Invalid load size %zu", sz);
+        // fallthrough
+    case 1: emit32le(ldrb_idx(xn(dr), xn(addr))); break;
+    case 2: emit32le(ldrh_idx(xn(dr), xn(addr))); break;
+    case 4: emit32le(ldr_w_idx(xn(dr), xn(addr))); break;
+    case 8: emit32le(ldr_idx(xn(dr), xn(addr))); break;
     }
 }
 
 
-void arm64::load_signext(byte d, byte s, byte w)
+void arm64::load_sext(local_t d, local_t s, byte w, value_t offs)
 // ----------------------------------------------------------------------------
-//   Load from memory with sign extension
+//   Load from [s+offs] and sign-extend to w bits into d
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "load_signext(%u, %u, %u)", d, s, w);
-    load_local(s, HW_SCR_ADDR);
-    if (d < LOC_SHADOW_COUNT)
+    arm64reg_t dr = hw_local(d);
+    arm64reg_t sr = hw_local(s);
+    size_t sz = (w + 7) / 8;
+    record(arm64, "load_sext%u %u=[%u] sz %zu", w, d, s, sz);
+
+    arm64reg_t addr = sr;
+    if (offs)
     {
-        load_signext_mem(xreg(d), HW_SCR_ADDR, w);
-        emit32le(str_off(xreg(d), HW_FRAME, d));
+        set_imm(HW_SCRATCH, uint64_t(offs));
+        emit32le(add_rrr(xn(HW_SCRATCH), xn(sr), xn(HW_SCRATCH)));
+        addr = HW_SCRATCH;
+    }
+
+    switch (sz)
+    {
+    default:
+        record(arm64_error, "Invalid load_sext width %u", w);
+        // fallthrough
+    case 1: emit32le(ldrsb_idx(xn(dr), xn(addr))); break;
+    case 2: emit32le(ldrsh_idx(xn(dr), xn(addr))); break;
+    case 4: emit32le(ldrsw_idx(xn(dr), xn(addr))); break;
+    case 8: emit32le(ldr_idx(xn(dr), xn(addr))); break;
+    }
+    if (w & 7)
+        sext_reg(dr, w);
+}
+
+
+void arm64::bra_pred(byte p, byte_p target, bool sense)
+// ----------------------------------------------------------------------------
+//   Emit branch on predicate p with given sense (TBZ/TBNZ)
+// ----------------------------------------------------------------------------
+{
+    record(arm64, "bra_%+s %u, %p", sense ? "true" : "false", p, target);
+    hwcode_t pos = sense ? emit_tbnz_rel(HW_FLAGS, p)
+                         : emit_tbz_rel(HW_FLAGS, p);
+    rel_branch(target, pos);
+}
+
+
+void arm64::bra_test(local_t s, byte_p target, byte cond)
+// ----------------------------------------------------------------------------
+//   Emit comparison-to-zero branch on local s
+// ----------------------------------------------------------------------------
+{
+    record(arm64, "bra_test %u, %p cc=%u", s, target, cond);
+    arm64reg_t r = hw_local(s);
+    if (cond == COND_EQ)
+    {
+        hwcode_t pos = emit_cbz_rel(r);
+        rel_branch(target, pos);
+    }
+    else if (cond == COND_NE)
+    {
+        hwcode_t pos = emit_cbnz_rel(r);
+        rel_branch(target, pos);
     }
     else
     {
-        load_signext_mem(HW_SCR_VAL, HW_SCR_ADDR, w);
-        store_local(HW_SCR_VAL, d);
-    }
-    touch_local(d);
-    frame_memory_touched = true;
-}
-
-void arm64::load_signext_off(byte d, byte s, byte w, value_t o)
-// ----------------------------------------------------------------------------
-//   Load from memory at offset with sign extension
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "load_signext_off(%u, %u, %u, %lld)", d, s, w, o);
-    load_local(s, HW_SCR_ADDR);
-    if (o)
-    {
-        load_imm64(HW_SCR_OFF, uint64_t(o));
-        emit32le(add_rrr(HW_SCR_ADDR, HW_SCR_ADDR, HW_SCR_OFF));
-    }
-    if (d < LOC_SHADOW_COUNT)
-    {
-        load_signext_mem(xreg(d), HW_SCR_ADDR, w);
-        emit32le(str_off(xreg(d), HW_FRAME, d));
-    }
-    else
-    {
-        load_signext_mem(HW_SCR_VAL, HW_SCR_ADDR, w);
-        store_local(HW_SCR_VAL, d);
-    }
-    touch_local(d);
-    frame_memory_touched = true;
-}
-
-void arm64::bra_offset(broff_t b)
-// ----------------------------------------------------------------------------
-//   Emit unconditional branch with bytecode offset
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "bra_offset(%lld)", b);
-    uint pos = uint(cursor());
-    emit32le(b_imm(0));
-    record_branch(b, pos);
-}
-
-void arm64::patch_branch_site(size_t insn_pos, size_t target_native)
-// ----------------------------------------------------------------------------
-//   Patch a recorded branch instruction to jump to target_native
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "patch_branch_site(%zu, %zu)", insn_pos, target_native);
-    int32_t off = int32_t(target_native - insn_pos) / 4;
-    uint32_t insn = uint32_t(code()[insn_pos])
-                  | (uint32_t(code()[insn_pos + 1]) << 8)
-                  | (uint32_t(code()[insn_pos + 2]) << 16)
-                  | (uint32_t(code()[insn_pos + 3]) << 24);
-    uint32_t op = insn & 0xff000000u;
-    if (op == 0x14000000u)
-        insn = b_imm(off);
-    else if ((insn & 0xff000010u) == 0x54000000u)
-        insn = b_cond_imm(byte(insn & 0xfu), off);
-    else if (op == 0xb4000000u)
-        insn = cbz_imm(insn & 0x1fu, off);
-    else if (op == 0xb5000000u)
-        insn = cbnz_imm(insn & 0x1fu, off);
-    else if ((insn & 0x7f000000u) == 0x36000000u)
-    {
-        uint rt = insn & 0x1fu;
-        uint bit = ((insn >> 26) & 0x20u) | ((insn >> 19) & 0x1fu);
-        insn = tbz_imm(rt, bit, off);
-    }
-    else if ((insn & 0x7f000000u) == 0x37000000u)
-    {
-        uint rt = insn & 0x1fu;
-        uint bit = ((insn >> 26) & 0x20u) | ((insn >> 19) & 0x1fu);
-        insn = tbnz_imm(rt, bit, off);
-    }
-    code().patch32le(insn_pos, insn);
-}
-
-
-void arm64::bra_zero(byte s, broff_t b, bool eq)
-// ----------------------------------------------------------------------------
-//   Emit branch when local s is zero or non-zero
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "bra_zero(%u, %lld, %d)", s, b, eq);
-    load_local(s, HW_SCR_VAL);
-    uint pos = uint(cursor());
-    if (eq)
-        emit32le(cbz_imm(HW_SCR_VAL, 0));
-    else
-        emit32le(cbnz_imm(HW_SCR_VAL, 0));
-    record_branch(b, pos);
-}
-
-
-void arm64::bra_pred(byte p, broff_t b, bool sense)
-// ----------------------------------------------------------------------------
-//   Emit branch on predicate p with given sense (TBZ/TBNZ on HW_FLAGS bit)
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "bra_pred(%u, %lld, %d)", p, b, sense);
-    uint pos = uint(cursor());
-    if (sense)
-        emit32le(tbnz_imm(HW_FLAGS, p, 0));
-    else
-        emit32le(tbz_imm(HW_FLAGS, p, 0));
-    record_branch(b, pos);
-}
-
-
-void arm64::bra_signed(byte s, broff_t b, byte cond)
-// ----------------------------------------------------------------------------
-//   Emit signed comparison branch on local s
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "bra_signed(%u, %lld, %u)", s, b, cond);
-    load_local(s, HW_SCR_VAL);
-    emit32le(cmp_r_imm(HW_SCR_VAL, 0));
-    uint pos = uint(cursor());
-    emit32le(b_cond_imm(cond, 0));
-    record_branch(b, pos);
-}
-
-void arm64::dbra_local(byte d, broff_t b)
-// ----------------------------------------------------------------------------
-//   Decrement local d and branch if non-zero
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "dbra_local(%u, %lld)", d, b);
-    decr_local(d); bra_zero(d,b,false);
-}
-
-void arm64::jmp_tok(tok_t t)
-// ----------------------------------------------------------------------------
-//   Emit jump to token-resolved label
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "jmp_tok(%llu)", t);
-    uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
-    uint pos = jump(head);
-    record_tok_jump(t, pos);
-}
-
-void arm64::patch_imm64_at(void *mem, size_t at, uint r, uint64_t v)
-// ----------------------------------------------------------------------------
-//   Rewrite a 16-byte load_imm64 slot at a fixed code offset
-// ----------------------------------------------------------------------------
-{
-    static const uint32_t nop = 0xd503201fu;
-    auto patch32le = [&](size_t off, uint32_t insn)
-    {
-        code().patch32le(off, insn);
-        if (mem)
-            memcpy((void *) ((byte_p) mem + off), &insn, sizeof(insn));
-    };
-    patch32le(at, movz(r, uint32_t(v) & 0xffffu));
-    at += 4;
-    if ((v >> 16) & 0xffffu)
-        patch32le(at, movk(r, uint32_t(v >> 16), 16));
-    else
-        patch32le(at, nop);
-    at += 4;
-    if ((v >> 32) & 0xffffu)
-        patch32le(at, movk(r, uint32_t(v >> 32), 32));
-    else
-        patch32le(at, nop);
-    at += 4;
-    if ((v >> 48) & 0xffffu)
-        patch32le(at, movk(r, uint32_t(v >> 48), 48));
-}
-
-
-void arm64::relocate(void *base)
-// ----------------------------------------------------------------------------
-//   Fix absolute addresses embedded in generated code after mmap
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "relocate(%p)", base);
-    (void) base;
-    section &sec = code();
-    for (relocation &fx : relocations)
-    {
-        byte_p bcpos = byte_p(fx.offset); // REVISIT
-        auto it = code_offset.find(bcpos);
-        if (it == code_offset.end())
-        {
-            auto next = code_offset.lower_bound(bcpos);
-            if (next == code_offset.end())
-                continue;
-            it = next;
-        }
-        int off = int(it->second) - int(fx.imm_at);
-        uint32_t insn = uint32_t(sec[fx.imm_at])
-                      | (uint32_t(sec[fx.imm_at + 1]) << 8)
-                      | (uint32_t(sec[fx.imm_at + 2]) << 16)
-                      | (uint32_t(sec[fx.imm_at + 3]) << 24);
-        uint rd = insn & 0x1fu;
-        sec.patch32le(fx.imm_at, adr(rd, off));
-        if (base)
-        {
-            uint32_t patched = adr(rd, off);
-            memcpy((void *) ((byte_p) base + fx.imm_at), &patched, sizeof(patched));
-        }
+        emit32le(cmp_r_imm(xn(r), 0));
+        hwcode_t pos = emit_bcond_rel(cond);
+        rel_branch(target, pos);
     }
 }
 
 
-size_t arm64::skip_callees()
+void arm64::rel_branch(byte_p target, hwcode_t site)
 // ----------------------------------------------------------------------------
-//   Emit a forward branch over callee bodies to the epilogue
+//   Record or patch a relative branch site to bytecode target
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "skip_callees()");
-    size_t pos = cursor();
-    emit32le(b_imm(0));
-    return pos;
+    intptr_t off = branch(target, site);
+    if (off)
+        patch(site, site + off, true);
 }
 
 
-void arm64::call_tok(tok_t t)
+void arm64::rel_function(tok_t tok, hwcode_t site)
 // ----------------------------------------------------------------------------
-//   Emit call to token-resolved label
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "call_tok(%llu)", t);
-    static const uint32_t nop = 0xd503201fu;
-    spill_frame();
-    size_t adr_at = cursor();
-    emit32le(nop);
-    emit32le(mov_rr(0, HW_SCR_VAL));
-    rtcall("xlr8_push_value");
-    rtcall("xlr8_sync_args");
-    uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
-    uint pos = jump(head);
-    record_tok_jump(t, pos);
-    int off = int(pos + 4) - int(adr_at);
-    code().patch32le(adr_at, adr(HW_SCR_VAL, off));
-}
-
-void arm64::br_via_ip()
-// ----------------------------------------------------------------------------
-//   Branch to address in x0 without leaving a stale shadow in x0
+//   Record or patch a relative site to a function token
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "br_via_ip()");
-    emit32le(mov_rr(HW_IP, 0));
-    emit32le(br(HW_IP));
-}
-
-void arm64::ijmp_local(byte s)
-// ----------------------------------------------------------------------------
-//   Indirect jump through local s (bytecode PC -> native)
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "ijmp_local(%u)", s);
-    spill_frame();
-    load_local(s, 0);
-    rtcall("xlr8_jit_addr");
-    br_via_ip();
-}
-
-void arm64::icall_local(byte s)
-// ----------------------------------------------------------------------------
-//   Indirect call through local s (bytecode PC -> native)
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "icall_local(%u)", s);
-    spill_frame();
-    size_t adr_at = cursor();
-    emit32le(adr(HW_SCR_VAL, 0));
-    emit32le(mov_rr(0, HW_SCR_VAL));
-    rtcall("xlr8_push_value");
-    rtcall("xlr8_sync_args");
-    load_local(s, 0);
-    rtcall("xlr8_jit_addr");
-    emit32le(mov_rr(HW_IP, 0));
-    size_t blr_at = cursor();
-    emit32le(blr(HW_IP));
-    int off = int(blr_at + 4) - int(adr_at);
-    code().patch32le(adr_at, adr(HW_SCR_VAL, off));
-}
-
-void arm64::push_pc()
-// ----------------------------------------------------------------------------
-//   Push program counter onto stack
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "push_pc()");
-    spill_frame();
-    emit32le(adr(0, 0));
-    rtcall("xlr8_push_value");
-    spill_arg_regs = true;
-}
-
-void arm64::load_pc(byte d)
-// ----------------------------------------------------------------------------
-//   Load current PC into local d
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "load_pc(%u)", d);
-    uint r = d < LOC_SHADOW_COUNT ? xreg(d) : HW_SCR_VAL;
-    emit32le(adr(r, 0));
-    if (d >= LOC_SHADOW_COUNT)
-        store_local(r, d);
-    else
-        emit32le(str_off(xreg(d), HW_FRAME, d));
-    touch_local(d);
-}
-
-void arm64::load_pca(byte d, broff_t b)
-// ----------------------------------------------------------------------------
-//   Load bytecode PC plus offset into local d (interpreter semantics)
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "load_pca(%u, %lld)", d, b);
-    (void) b;
-    uint r = d < LOC_SHADOW_COUNT ? xreg(d) : HW_SCR_VAL;
-    load_imm64(r, uint64_t(pending_branch_target));
-    if (d >= LOC_SHADOW_COUNT)
-        store_local(r, d);
-    else
-        emit32le(str_off(xreg(d), HW_FRAME, d));
-    touch_local(d);
-}
-
-void arm64::get_arg(byte d, byte s)
-// ----------------------------------------------------------------------------
-//   Copy argument local s into d
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "get_arg(%u, %u)", d, s);
-    spill_frame();
-    load_imm64(0, uint64_t(d));
-    load_imm64(1, uint64_t(s));
-    rtcall("xlr8_get_arg");
-    touch_local(d);
-}
-
-void arm64::set_arg(byte d, byte s)
-// ----------------------------------------------------------------------------
-//   Copy local s into argument slot d (OP set: args[d] = local[s])
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "set_arg(%u, %u)", d, s);
-    spill_frame();
-    load_imm64(0, uint64_t(d));
-    load_imm64(1, uint64_t(s));
-    rtcall("xlr8_set_arg");
-    frame_memory_touched = true;
-}
-
-void arm64::push_local(byte s)
-// ----------------------------------------------------------------------------
-//   Push local s onto stack
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "push_local(%u)", s);
-    spill_frame();
-    if (s < LOC_SHADOW_COUNT)
-        emit32le(mov_rr(0, xreg(s)));
-    else
-        emit32le(ldr_off(0, HW_FRAME, s));
-    rtcall("xlr8_push_value");
-    spill_arg_regs = true;
+    intptr_t off = function(tok, site);
+    if (off)
+        patch(site, site + off, true);
 }
 
 
-void arm64::pop_local(byte d)
+void arm64::prologue()
 // ----------------------------------------------------------------------------
-//   Pop stack value into local d
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "pop_local(%u)", d);
-    rtcall("xlr8_pop_value");
-    emit32le(mov_rr(HW_SCR_VAL, 0));
-    restore_frame_ptr();
-    runtime *rt = xlr8_get_runtime();
-    if (rt && rt->frame)
-    {
-        byte locals = byte(rt->frame[-1]);
-        if (!locals)
-            locals = byte(rt->CALL_CLOBBERED_REGS);
-        if (locals > LOC_SHADOW_COUNT)
-            locals = LOC_SHADOW_COUNT;
-        for (uint r = 1; r < locals; r++)
-            emit32le(ldr_off(xreg(byte(r)), HW_FRAME, r));
-    }
-    if (d != 0)
-        emit32le(ldr_off(xreg(0), HW_FRAME, 0));
-    store_local(HW_SCR_VAL, d);
-}
-
-
-void arm64::push_flags()
-// ----------------------------------------------------------------------------
-//   Push flags register onto stack
+//   Save FP/LR and callee-saved registers used by the JIT
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "push_flags()");
-    emit32le(mov_rr(0, HW_FLAGS));
-    rtcall("xlr8_push_flags_val");
-    spill_arg_regs = true;
+    record(arm64, "prologue");
+    // Save return address: BLR in call_ptr overwrites x30.
+    emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
+    emit32le(mov_rr(HW_FRAME, HW_SP));
+    // Save x19-x28 (includes HW_FLAGS=x22).
+    emit32le(stp_pre(HW_X19, HW_X20, HW_SP, -16));
+    emit32le(stp_pre(HW_X21, HW_X22, HW_SP, -16));
+    emit32le(stp_pre(HW_X23, HW_X24, HW_SP, -16));
+    emit32le(stp_pre(HW_X25, HW_X26, HW_SP, -16));
+    emit32le(stp_pre(HW_X27, HW_X28, HW_SP, -16));
 }
 
-
-void arm64::pop_flags()
-// ----------------------------------------------------------------------------
-//   Pop stack value into flags register
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "pop_flags()");
-    rtcall("xlr8_pop_flags_val");
-    emit32le(mov_rr(HW_FLAGS, 0));
-}
-
-void arm64::store_global(byte d, byte s)
-// ----------------------------------------------------------------------------
-//   Store local s into global slot d
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "store_global(%u, %u)", d, s);
-    spill_frame();
-    load_imm64(0, uint64_t(d));
-    load_imm64(1, uint64_t(s));
-    rtcall("xlr8_store_global");
-}
-
-void arm64::load_global(byte d, byte s)
-// ----------------------------------------------------------------------------
-//   Load global slot s into local d
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "load_global(%u, %u)", d, s);
-    spill_frame();
-    load_imm64(0, uint64_t(d));
-    load_imm64(1, uint64_t(s));
-    rtcall("xlr8_load_global");
-    touch_local(d);
-}
 
 void arm64::epilogue()
 // ----------------------------------------------------------------------------
-//   Return from generated code to the native runner
+//   Restore callee-saved registers, FP/LR, and return
 // ----------------------------------------------------------------------------
 {
     record(arm64, "epilogue()");
-    emit32le(ldp_pop(30));
+    emit32le(ldp_post(HW_X27, HW_X28, HW_SP, 16));
+    emit32le(ldp_post(HW_X25, HW_X26, HW_SP, 16));
+    emit32le(ldp_post(HW_X23, HW_X24, HW_SP, 16));
+    emit32le(ldp_post(HW_X21, HW_X22, HW_SP, 16));
+    emit32le(ldp_post(HW_X19, HW_X20, HW_SP, 16));
+    emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
     emit32le(ret_insn());
 }
 
-void arm64::trap(cstring msg)
-// ----------------------------------------------------------------------------
-//   Emit debug trap with message
-// ----------------------------------------------------------------------------
-{
-    record(arm64_warning, "trap(%s)", msg);
-    (void)msg;
-    emit32le(brk_insn());
-}
 
-void arm64::rtcall(cstring fn)
+void arm64::call_ptr(void (*fn)())
 // ----------------------------------------------------------------------------
-//   Emit call to runtime helper function
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "rtcall(%s)", fn);
-    call_abs(xlr8_runtime_fn(fn));
-}
-
-void arm64::rtcall(cstring fn, tok_t a)
-// ----------------------------------------------------------------------------
-//   Emit call to runtime helper function
+//   Emit a call through a function pointer in x16
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "rtcall(%s, %llu)", fn, a);
-    load_imm64(0, uint64_t(a));
-    call_abs(xlr8_runtime_fn(fn));
-}
-
-void arm64::rtcall(cstring fn, byte a)
-// ----------------------------------------------------------------------------
-//   Emit call to runtime helper function
-// ----------------------------------------------------------------------------
-{
-    record(arm64, "rtcall(%s, %u)", fn, a);
-    load_imm64(0, uint64_t(a));
-    call_abs(xlr8_runtime_fn(fn));
+    record(arm64, "call_ptr %p", fn);
+    set_imm(HW_SCRATCH, uint64_t(fn));
+    emit32le(blr(xn(HW_SCRATCH)));
 }
 
 
+void arm64::dispatch(local_t loc, byte_p &pc, byte cond)
+// ----------------------------------------------------------------------------
+//   Dispatch a branch table
+// ----------------------------------------------------------------------------
+{
+    arm64reg_t ref = hw_local(loc);
+    size_t ncases = leb128<size_t>(pc);
+    for (size_t n = 0; n < ncases; n++)
+    {
+        value_t test = leb128<value_t>(pc);
+        byte_p  bpc  = pc;
+        broff_t offs = leb128<broff_t>(pc);
+        byte_p  tgt  = bpc + offs;
+        set_imm(HW_SCRATCH, uint64_t(test));
+        emit32le(cmp_rr(xn(ref), xn(HW_SCRATCH)));
+        hwcode_t pos = emit_bcond_rel(cond);
+        rel_branch(tgt, pos);
+    }
+}
+
+
+
+#define EMIT(op)        void arm64::emit_##op(emit_args &e)
 
 #include "arm64-emit.cpp"

@@ -17,7 +17,7 @@
 //
 // ****************************************************************************
 //   (C) 2026 Christophe de Dinechin <christophe@dinechin.org>
-//   This software is licensed under the terms outlined in LICENSE.txt
+//   This software is licensed under the terms outlined in the LICENSE.txt file
 // ****************************************************************************
 //   This file is part of XLR8.
 //
@@ -33,40 +33,43 @@
 //  REGISTER ALLOCATION CONVENTIONS (AArch64)
 //  ===========================================================================
 //
-//  Bytecode locals are frame[n] slots (uintptr_t).  Locals 0..15 live in
-//  shadow registers x0..x15 while valid; locals >= 16 use frame memory only
-//  (ldr/str via [x19, #local*8] through scratch registers).  See regmap.h.
-//
-//  Shadow validity: authoritative until spilled before sys, enter/leave, or
-//  scratch reuse.  Locals 0 and 1 are also syscall argument registers.
+//  Locals use [x29 - (local+1)*8]; x29 is adjusted by op_enter and op_leave.
+//  Args use [x29 + arg*8 + 16] (skip saved FP+LR).
+//  Flags (predicates) live in x22 (HW_FLAGS).
 //
 //  Register map:
-//    Shadow locals     x0 .. x15     frame[0] .. frame[15] when valid
-//    Frame pointer     x19 (HW_FRAME)   rt.frame, primed at JIT entry
-//    Saved link        x28 (HW_LINK)    invoke return (not a bytecode local)
-//    Runtime (rsvd)    x21 (HW_RT)      &runtime, not yet loaded
-//    Flags/predicates  x22 (HW_FLAGS)   rt.flags (64-bit), primed at entry
-//    Scratch value     x23 (HW_SCR_VAL) swap, arithmetic, immediates
-//    Scratch address   x24 (HW_SCR_ADDR)
-//    Scratch offset    x25 (HW_SCR_OFF)
-//    Intra-call IP     x16 (HW_IP)      call_abs target (AAPCS IP0)
-//    Stack pointer     sp (x31)         native stack
 //
-//  Bytecode PC is the translator cursor, not a fixed HW register.  Runtime is
-//  reached via xlr8_get_runtime() today; HW_RT reserved for caching later.
-//  For 32-bit ARM (AArch32) see arm.h.
+//    Frame pointer     x29 (HW_FRAME)   Native FP for locals / args
+//    Link register     x30 (HW_LR)      Saved with FP on enter
+//    Flags/predicates  x22 (HW_FLAGS)   64-bit predicate bits
+//    Scratch           x16 (HW_SCRATCH) Temps / call targets (not allocatable)
+//    Allocatable GPRs  x19–x21,x23–x28  Callee-saved only (survive sys calls)
+//                      x0–x18           Call-clobbered / reserved (not alloc)
+//    FP                v0–v7           RSPEC_FLT / RSPEC_DBL banks
+//    Stack pointer     sp              native stack
+//
+//  Bytecode PC is the translator cursor, not a fixed HW register.
+//  Runtime is reached via xlr8_get_runtime() in spill/sys paths.
 //
 //  ===========================================================================
 
 #include "backend.h"
-#include "regmap.h"
 #include "recorder.h"
+#include "regmap.h"
 
+#include <cassert>
 #include <cstring>
+
+
+RECORDER_DECLARE(arm64);
+RECORDER_DECLARE(arm64_ops);
+RECORDER_DECLARE(arm64_error);
+RECORDER_DECLARE(arm64_warning);
+
 
 struct arm64 : backend
 // ----------------------------------------------------------------------------
-//   AArch64 code generator implementing every built-in opcode
+//   AArch64 code generator implementing every opcode
 // ----------------------------------------------------------------------------
 {
     arm64(runtime &rt);
@@ -75,414 +78,425 @@ struct arm64 : backend
 #include "backend-iface.h"
 
 protected:
-    void patch_imm64_at(void *mem, size_t at, uint r, uint64_t v);
-
-    enum hwreg_t : uint
+    enum arm64reg_t : hwreg_t
+    // ------------------------------------------------------------------------
+    //    Hardware register names for AArch64
+    // ------------------------------------------------------------------------
     {
-        HW_LOC0     = 0, // shadow frame[0] .. frame[15]
-        HW_LOC15    = 15,
-        HW_IP       = 16, // intra-procedure call scratch (AAPCS IP0)
-        HW_FRAME    = 19, // callee-saved, rt.frame base for spill
-        HW_ANCHOR   = 27, // callee-saved, stable copy of frame across sys
-        HW_RT       = 21, // reserved: &runtime
-        HW_LINK     = 28, // callee-saved, saved link (not a bytecode local)
-        HW_FLAGS    = 22, // callee-saved, rt.flags (64-bit predicates)
-        HW_SCR_VAL  = 23, // scratch: values (swap, arithmetic)
-        HW_SCR_ADDR = 24, // scratch: addresses
-        HW_SCR_OFF  = 25, // scratch: offsets
+        HW_X0,
+        HW_X1,
+        HW_X2,
+        HW_X3,
+        HW_X4,
+        HW_X5,
+        HW_X6,
+        HW_X7,
+        HW_X8,
+        HW_X9,
+        HW_X10,
+        HW_X11,
+        HW_X12,
+        HW_X13,
+        HW_X14,
+        HW_X15,
+        HW_X16,
+        HW_X17,
+        HW_X18,
+        HW_X19,
+        HW_X20,
+        HW_X21,
+        HW_X22,
+        HW_X23,
+        HW_X24,
+        HW_X25,
+        HW_X26,
+        HW_X27,
+        HW_X28,
+        HW_X29,
+        HW_X30,
+        HW_SP,
+
+        HW_V0D,
+        HW_V1D,
+        HW_V2D,
+        HW_V3D,
+        HW_V4D,
+        HW_V5D,
+        HW_V6D,
+        HW_V7D,
+
+        HW_V0F,
+        HW_V1F,
+        HW_V2F,
+        HW_V3F,
+        HW_V4F,
+        HW_V5F,
+        HW_V6F,
+        HW_V7F,
+
+        HW_COUNT,
+
+        HW_FRAME   = HW_X29,
+        HW_LR      = HW_X30,
+        HW_FLAGS   = HW_X22,
+        HW_SCRATCH = HW_X16,
+        HW_NONE    = 0,
     };
 
-    static inline uint xreg(byte n)
+    // AArch64 condition codes (B.cond / CSET)
+    static constexpr byte COND_EQ = 0;
+    static constexpr byte COND_NE = 1;
+    static constexpr byte COND_CS = 2;
+    static constexpr byte COND_CC = 3;
+    static constexpr byte COND_MI = 4;
+    static constexpr byte COND_PL = 5;
+    static constexpr byte COND_VS = 6;
+    static constexpr byte COND_VC = 7;
+    static constexpr byte COND_HI = 8;
+    static constexpr byte COND_LS = 9;
+    static constexpr byte COND_GE = 10;
+    static constexpr byte COND_LT = 11;
+    static constexpr byte COND_GT = 12;
+    static constexpr byte COND_LE = 13;
+    static constexpr byte COND_AL = 14;
+
+    arm64reg_t hw(hwreg_t r)
     // ------------------------------------------------------------------------
-    //   Map bytecode local n to shadow hardware register xn
+    //   Convert hwreg_t to arm64reg_t
     // ------------------------------------------------------------------------
     {
-        return n;
+        if (r >= HW_COUNT)
+        {
+            record(arm64_error, "Invalid hardware register index %u", r);
+            r = HW_X0;
+        }
+        return arm64reg_t(r);
     }
+
+    arm64reg_t hw_local(local_t loc)
+    // ------------------------------------------------------------------------
+    //   Return hardware register associated with a local
+    // ------------------------------------------------------------------------
+    {
+        return hw(local(loc));
+    }
+
+    static inline uint xn(arm64reg_t r)
+    // ------------------------------------------------------------------------
+    //   Physical X/SP register number for encoding (0..31)
+    // ------------------------------------------------------------------------
+    {
+        if (r <= HW_SP)
+            return uint(r);
+        record(arm64_error, "xn() on non-GPR %u", r);
+        return 0;
+    }
+
+    static inline uint vn(arm64reg_t r)
+    // ------------------------------------------------------------------------
+    //   Physical V register number for FP encoding
+    // ------------------------------------------------------------------------
+    {
+        if (r >= HW_V0F)
+            return uint(r - HW_V0F);
+        if (r >= HW_V0D)
+            return uint(r - HW_V0D);
+        record(arm64_error, "vn() on non-V register %u", r);
+        return 0;
+    }
+
+    static inline bool is_fp(arm64reg_t r)
+    // ------------------------------------------------------------------------
+    //   True when r is a V-register bank entry
+    // ------------------------------------------------------------------------
+    {
+        return r >= HW_V0D;
+    }
+
+    static inline bool is_flt(arm64reg_t r)
+    // ------------------------------------------------------------------------
+    //   True when r is in the float (S) bank
+    // ------------------------------------------------------------------------
+    {
+        return r >= HW_V0F;
+    }
+
+    int local_disp(int n) const
+    // ------------------------------------------------------------------------
+    //   Return stack displacement for bytecode local n (ularge_t slots)
+    // ------------------------------------------------------------------------
+    {
+        return ~n * int(sizeof(ularge_t));
+    }
+
+    int arg_disp(int n) const
+    // ------------------------------------------------------------------------
+    //   Return stack displacement for argument (skip saved FP+LR)
+    // ------------------------------------------------------------------------
+    {
+        return n * int(sizeof(ularge_t)) + 16;
+    }
+
+
+    // ========================================================================
+    //
+    //    AArch64 instruction encoders
+    //
+    // ========================================================================
 
     static inline uint mov_rr(uint rd, uint rs)
     // ------------------------------------------------------------------------
-    //   Encode orr rd, xzr, rs  (mov alias)
+    //   Encode orr rd, xzr, rs  (mov alias); SP uses add rd, rs, #0
     // ------------------------------------------------------------------------
     {
+        if (rd == 31 || rs == 31)
+            return 0x91000000u | (rs << 5) | rd; // add rd, rs, #0
         return 0xaa0003e0u | (rs << 16) | rd;
     }
 
-    static inline uint ldr_off(uint rd, uint rn, uint off)
+    static inline uint ldr_off(uint rd, uint rn, uint slot)
     // ------------------------------------------------------------------------
-    //   Encode ldr rd, [rn, #off]  (off byte offset, scale x8)
+    //   Encode ldr rd, [rn, #slot*8]  (unsigned imm12 scaled ×8)
     // ------------------------------------------------------------------------
     {
-        return 0xf9400000u | (off << 10) | (rn << 5) | rd;
+        return 0xf9400000u | ((slot & 0xfffu) << 10) | (rn << 5) | rd;
     }
 
-    static inline uint str_off(uint rd, uint rn, uint off)
+    static inline uint str_off(uint rt, uint rn, uint slot)
     // ------------------------------------------------------------------------
-    //   Encode str rd, [rn, #off]  (off byte offset, scale x8)
+    //   Encode str rt, [rn, #slot*8]  (unsigned imm12 scaled ×8)
     // ------------------------------------------------------------------------
     {
-        return 0xf9000000u | (off << 10) | (rn << 5) | rd;
+        return 0xf9000000u | ((slot & 0xfffu) << 10) | (rn << 5) | rt;
     }
 
-    static inline uint ldr_sp(uint rd)
+    static inline uint ldur_imm(uint rt, uint rn, int imm9)
     // ------------------------------------------------------------------------
-    //   Encode ldr rd, [sp]
+    //   Encode ldur rt, [rn, #imm9]  (unscaled signed byte offset)
     // ------------------------------------------------------------------------
     {
-        return ldr_off(rd, 31, 0);
+        return 0xf8400000u | ((uint32_t(imm9) & 0x1ffu) << 12) | (rn << 5) | rt;
     }
 
-    static inline uint str_sp(uint rt)
+    static inline uint stur_imm(uint rt, uint rn, int imm9)
     // ------------------------------------------------------------------------
-    //   Encode str rt, [sp]
-    // ------------------------------------------------------------------------
-    {
-        return str_off(rt, 31, 0);
-    }
-
-    static inline uint str_w_off(uint wt, uint rn, uint slot)
-    // ------------------------------------------------------------------------
-    //   Encode str wt, [rn, #slot*8]  (32-bit store; scale-4 imm = slot*2)
+    //   Encode stur rt, [rn, #imm9]  (unscaled signed byte offset)
     // ------------------------------------------------------------------------
     {
-        return 0xb9000000u | (slot << 11) | (rn << 5) | wt;
+        return 0xf8000000u | ((uint32_t(imm9) & 0x1ffu) << 12) | (rn << 5) | rt;
     }
 
     static inline uint ldr_w_off(uint wt, uint rn, uint slot)
     // ------------------------------------------------------------------------
-    //   Encode ldr wt, [rn, #slot*8]  (32-bit load; scale-4 imm = slot*2)
+    //   Encode ldr wt, [rn, #slot*8]  (32-bit; scale-4 imm = slot*2)
     // ------------------------------------------------------------------------
     {
-        return 0xb9400000u | (slot << 11) | (rn << 5) | wt;
+        return 0xb9400000u | ((slot * 2) << 10) | (rn << 5) | wt;
     }
 
-    static inline uint uxtw_x(uint xd, uint ws)
+    static inline uint str_w_off(uint wt, uint rn, uint slot)
     // ------------------------------------------------------------------------
-    //   Encode orr xd, xzr, ws  (zero-extend 32-bit W register to X)
+    //   Encode str wt, [rn, #slot*8]
     // ------------------------------------------------------------------------
     {
-        return 0xaa0003e0u | (ws << 16) | xd;
+        return 0xb9000000u | ((slot * 2) << 10) | (rn << 5) | wt;
     }
 
     static inline uint ldr_idx(uint rd, uint rn)
-    // ------------------------------------------------------------------------
-    //   Encode ldr rd, [rn]
-    // ------------------------------------------------------------------------
     {
         return 0xf9400000u | (rn << 5) | rd;
     }
 
     static inline uint ldr_w_idx(uint rd, uint rn)
-    // ------------------------------------------------------------------------
-    //   Encode ldr w, [rn]
-    // ------------------------------------------------------------------------
     {
         return 0xb9400000u | (rn << 5) | rd;
     }
 
     static inline uint ldrh_idx(uint rd, uint rn)
-    // ------------------------------------------------------------------------
-    //   Encode ldrh w, [rn]
-    // ------------------------------------------------------------------------
     {
         return 0x79400000u | (rn << 5) | rd;
     }
 
     static inline uint ldrb_idx(uint rd, uint rn)
-    // ------------------------------------------------------------------------
-    //   Encode ldrb w, [rn]
-    // ------------------------------------------------------------------------
     {
         return 0x39400000u | (rn << 5) | rd;
     }
 
     static inline uint ldrsb_idx(uint rd, uint rn)
-    // ------------------------------------------------------------------------
-    //   Encode ldrsb x, [rn]  (sign-extend byte to 64 bits)
-    // ------------------------------------------------------------------------
     {
         return 0x39800000u | (rn << 5) | rd;
     }
 
     static inline uint ldrsh_idx(uint rd, uint rn)
-    // ------------------------------------------------------------------------
-    //   Encode ldrsh x, [rn]  (sign-extend halfword to 64 bits)
-    // ------------------------------------------------------------------------
     {
         return 0x79800000u | (rn << 5) | rd;
     }
 
     static inline uint ldrsw_idx(uint rd, uint rn)
-    // ------------------------------------------------------------------------
-    //   Encode ldrsw x, [rn]  (sign-extend word to 64 bits)
-    // ------------------------------------------------------------------------
     {
         return 0xb9800000u | (rn << 5) | rd;
     }
 
-    static inline uint str_idx(uint rd, uint rn)
-    // ------------------------------------------------------------------------
-    //   Encode str rd, [rn]
-    // ------------------------------------------------------------------------
+    static inline uint str_idx(uint rt, uint rn)
     {
-        return 0xf9000000u | (rn << 5) | rd;
+        return 0xf9000000u | (rn << 5) | rt;
+    }
+
+    static inline uint strb_idx(uint rt, uint rn)
+    {
+        return 0x39000000u | (rn << 5) | rt;
+    }
+
+    static inline uint strh_idx(uint rt, uint rn)
+    {
+        return 0x79000000u | (rn << 5) | rt;
+    }
+
+    static inline uint str_w_idx(uint rt, uint rn)
+    {
+        return 0xb9000000u | (rn << 5) | rt;
+    }
+
+    static inline uint uxtw_x(uint xd, uint ws)
+    {
+        return 0xaa0003e0u | (ws << 16) | xd;
     }
 
     static inline uint movz(uint rd, uint imm16)
-    // ------------------------------------------------------------------------
-    //   Encode movz rd, #imm16
-    // ------------------------------------------------------------------------
     {
         return 0xd2800000u | ((imm16 & 0xffffu) << 5) | rd;
     }
 
     static inline uint movn(uint rd, uint imm16, uint shift)
-    // ------------------------------------------------------------------------
-    //   Encode movn rd, #imm16, lsl #shift  (shift = 0, 16, 32, or 48)
-    // ------------------------------------------------------------------------
     {
         return 0x92800000u | ((shift / 16) << 21) | ((imm16 & 0xffffu) << 5) | rd;
     }
 
     static inline uint movk(uint rd, uint imm16, uint shift)
-    // ------------------------------------------------------------------------
-    //   Encode movk rd, #imm16, lsl #shift  (shift = 16, 32, or 48)
-    // ------------------------------------------------------------------------
     {
-        uint hi = shift == 16 ? 0xf2a00000u : shift == 32 ? 0xf2c00000u : 0xf2e00000u;
+        uint hi = shift == 16 ? 0xf2a00000u
+                : shift == 32 ? 0xf2c00000u
+                              : 0xf2e00000u;
         return hi | ((imm16 & 0xffffu) << 5) | rd;
     }
 
     static inline uint add_rrr(uint rd, uint rn, uint rm)
-    // ------------------------------------------------------------------------
-    //   Encode add rd, rn, rm
-    // ------------------------------------------------------------------------
     {
         return 0x8b000000u | (rm << 16) | (rn << 5) | rd;
     }
 
     static inline uint sub_rrr(uint rd, uint rn, uint rm)
-    // ------------------------------------------------------------------------
-    //   Encode sub rd, rn, rm
-    // ------------------------------------------------------------------------
     {
         return 0xcb000000u | (rm << 16) | (rn << 5) | rd;
     }
 
     static inline uint mul_rrr(uint rd, uint rn, uint rm)
-    // ------------------------------------------------------------------------
-    //   Encode mul rd, rn, rm
-    // ------------------------------------------------------------------------
     {
         return 0x9b007c00u | (rm << 16) | (rn << 5) | rd;
     }
 
     static inline uint sdiv_rrr(uint rd, uint rn, uint rm)
-    // ------------------------------------------------------------------------
-    //   Encode sdiv rd, rn, rm  (64-bit signed divide)
-    // ------------------------------------------------------------------------
     {
         return 0x9ac00c00u | (rm << 16) | (rn << 5) | rd;
     }
 
     static inline uint udiv_rrr(uint rd, uint rn, uint rm)
-    // ------------------------------------------------------------------------
-    //   Encode udiv rd, rn, rm  (64-bit unsigned divide)
-    // ------------------------------------------------------------------------
     {
         return 0x9ac00800u | (rm << 16) | (rn << 5) | rd;
     }
 
     static inline uint msub_rrr(uint rd, uint rn, uint rm, uint ra)
-    // ------------------------------------------------------------------------
-    //   Encode msub rd, rn, rm, ra  (rd = ra - rn*rm)
-    // ------------------------------------------------------------------------
     {
         return 0x9b008000u | (ra << 10) | (rm << 16) | (rn << 5) | rd;
     }
 
-    static inline uint fmov_s_w(uint sd, uint wn)
-    // ------------------------------------------------------------------------
-    //   Encode fmov Sd, Wn
-    // ------------------------------------------------------------------------
-    {
-        return 0x1e270000u | (wn << 5) | sd;
-    }
-
-    static inline uint fmov_w_s(uint wn, uint sn)
-    // ------------------------------------------------------------------------
-    //   Encode fmov Wn, Sd
-    // ------------------------------------------------------------------------
-    {
-        return 0x1e260000u | (sn << 5) | wn;
-    }
-
-    static inline uint fmov_d_x(uint dd, uint xn)
-    // ------------------------------------------------------------------------
-    //   Encode fmov Dd, Xn
-    // ------------------------------------------------------------------------
-    {
-        return 0x9e670000u | (xn << 5) | dd;
-    }
-
-    static inline uint fmov_x_d(uint xn, uint dm)
-    // ------------------------------------------------------------------------
-    //   Encode fmov Xn, Dd
-    // ------------------------------------------------------------------------
-    {
-        return 0x9e660000u | (dm << 5) | xn;
-    }
-
-    static inline uint fop_ss(uint op, uint sd, uint sn, uint sm)
-    // ------------------------------------------------------------------------
-    //   Encode single-precision fp op (fadd=0x2800, fsub=0x3800, ...)
-    // ------------------------------------------------------------------------
-    {
-        return 0x1e200000u | op | (sm << 16) | (sn << 5) | sd;
-    }
-
-    static inline uint fop_dd(uint op, uint dd, uint dn, uint dm)
-    // ------------------------------------------------------------------------
-    //   Encode double-precision fp op
-    // ------------------------------------------------------------------------
-    {
-        return 0x1e600000u | op | (dm << 16) | (dn << 5) | dd;
-    }
-
     static inline uint and_rrr(uint rd, uint rn, uint rm)
-    // ------------------------------------------------------------------------
-    //   Encode and rd, rn, rm
-    // ------------------------------------------------------------------------
     {
         return 0x8a000000u | (rm << 16) | (rn << 5) | rd;
     }
 
     static inline uint orr_rrr(uint rd, uint rn, uint rm)
-    // ------------------------------------------------------------------------
-    //   Encode orr rd, rn, rm
-    // ------------------------------------------------------------------------
     {
         return 0xaa000000u | (rm << 16) | (rn << 5) | rd;
     }
 
     static inline uint eor_rrr(uint rd, uint rn, uint rm)
-    // ------------------------------------------------------------------------
-    //   Encode eor rd, rn, rm
-    // ------------------------------------------------------------------------
     {
         return 0xca000000u | (rm << 16) | (rn << 5) | rd;
     }
 
     static inline uint lsl_rrr(uint rd, uint rn, uint rm)
-    // ------------------------------------------------------------------------
-    //   Encode lsl rd, rn, rm
-    // ------------------------------------------------------------------------
     {
         return 0x9ac02000u | (rm << 16) | (rn << 5) | rd;
     }
 
     static inline uint asr_rrr(uint rd, uint rn, uint rm)
-    // ------------------------------------------------------------------------
-    //   Encode asr rd, rn, rm
-    // ------------------------------------------------------------------------
     {
         return 0x9ac02400u | (rm << 16) | (rn << 5) | rd;
     }
 
     static inline uint lsr_rrr(uint rd, uint rn, uint rm)
-    // ------------------------------------------------------------------------
-    //   Encode lsr rd, rn, rm
-    // ------------------------------------------------------------------------
     {
         return 0x9ac02800u | (rm << 16) | (rn << 5) | rd;
     }
 
     static inline uint add_imm(uint rd, uint rn, uint imm)
-    // ------------------------------------------------------------------------
-    //   Encode add rd, rn, #imm12
-    // ------------------------------------------------------------------------
     {
         return 0x91000000u | ((imm & 0xfffu) << 10) | (rn << 5) | rd;
     }
 
     static inline uint sub_imm(uint rd, uint rn, uint imm)
-    // ------------------------------------------------------------------------
-    //   Encode sub rd, rn, #imm12
-    // ------------------------------------------------------------------------
     {
         return 0xd1000000u | ((imm & 0xfffu) << 10) | (rn << 5) | rd;
     }
 
     static inline uint lsr_imm64(uint rd, uint rn, uint amt)
-    // ------------------------------------------------------------------------
-    //   Encode lsr rd, rn, #amt  (alias of ubfm rd, rn, #amt, #63)
-    // ------------------------------------------------------------------------
     {
         return 0xd340fc00u | ((amt & 0x3fu) << 16) | (rn << 5) | rd;
     }
 
     static inline uint lsl_imm64(uint rd, uint rn, uint amt)
-    // ------------------------------------------------------------------------
-    //   Encode lsl rd, rn, #amt
-    //   Alias of ubfm rd, rn, #(-amt MOD 64), #(63-amt)
-    // ------------------------------------------------------------------------
     {
         return 0xd3400000u | (((64 - amt) & 0x3fu) << 16)
                | (((63 - amt) & 0x3fu) << 10) | (rn << 5) | rd;
     }
 
     static inline uint asr_imm64(uint rd, uint rn, uint amt)
-    // ------------------------------------------------------------------------
-    //   Encode asr rd, rn, #amt  (alias of sbfm rd, rn, #amt, #63)
-    // ------------------------------------------------------------------------
     {
         return 0x9340fc00u | ((amt & 0x3fu) << 16) | (rn << 5) | rd;
     }
 
-    static inline uint b_cond_imm(byte cond, int32_t imm19)
-    // ------------------------------------------------------------------------
-    //   Encode b.cond #imm19
-    // ------------------------------------------------------------------------
-    {
-        return 0x54000000u | ((uint32_t(imm19) & 0x7ffffu) << 5) | cond;
-    }
-
     static inline uint sbfm_width(uint rd, uint rn, uint w)
-    // ------------------------------------------------------------------------
-    //   Encode sbfm rd, rn, #0, #(w-1)  (sign-extend low w bits to 64)
-    // ------------------------------------------------------------------------
     {
         return 0x93400000u | ((w - 1) << 10) | (rn << 5) | rd;
     }
 
     static inline uint ubfm_width(uint rd, uint rn, uint w)
-    // ------------------------------------------------------------------------
-    //   Encode ubfm rd, rn, #0, #(w-1)  (zero-extend low w bits to 64)
-    // ------------------------------------------------------------------------
     {
         return 0xd3400000u | ((w - 1) << 10) | (rn << 5) | rd;
     }
 
     static inline uint cmp_rr(uint rn, uint rm)
-    // ------------------------------------------------------------------------
-    //   Encode cmp rn, rm
-    // ------------------------------------------------------------------------
     {
         return 0xeb00001fu | (rm << 16) | (rn << 5);
     }
 
     static inline uint cmp_r_imm(uint rn, uint imm)
-    // ------------------------------------------------------------------------
-    //   Encode cmp rn, #imm12
-    // ------------------------------------------------------------------------
     {
         return 0xf100001fu | ((imm & 0xfffu) << 10) | (rn << 5);
     }
 
+    static inline uint neg_rr(uint rd, uint rm)
+    {
+        return 0xcb0003e0u | (rm << 16) | rd;
+    }
+
+    static inline uint not_rr(uint rd, uint rm)
+    {
+        return 0xaa2003e0u | (rm << 16) | rd;
+    }
+
     static inline byte invert_cond(byte cond)
-    // ------------------------------------------------------------------------
-    //   Invert an AArch64 condition code (for CSET)
-    // ------------------------------------------------------------------------
     {
         static const byte inv[] =
             { 1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14 };
@@ -490,286 +504,215 @@ protected:
     }
 
     static inline uint cset_x(uint rd, byte cond)
-    // ------------------------------------------------------------------------
-    //   Encode cset xd, cond  (CSINC xd, xzr, xzr, invert(cond))
-    // ------------------------------------------------------------------------
     {
         return 0x9a9f07e0u | (uint(invert_cond(cond)) << 12) | rd;
     }
 
-    static inline byte cond_from_op(cstring op)
-    // ------------------------------------------------------------------------
-    //   Map comparison name to AArch64 condition code
-    // ------------------------------------------------------------------------
+    static inline uint csel_rrr(uint rd, uint rn, uint rm, byte cond)
     {
-        if (!strcmp(op, "eq")) return 0;
-        if (!strcmp(op, "ne")) return 1;
-        if (!strcmp(op, "lt")) return 11;
-        if (!strcmp(op, "le")) return 13;
-        if (!strcmp(op, "ltu")) return 3;
-        if (!strcmp(op, "leu")) return 9;
-        return 0;
-    }
-
-    static inline uint neg_rr(uint rd)
-    // ------------------------------------------------------------------------
-    //   Encode neg rd, rd  (SUB xd, xzr, xd — Rm in bits 20:16)
-    // ------------------------------------------------------------------------
-    {
-        return 0xcb0003e0u | (rd << 16) | rd;
-    }
-
-    static inline uint not_rr(uint rd)
-    // ------------------------------------------------------------------------
-    //   Encode orn rd, xzr, rd
-    // ------------------------------------------------------------------------
-    {
-        return 0xaa2003e0u | (rd << 16) | rd;
-    }
-
-    static inline uint frame_addr_rr(uint rd, uint rs)
-    // ------------------------------------------------------------------------
-    //   Encode add rd, x19, rs, lsl #3
-    // ------------------------------------------------------------------------
-    {
-        return 0x8b000000u | (3u << 10) | (rs << 16) | (HW_FRAME << 5) | rd;
-    }
-
-    static inline uint sbfm_64(uint rd)
-    // ------------------------------------------------------------------------
-    //   Encode sbfm rd, rd, #0, #63  (identity / sxtx of a full 64-bit value)
-    // ------------------------------------------------------------------------
-    {
-        return 0x9340fc00u | (rd << 5) | rd;
-    }
-
-    static inline uint ubfm_64(uint rd)
-    // ------------------------------------------------------------------------
-    //   Encode ubfm rd, rd, #0, #63  (identity / uxtx of a full 64-bit value)
-    // ------------------------------------------------------------------------
-    {
-        return 0xd340fc00u | (rd << 5) | rd;
+        return 0x9a800000u | (rm << 16) | (uint(cond) << 12) | (rn << 5) | rd;
     }
 
     static inline uint blr(uint rm)
-    // ------------------------------------------------------------------------
-    //   Encode blr rm
-    // ------------------------------------------------------------------------
     {
         return 0xd63f0000u | (rm << 5);
     }
 
     static inline uint br(uint rm)
-    // ------------------------------------------------------------------------
-    //   Encode br rm
-    // ------------------------------------------------------------------------
     {
         return 0xd61f0000u | (rm << 5);
     }
 
-    static inline uint stp_push(uint rt)
-    // ------------------------------------------------------------------------
-    //   Encode stp rt, xzr, [sp, #-16]!
-    // ------------------------------------------------------------------------
-    {
-        return 0xa9bf7fe0u | rt;
-    }
-
-    static inline uint ldp_pop(uint rt)
-    // ------------------------------------------------------------------------
-    //   Encode ldp rt, xzr, [sp], #16
-    // ------------------------------------------------------------------------
-    {
-        return 0xa8c17fe0u | rt;
-    }
-
-    static inline uint mov_lr_save()
-    // ------------------------------------------------------------------------
-    //   Encode mov HW_LINK, x30
-    // ------------------------------------------------------------------------
-    {
-        return mov_rr(HW_LINK, 30);
-    }
-
-    static inline uint mov_lr_restore()
-    // ------------------------------------------------------------------------
-    //   Encode mov x30, HW_LINK
-    // ------------------------------------------------------------------------
-    {
-        return mov_rr(30, HW_LINK);
-    }
-
-    static inline uint reload_frame()
-    // ------------------------------------------------------------------------
-    //   Encode mov x19, x0
-    // ------------------------------------------------------------------------
-    {
-        return 0xaa0003f3u;
-    }
-
     static inline uint ret_insn()
-    // ------------------------------------------------------------------------
-    //   Encode ret
-    // ------------------------------------------------------------------------
     {
         return 0xd65f03c0u;
     }
 
-    static inline uint ret_lr_insn()
-    // ------------------------------------------------------------------------
-    //   Encode ret HW_LINK  (return through saved link register)
-    // ------------------------------------------------------------------------
-    {
-        return 0xd65f0000u | (HW_LINK << 5);
-    }
-
     static inline uint brk_insn()
-    // ------------------------------------------------------------------------
-    //   Encode brk #0
-    // ------------------------------------------------------------------------
     {
         return 0xd4200000u;
     }
 
-    static inline uint stp_fp_lr()
-    // ------------------------------------------------------------------------
-    //   Encode stp x29, x30, [sp, #-16]!
-    // ------------------------------------------------------------------------
+    static inline uint b_imm(int32_t imm26)
     {
-        return 0xa9bf7bfdu;
+        return 0x14000000u | (uint32_t(imm26) & 0x03ffffffu);
     }
 
-    static inline uint b_imm(int offset)
-    // ------------------------------------------------------------------------
-    //   Encode b #offset  (PC-relative branch)
-    // ------------------------------------------------------------------------
+    static inline uint bl_imm(int32_t imm26)
     {
-        return 0x14000000u | (uint32_t(offset) & 0x03ffffffu);
+        return 0x94000000u | (uint32_t(imm26) & 0x03ffffffu);
+    }
+
+    static inline uint b_cond_imm(byte cond, int32_t imm19)
+    {
+        return 0x54000000u | ((uint32_t(imm19) & 0x7ffffu) << 5) | cond;
+    }
+
+    static inline uint cbz_imm(uint rt, int32_t imm19)
+    {
+        return 0xb4000000u | ((uint32_t(imm19) & 0x7ffffu) << 5) | rt;
+    }
+
+    static inline uint cbnz_imm(uint rt, int32_t imm19)
+    {
+        return 0xb5000000u | ((uint32_t(imm19) & 0x7ffffu) << 5) | rt;
+    }
+
+    static inline uint tbz_imm(uint rt, uint bit, int32_t imm14)
+    {
+        return 0x36000000u
+             | ((bit & 0x20u) << 26)
+             | ((bit & 0x1fu) << 19)
+             | ((uint32_t(imm14) & 0x3fffu) << 5)
+             | (rt & 0x1fu);
+    }
+
+    static inline uint tbnz_imm(uint rt, uint bit, int32_t imm14)
+    {
+        return 0x37000000u
+             | ((bit & 0x20u) << 26)
+             | ((bit & 0x1fu) << 19)
+             | ((uint32_t(imm14) & 0x3fffu) << 5)
+             | (rt & 0x1fu);
     }
 
     static inline uint adr(uint rd, int offset_bytes)
-    // ------------------------------------------------------------------------
-    //   Encode adr xd, #offset_bytes  (PC-relative address)
-    // ------------------------------------------------------------------------
     {
         uint32_t imm = uint32_t(offset_bytes) & 0x1fffffu;
         return 0x10000000u | ((imm & 3u) << 29) | ((imm >> 2) << 5) | rd;
     }
 
-    static inline uint cbz_imm(uint rt, int offset)
+    static inline uint stp_pre(uint rt, uint rt2, uint rn, int imm7)
     // ------------------------------------------------------------------------
-    //   Encode cbz rt, #offset
-    // ------------------------------------------------------------------------
-    {
-        return 0xb4000000u | ((uint32_t(offset) & 0x7ffffu) << 5) | rt;
-    }
-
-    static inline uint cbnz_imm(uint rt, int offset)
-    // ------------------------------------------------------------------------
-    //   Encode cbnz rt, #offset
+    //   Encode stp rt, rt2, [rn, #imm]!  (imm in bytes, multiple of 8)
     // ------------------------------------------------------------------------
     {
-        return 0xb5000000u | ((uint32_t(offset) & 0x7ffffu) << 5) | rt;
+        int scaled = imm7 / 8;
+        return 0xa9800000u
+             | ((uint32_t(scaled) & 0x7fu) << 15)
+             | (rt2 << 10) | (rn << 5) | rt;
     }
 
-    static inline uint tbz_imm(uint rt, uint bit, int offset)
+    static inline uint ldp_post(uint rt, uint rt2, uint rn, int imm7)
     // ------------------------------------------------------------------------
-    //   Encode tbz rt, #bit, #offset  (14-bit signed insn offset)
+    //   Encode ldp rt, rt2, [rn], #imm  (imm in bytes, multiple of 8)
     // ------------------------------------------------------------------------
     {
-        return 0x36000000u
-             | ((bit & 0x20u) << 26)
-             | ((bit & 0x1fu) << 19)
-             | ((uint32_t(offset) & 0x3fffu) << 5)
-             | (rt & 0x1fu);
+        int scaled = imm7 / 8;
+        return 0xa8c00000u
+             | ((uint32_t(scaled) & 0x7fu) << 15)
+             | (rt2 << 10) | (rn << 5) | rt;
     }
 
-    static inline uint tbnz_imm(uint rt, uint bit, int offset)
-    // ------------------------------------------------------------------------
-    //   Encode tbnz rt, #bit, #offset  (14-bit signed insn offset)
-    // ------------------------------------------------------------------------
+    static inline uint fmov_s_w(uint sd, uint wn)
     {
-        return 0x37000000u
-             | ((bit & 0x20u) << 26)
-             | ((bit & 0x1fu) << 19)
-             | ((uint32_t(offset) & 0x3fffu) << 5)
-             | (rt & 0x1fu);
+        return 0x1e270000u | (wn << 5) | sd;
     }
 
-    void load_local(byte n, uint r);
-    void store_local(uint r, byte n);
-    void load_imm64(uint r, uint64_t v);
-    void call_abs(void *fn);
-    void spill_frame();
-    void restore_frame_ptr();
-    void reload_frame_reg();
-    void reload_flags_reg();
-    void set_pred_cmp(byte p, byte cond);
-    void touch_local(byte d);
-    void mov_local(byte d, byte s);
-    void swap_locals(byte d, byte s);
-    void store_imm(byte d, value_t v);
-    void store_uimm(byte d, uvalue_t v);
-    void store_float(byte d, float v);
-    void store_double(byte d, double v);
-    void store_float_local(byte d, uint wn);
-    void binop_local(byte d, byte s, cstring op);
-    void binop_imm(byte d, value_t v, cstring op);
-    void cmp_local(byte p, byte d, byte s, cstring op);
-    void cmp_imm(byte p, byte d, value_t v, cstring op);
-    void cmp_uimm(byte p, byte d, uvalue_t v, cstring op);
-    void set_pred(byte p, bool on);
-    void cond_mov_local(byte p, byte d, byte s);
-    void select_local(byte p, byte d, byte s, byte x);
-    void neg_local(byte d);
-    void not_local(byte d);
-    void incr_local(byte d);
-    void decr_local(byte d);
-    void sext_local(byte d, byte w);
-    void zext_local(byte d, byte w);
-    void sext_reg(uint rd, uint rn, byte w);
-    void load_signext_mem(uint rd, uint addr_rn, byte w);
-    void store_mem(byte d, byte s, uint sz);
-    void load_mem(byte d, byte s, uint sz);
-    void store_mem_off(byte d, byte s, value_t o, uint sz);
-    void load_mem_off(byte d, byte s, value_t o, uint sz);
-    void load_signext(byte d, byte s, byte w);
-    void load_signext_off(byte d, byte s, byte w, value_t o);
-    void frame_addr(byte d, byte s);
-    void bra_offset(broff_t b);
-    void bra_pred(byte p, broff_t b, bool sense);
-    void bra_zero(byte s, broff_t b, bool eq);
-    void bra_signed(byte s, broff_t b, byte cond);
-    void dbra_local(byte d, broff_t b);
-    void jmp_tok(tok_t t);
-    void call_tok(tok_t t);
-    void ijmp_local(byte s);
-    void icall_local(byte s);
-    void push_pc();
-    void load_pc(byte d);
-    void load_pca(byte d, broff_t b);
-    void get_arg(byte d, byte s);
-    void set_arg(byte d, byte s);
-    void push_local(byte s);
-    void pop_local(byte d);
-    void push_flags();
-    void pop_flags();
-    void store_global(byte d, byte s);
-    void load_global(byte d, byte s);
-    void epilogue();
-    void trap(cstring msg);
-    void rtcall(cstring fn);
-    void rtcall(cstring fn, tok_t a);
-    void rtcall(cstring fn, byte a);
-    void br_via_ip();
+    static inline uint fmov_w_s(uint wn, uint sn)
+    {
+        return 0x1e260000u | (sn << 5) | wn;
+    }
 
-    bool spill_arg_regs = true;
-    bool frame_memory_touched = false;
+    static inline uint fmov_d_x(uint dd, uint xn)
+    {
+        return 0x9e670000u | (xn << 5) | dd;
+    }
+
+    static inline uint fmov_x_d(uint xn, uint dm)
+    {
+        return 0x9e660000u | (dm << 5) | xn;
+    }
+
+    static inline uint fop_ss(uint op, uint sd, uint sn, uint sm)
+    {
+        return 0x1e200000u | op | (sm << 16) | (sn << 5) | sd;
+    }
+
+    static inline uint fop_dd(uint op, uint dd, uint dn, uint dm)
+    {
+        return 0x1e600000u | op | (dm << 16) | (dn << 5) | dd;
+    }
+
+    static inline uint fmov_ss(uint sd, uint sn)
+    {
+        return 0x1e204000u | (sn << 5) | sd;
+    }
+
+    static inline uint fmov_dd(uint dd, uint dn)
+    {
+        return 0x1e604000u | (dn << 5) | dd;
+    }
+
+    // FP op field fragments for fop_ss / fop_dd
+    static constexpr uint FOP_MUL = 0x0800;
+    static constexpr uint FOP_DIV = 0x1800;
+    static constexpr uint FOP_ADD = 0x2800;
+    static constexpr uint FOP_SUB = 0x3800;
+
+
+    // ========================================================================
+    //
+    //    Emit helpers (encode + emit32le)
+    //
+    // ========================================================================
+
+    void emit_load_off(arm64reg_t rd, arm64reg_t rn, int offs);
+    void emit_store_off(arm64reg_t rn, arm64reg_t rt, int offs);
+    void emit_push(arm64reg_t r);
+    void emit_pop(arm64reg_t r);
+    hwcode_t emit_b_rel();
+    hwcode_t emit_bl_rel();
+    hwcode_t emit_bcond_rel(byte cond);
+    hwcode_t emit_cbz_rel(arm64reg_t rt);
+    hwcode_t emit_cbnz_rel(arm64reg_t rt);
+    hwcode_t emit_tbz_rel(arm64reg_t rt, uint bit);
+    hwcode_t emit_tbnz_rel(arm64reg_t rt, uint bit);
+
+    void            set_imm(arm64reg_t r, uint64_t imm);
+    void            load_local(local_t loc, arm64reg_t r);
+    void            store_local(arm64reg_t r, local_t loc);
+    arm64reg_t      load_fp(local_t loc, byte sz);
+    void            store_fp(local_t loc, arm64reg_t reg);
+    void            mov_local(local_t d, local_t s);
+    void            swap_locals(local_t d, local_t s);
+    void            store_imm(local_t d, value_t v);
+    void            store_float(local_t d, float v);
+    void            store_double(local_t d, double v);
+    void            binop_local(local_t d, local_t s, op_t op, byte fpsz=0);
+    void            binop_imm(local_t d, value_t v, op_t op);
+    void            cmp_local(byte p, local_t d, local_t s, byte cond);
+    void            cmp_imm(byte p, local_t d, value_t v, byte cond);
+    void            cmp_uimm(byte p, local_t d, uvalue_t v, byte cond);
+    void            set_pred(byte p, bool on);
+    void            set_pred_cmp(byte p, byte cond);
+    void            cond_mov_local(byte p, local_t d, local_t s);
+    void            select_local(byte p, local_t d, local_t s, byte x);
+    void            neg_local(local_t d);
+    void            not_local(local_t d);
+    void            incr_local(local_t d);
+    void            decr_local(local_t d);
+    void            sext_local(local_t d, byte w);
+    void            zext_local(local_t d, byte w);
+    void            sext_reg(arm64reg_t r, byte w);
+    void            store_mem(local_t d, local_t s, size_t sz, value_t off=0);
+    void            load_mem(local_t d, local_t s, size_t sz, value_t off=0);
+    void            load_sext(local_t d, local_t s, byte w, value_t off=0);
+    void            bra_pred(byte p, byte_p target, bool sense);
+    void            bra_test(local_t s, byte_p target, byte cond);
+    void            rel_branch(byte_p target, hwcode_t site);
+    void            rel_function(tok_t tok, hwcode_t site);
+    virtual void    prologue();
+    virtual void    epilogue();
+    void            call_ptr(void (*fn)());
+    template <typename T, typename ...U>
+    void            call_ptr(T (*fn)(U...)) { return call(((void (*)()) fn)); }
+    void            dispatch(local_t loc, byte_p &pc, byte cond);
+
+protected:
+    using relocations_t = std::vector<hwcode_t>;
+    relocations_t relocations;
+    bool          frame_active = false; // true after op_enter allocates locals
 };
-
-RECORDER_DECLARE(arm64);
-RECORDER_DECLARE(arm64_ops);
-RECORDER_DECLARE(arm64_error);
-RECORDER_DECLARE(arm64_warning);
 
 #endif // ARM64_H
