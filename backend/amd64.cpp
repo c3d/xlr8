@@ -131,7 +131,6 @@ void amd64::prologue()
     emit_push_reg(HW_RBX);
     emit_push_reg(HW_R12);
     emit_push_reg(HW_R15);
-    emit_push_reg(HW_RBP);
 }
 
 
@@ -141,7 +140,6 @@ void amd64::epilogue()
 // ----------------------------------------------------------------------------
 {
     record(amd64, "epilogue()");
-    emit_pop_reg(HW_RBP);
     emit_pop_reg(HW_R15);
     emit_pop_reg(HW_R12);
     emit_pop_reg(HW_RBX);

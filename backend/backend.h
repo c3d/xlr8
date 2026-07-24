@@ -118,37 +118,36 @@ struct backend
     };
 
 
+    // Creation / factory
     virtual         ~backend()   = default;
     static backend  *make(runtime &rt, arch_t arch = ARCH_NATIVE);
     static cstring   arch_name(arch_t arch = ARCH_NATIVE);
 
+    // Options and configuration
     bool             set_options(cstring options);
     void             set_output(output_t output);
     arch_t           arch() const               { return current_arch; }
     output_t         output() const             { return current_output; }
     static cstring   opcode_name(op_t op);
 
+    // Translate a range and a bytecode function
     bool             translate(byte_p start, byte_p end);
     hwcode_t         translate(tok_t tok);
 
+    // Low-level code emission
     section         &code()                     { return text_section; }
     hwcode_t         cursor() const             { return text_section.size(); }
-
-    bool             translate(byte_p &pc);
     void             emit8(byte c);
     void             emit32le(uint32_t c);
     void             emit32be(uint32_t c);
 
-    uint             translate_address(byte_p bytecode, hwcode_t hwcode);
-    intptr_t         branch_offset(byte_p bytecode, hwcode_t hwcode);
-    intptr_t         branch_offset(hwcode_t hwcode)
-    {
-        return branch_offset(translating, hwcode);
-    }
-    intptr_t         branch_offset()
-    {
-        return branch_offset(translating, cursor());
-    }
+    // Recording offsets for function calls and intra-function branches
+    intptr_t         function(tok_t tok, hwcode_t hwcode = cursor());
+    intptr_t         branch(byte_p target, hwcode_t hwcode = cursor());
+
+    // Resolving labels
+    uint             label(byte_p bytecode, hwcode_t hwcode);
+
 
 
     // ========================================================================
@@ -180,8 +179,8 @@ struct backend
     virtual uint     registers() const                          = 0;
     virtual uint     pointer_size() const                       = 0;
 
-    // Control flow with deferred fixup (jump/resolve_jump in TinyCC)
-    virtual void     patch_branch(hwcode_t data, hwcode_t tgt)  = 0;
+    // Control flow with deferred fixup
+    virtual void     patch(hwcode_t pos, hwcode_t val, bool rel)= 0;
     virtual void     call(void (*target)())                     = 0;
     virtual void     syscall(void (*target)())                  = 0;
     virtual uint     relocate(void *base)                       = 0;
@@ -259,7 +258,6 @@ struct backend
 
     virtual void emit_user(emit_args &args);
     virtual bool dispatch_sys(emit_args &args);
-    virtual bool branch(emit_args &args, byte_p target);
 
 protected:
     backend(runtime &r, arch_t arch);       // Only create backends through the factory
@@ -267,7 +265,6 @@ protected:
     runtime &rt;
     arch_t   current_arch;
     output_t current_output;
-    byte_p   translating;
     section  text_section;
 
     using reg_local_t = std::vector<local_t>;
@@ -277,10 +274,12 @@ protected:
 
     struct translation { byte_p   bytecode; hwcode_t hwcode; };
     using translations = std::vector<translation>;
-    translations functions;
-    translations branches;
-    translations calls;
-    translations labels;
+    translations labels;        // Map bytecode to machine code
+    translations branches;      // Relative branches/calls to patch
+    translations jumps;         // Absolute branches/calls to patch
+
+    using tokens = std::vector<tok_t>;
+    tokens       functions;     // Functions remaining to translate
 
     friend struct translation_compare;
     template<typename T> static auto lower_bound(const translations &, T);

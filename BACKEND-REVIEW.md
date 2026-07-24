@@ -418,9 +418,9 @@ g(byte(0x50 + reg_value(r)));
 Current call sites use `rax`/`rbx`/`rbp` (no REX.B needed), but `HW_FRAME`
 (`r12`) and other r8–r15 args are safe if pushed later.
 
-### 4.2 [P3] ~~`load_hw_imm()` always emits 10-byte movabs~~ — **FIXED** (2026-07-16)
+### 4.2 [P3] ~~`set_imm()` always emits 10-byte movabs~~ — **FIXED** (2026-07-16)
 
-**File**: `x86.cpp` — `load_hw_imm()`
+**File**: `x86.cpp` — `set_imm()`
 
 Prefer short encodings on x86-64 (i386 still truncates to 32 bits):
 
@@ -819,7 +819,7 @@ Consider AUIPC-relative calls on arm64/riscv64 when the target is within range.
 | 24 | ~~Use BT/BTS/BTR for predicates~~ — §4.5 | x86-64 | — |
 | 25 | ~~Use rel8 short branches~~ — §4.3 | x86-64 | — |
 | 26 | ~~Use imm8 shifts instead of movabs+cl~~ — §4.4 | x86-64 | — |
-| 27 | ~~Optimize `load_hw_imm` for small values~~ — §4.2 | x86-64 | — |
+| 27 | ~~Optimize `set_imm` for small values~~ — §4.2 | x86-64 | — |
 | 28 | ~~Use SLLI/SRAI/SRLI immediates~~ — §5.7 | riscv64 | — |
 | 29 | Merge sys reload passes | arm64, riscv64 | -16 insns/sys fast path |
 | 30 | ~~Fix Linux float binop path~~ — §3.6 | arm64 | — |

@@ -66,6 +66,7 @@ EMIT(end)
 {
     record(x86_ops, "emit_end");
     epilogue();
+    e.pc = e.end;
 }
 
 
@@ -165,8 +166,11 @@ EMIT(jmp)
 //   Emit bytecode for the jmp opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_jmp(%llu)", e.tok);
-    jmp_tok(e.tok);
+    spill_all();
+    emit8(0xE9);
+    intptr_t offs = function(e.tok);
+    emit32le(offs + 4);
+    record(x86_ops, "emit_jump %llu = %ld", e.tok, offs);
 }
 
 
@@ -175,8 +179,11 @@ EMIT(call)
 //   Emit bytecode for the call opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_call(%llu)", e.tok);
-    call_tok(e.tok);
+    spill_all();
+    emit8(0xE8);
+    intptr_t offs = function(e.tok);
+    emit32le(offs + 4);
+    record(x86_ops, "emit_call %llu = %ld", e.tok, offs);
 }
 
 
@@ -185,8 +192,11 @@ EMIT(ijmp)
 //   Emit bytecode for the ijmp opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_ijmp(%u)", e.src);
-    ijmp_local(e.src);
+    x86reg_t r = hw(local(e.src));
+    record(x86_ops, "emit_ijmp %u reg %u", e.src, r);
+    spill_all();
+    // TODO: Translate bytecode address to physical address
+    emit_jmp_rr(r);
 }
 
 
@@ -195,8 +205,11 @@ EMIT(icall)
 //   Emit bytecode for the icall opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_icall(%u)", e.src);
-    icall_local(e.src);
+    x86reg_t r = hw(local(e.src));
+    record(x86_ops, "emit_icall %u reg %u", e.src, r);
+    spill_all();
+    // TODO: Translate bytecode address to physical address
+    emit_call_rr(r);
 }
 
 
@@ -205,39 +218,41 @@ EMIT(ret)
 //   Emit bytecode for the ret opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_ret()");
-    emit_runtime_call("xlr8_pop_value");
-    br_via_ip();
+    spill_all();
+    emit_insn_ret();
 }
 
 
 EMIT(ppc)
 // ----------------------------------------------------------------------------
-//   Emit bytecode for the ppc opcode
+//   Emit bytecode for the ppc opcode (push the source bytecode pc)
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_ppc()");
-    push_pc();
+    record(x86_ops, "emit_ppc");
+    set_imm(HW_RAX, e.pc);
+    emit_push_reg(HW_RAX);
 }
 
 
 EMIT(pc)
 // ----------------------------------------------------------------------------
-//   Emit bytecode for the pc opcode
+//   Emit bytecode for the pc opcode (load bytecode pc)
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_pc(%u)", e.dst);
-    load_pc(e.dst);
+    x86reg_t r = hw(local(e.dst));
+    record(x86_ops, "emit_pc %u reg %u", e.dst, r);
+    set_imm(r, e.pc);
 }
 
 
 EMIT(pca)
 // ----------------------------------------------------------------------------
-//   Emit bytecode for the pca opcode
+//   Emit bytecode for the pca opcode (PC-relative offset of the bytecode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_pca(%u, %lld)", e.dst, e.broff);
-    load_pca(e.dst, e.broff);
+    x86reg_t r = hw(local(e.dst));
+    record(x86_ops, "emit_pca %u reg %u = %lld)", e.dst, e.broff);
+    set_imm(r, r.ppc + e.broff);
 }
 
 
@@ -246,12 +261,16 @@ EMIT(enter)
 //   Emit bytecode for the enter opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_enter(%u)", e.dst);
-    emit_set_arg0_r(hw_flags());
-    call_ptr(xlr8_runtime_fn("xlr8_set_flags"));
-    emit_cleanup_call_args(1);
-    reload_rt_regs();
-    emit_runtime_call("xlr8_enter", e.dst);
+    record(x86_ops, "emit_enter %u", e.dst);
+    if (!ptr64())
+    {
+        // Emit space for high 32-bits of falgs
+        emit_xor_rr(HW_RAX, HW_RAX);
+        emit_push_reg(HW_RAX);
+    }
+    emit_push_reg(HW_FRAME);
+    emit_mov_rr(HW_FRAME, HW_RSP);
+    emit_sub_rsp_imm(e.dst * sizeof(ularge_t));
 }
 
 
@@ -260,9 +279,11 @@ EMIT(leave)
 //   Emit bytecode for the leave opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_leave()");
-    emit_runtime_call("xlr8_leave");  // reloads frame from rax
-    reload_flags_reg();
+    record(x86_ops, "emit_leave");
+    emit_mov_rr(HW_RSP, HW_FRAME);
+    emit_pop_reg(HW_FRAME);
+    if (!ptr64())
+        emit_pop_reg(HW_RAX);
 }
 
 
@@ -271,8 +292,11 @@ EMIT(get)
 //   Emit bytecode for the get opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_get(%u, %u)", e.dst, e.src);
-    get_arg(e.dst, e.src);
+    x86reg_t dr  = hw(local(e.dst));
+    int      off = arg_disp(e.src);
+    record(x86_ops, "emit_get [%u] = %u reg %u offs %d",
+           e.dst, e.src, dr, off);
+    emit_load_u64(dr, HW_FRAME, off);
 }
 
 
@@ -281,8 +305,11 @@ EMIT(set)
 //   Emit bytecode for the set opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_set(%u, %u)", e.dst, e.src);
-    set_arg(e.dst, e.src);
+    x86reg_t sr  = hw(local(e.src));
+    int      off = arg_disp(e.dst);
+    record(x86_ops, "emit_set %u = [%u] reg %u offs %d",
+           e.dst, e.src, sr, off);
+    emit_store_u64(HW_FRAME, sr, off);
 }
 
 
@@ -291,8 +318,9 @@ EMIT(push)
 //   Emit bytecode for the push opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_push(%u)", e.src);
-    push_local(e.src);
+    x86reg_t sr  = hw(local(e.src));
+    record(x86_ops, "emit_push %u reg %u", e.src, sr);
+    emit_push_reg(sr);
 }
 
 
@@ -301,8 +329,9 @@ EMIT(pop)
 //   Emit bytecode for the pop opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_pop(%u)", e.dst);
-    pop_local(e.dst);
+    x86reg_t dr  = hw(local(e.src));
+    record(x86_ops, "emit_pop %u reg %u", e.src, sr);
+    emit_pop_reg(dr);
 }
 
 
@@ -321,8 +350,12 @@ EMIT(sto)
 //   Emit bytecode for the sto opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_sto(%u, %u)", e.dst, e.src);
-    store_global(e.dst, e.src);
+    x86reg_t r = local(e.src);
+    uintptr_t gaddr = uintptr_t(&rt.globals[e.dst]);
+    set_imm(HW_RAX, gaddr);
+    emit_store_u64(HW_RAX, r);
+    record(x86_ops, "store_global g[%u]=%u addr %p reg %u",
+           e.dst, e.src, gaddr, r);
 }
 
 
@@ -331,8 +364,12 @@ EMIT(rcl)
 //   Emit bytecode for the rcl opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_rcl(%u, %u)", e.dst, e.src);
-    load_global(e.dst, e.src);
+    x86reg_t r = local(e.dst);
+    uintptr_t gaddr = uintptr_t(&rt.globals[e.src]);
+    set_imm(HW_RAX, gaddr);
+    emit_load_u64(r, HW_RAX);
+    record(x86_ops, "store_global g[%u]=%u addr %p reg %u",
+           e.dst, e.src, gaddr, r);
 }
 
 
@@ -341,8 +378,11 @@ EMIT(dbra)
 //   Emit bytecode for the dbra opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_dbra(%u, %lld)", e.dst, e.broff);
-    dbra_local(e.dst, e.broff);
+    x86reg_t r = hw(local(e.dst));
+    record(x86_ops, "emit_dbra %u, %lld reg %u", e.dst, e.broff, r);
+    emit_grp5_ff(r, 0xc8); // Decr
+    emit_jcc_rel32(JCC_JZ);
+    emit32le(branch(e.bpc + e.broff));
 }
 
 
@@ -351,8 +391,10 @@ EMIT(bra)
 //   Emit bytecode for the bra opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_bra(%lld)", e.broff);
-    bra_offset(e.broff);
+    record(x86_ops, "emit_bra %lld + %lld -> %lld",
+           e.bpc, e.broff, e.bpc+e.broff);
+    emit8(0xe9);
+    emit32(branch(e.bpc + e.broff));
 }
 
 
@@ -362,7 +404,7 @@ EMIT(btrue)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_btrue(%u, %lld)", e.pred, e.broff);
-    bra_pred(e.pred, e.broff, true);
+    bra_pred(e.pred, e.bpc + e.broff, true);
 }
 
 
@@ -372,7 +414,7 @@ EMIT(bfalse)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_bfalse(%u, %lld)", e.pred, e.broff);
-    bra_pred(e.pred, e.broff, false);
+    bra_pred(e.pred, e.bpc + e.broff, false);
 }
 
 
@@ -382,7 +424,7 @@ EMIT(beq)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_beq(%u, %lld)", e.src, e.broff);
-    bra_zero(e.src, e.broff, true);
+    bra_test(e.src, e.bpc + e.broff, JCC_JZ);
 }
 
 
@@ -392,7 +434,7 @@ EMIT(bne)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_bne(%u, %lld)", e.src, e.broff);
-    bra_zero(e.src, e.broff, false);
+    bra_test(e.src, e.bpc + e.broff, JCC_JNZ);
 }
 
 
@@ -402,7 +444,7 @@ EMIT(blt)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_blt(%u, %lld)", e.src, e.broff);
-    bra_signed(e.src, e.broff, 0x8c);
+    bra_test(e.src, e.bpc + e.broff, JCC_JL);
 }
 
 
@@ -412,7 +454,7 @@ EMIT(bgt)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_bgt(%u, %lld)", e.src, e.broff);
-    bra_signed(e.src, e.broff, 0x8f);
+    bra_test(e.src, e.bpc + e.broff, JCC_JG);
 }
 
 
@@ -422,7 +464,7 @@ EMIT(ble)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_ble(%u, %lld)", e.src, e.broff);
-    bra_signed(e.src, e.broff, 0x8e);
+    bra_test(e.src, e.bpc + e.broff, JCC_JLE);
 }
 
 
@@ -432,7 +474,7 @@ EMIT(bge)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_bge(%u, %lld)", e.src, e.broff);
-    bra_signed(e.src, e.broff, 0x8d);
+    bra_test(e.src, e.bpc + e.broff, JCC_JGE);
 }
 
 
@@ -442,7 +484,7 @@ EMIT(switch)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_switch(%u)", e.src);
-    emit_runtime_call("xlr8_switch", e.src);
+    dispatch(e.src, e.pc, JCC_JZ);
 }
 
 
@@ -451,16 +493,8 @@ EMIT(dispatch)
 //   Emit bytecode for the dispatch opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_dispatch(%u, %p)", e.src, e.pc);
-    emit_set_arg1_imm(uint64_t(uintptr_t(e.pc)));
-    emit_set_arg0_imm(uint64_t(e.src));
-    call_ptr((void *) xlr8_dispatch);
-    emit_cleanup_call_args(2);
-    // Preserve continue address across i386 frame reload (see emit_sys).
-    emit_push_reg(HW_RAX);
-    reload_rt_regs();
-    emit_pop_reg(HW_RAX);
-    br_via_ip();
+    record(x86_ops, "emit_dispatch(%u)", e.src);
+    dispatch(e.src, e.pc, JCC_JGE);
 }
 
 
@@ -490,7 +524,7 @@ EMIT(cmpeq)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_cmpeq(%u, %u, %u)", e.pred, e.dst, e.src);
-    cmp_local(e.pred, e.dst, e.src, "eq");
+    cmp_local(e.pred, e.dst, e.src, SETCC_EQ);
 }
 
 
@@ -500,7 +534,7 @@ EMIT(cmpne)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_cmpne(%u, %u, %u)", e.pred, e.dst, e.src);
-    cmp_local(e.pred, e.dst, e.src, "ne");
+    cmp_local(e.pred, e.dst, e.src, SETCC_NE);
 }
 
 
@@ -510,7 +544,7 @@ EMIT(cmplt)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_cmplt(%u, %u, %u)", e.pred, e.dst, e.src);
-    cmp_local(e.pred, e.dst, e.src, "lt");
+    cmp_local(e.pred, e.dst, e.src, SETCC_LT);
 }
 
 
@@ -520,7 +554,7 @@ EMIT(cmple)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_cmple(%u, %u, %u)", e.pred, e.dst, e.src);
-    cmp_local(e.pred, e.dst, e.src, "le");
+    cmp_local(e.pred, e.dst, e.src, SETCC_LU);
 }
 
 
@@ -530,7 +564,7 @@ EMIT(cmpult)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_cmpult(%u, %u, %u)", e.pred, e.dst, e.src);
-    cmp_local(e.pred, e.dst, e.src, "ltu");
+    cmp_local(e.pred, e.dst, e.src, SETCC_LTU);
 }
 
 
@@ -540,7 +574,7 @@ EMIT(cmpule)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_cmpule(%u, %u, %u)", e.pred, e.dst, e.src);
-    cmp_local(e.pred, e.dst, e.src, "leu");
+    cmp_local(e.pred, e.dst, e.src, SETCC_LEU);
 }
 
 
@@ -550,7 +584,7 @@ EMIT(cmpeqi)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_cmpeqi(%u, %u, %lld)", e.pred, e.dst, e.kint);
-    cmp_imm(e.pred, e.dst, e.kint, "eq");
+    cmp_imm(e.pred, e.dst, e.kint, SETCC_EQ);
 }
 
 
@@ -560,7 +594,7 @@ EMIT(cmpnei)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_cmpnei(%u, %u, %lld)", e.pred, e.dst, e.kint);
-    cmp_imm(e.pred, e.dst, e.kint, "ne");
+    cmp_imm(e.pred, e.dst, e.kint, SETCC_NE);
 }
 
 
@@ -570,7 +604,7 @@ EMIT(cmplti)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_cmplti(%u, %u, %lld)", e.pred, e.dst, e.kint);
-    cmp_imm(e.pred, e.dst, e.kint, "lt");
+    cmp_imm(e.pred, e.dst, e.kint, SETCC_LT);
 }
 
 
@@ -580,7 +614,7 @@ EMIT(cmplei)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_cmplei(%u, %u, %lld)", e.pred, e.dst, e.kint);
-    cmp_imm(e.pred, e.dst, e.kint, "le");
+    cmp_imm(e.pred, e.dst, e.kint, SETCC_LE);
 }
 
 
@@ -590,7 +624,7 @@ EMIT(cmpequ)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_cmpequ(%u, %u, %llu)", e.pred, e.dst, e.knat);
-    cmp_uimm(e.pred, e.dst, e.knat, "eq");
+    cmp_uimm(e.pred, e.dst, e.knat, SETCC_EQ);
 }
 
 
@@ -600,7 +634,7 @@ EMIT(cmpneu)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_cmpneu(%u, %u, %llu)", e.pred, e.dst, e.knat);
-    cmp_uimm(e.pred, e.dst, e.knat, "ne");
+    cmp_uimm(e.pred, e.dst, e.knat, SETCC_NE);
 }
 
 
@@ -610,7 +644,7 @@ EMIT(cmpltu)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_cmpltu(%u, %u, %llu)", e.pred, e.dst, e.knat);
-    cmp_uimm(e.pred, e.dst, e.knat, "ltu");
+    cmp_uimm(e.pred, e.dst, e.knat, SETCC_LTU);
 }
 
 
@@ -620,7 +654,7 @@ EMIT(cmpleu)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_cmpleu(%u, %u, %llu)", e.pred, e.dst, e.knat);
-    cmp_uimm(e.pred, e.dst, e.knat, "leu");
+    cmp_uimm(e.pred, e.dst, e.knat, SETCC_LEU);
 }
 
 
@@ -630,7 +664,13 @@ EMIT(pushf)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_pushf()");
-    push_flags();
+    x86reg_t flags = hw_flags();
+    if (!ptr64())
+    {
+        emit_load_u32(HW_RAX, HW_FRAME, 4);
+        emit_push_reg(HW_RAX);
+    }
+    emit_push_reg(flags);
 }
 
 
@@ -640,7 +680,13 @@ EMIT(popf)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_popf()");
-    pop_flags();
+    x864reg_t flags = hw_flags();
+    emit_pop_reg(flags);
+    if (!ptr64())
+    {
+        emit_pop_reg(HW_RAX);
+        emit_store_u32(HW_FRAME, HW_RAX, 4);
+    }
 }
 
 

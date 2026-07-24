@@ -106,32 +106,42 @@ void x86::finish_translation()
 }
 
 
-void x86::patch_branch(hwcode_t data, hwcode_t target)
+void x86::patch(hwcode_t pos, hwcode_t value, bool rel)
 // ----------------------------------------------------------------------------
 //   Patch a recorded branch (rel8 or rel32) to jump to target_native
 // ----------------------------------------------------------------------------
 {
-    record(x86, "patch_branch broff=%zu target=%zu", data, target);
+    record(x86, "patch %+s pos=%u target=%u",
+           rel ? "relative" : "absolute", pos, value);
 
     section &sec = code();
-    // Short forms return the disp8 site; opcode is the preceding byte.
-    if (data >= 1)
+    if (rel)
     {
-        byte op = sec[data - 1];
-        if (op == 0xeb || (op & 0xf0) == 0x70)
+        value -= pos;
+
+        // Short forms return the disp8 site; opcode is the preceding byte.
+        if (pos)
         {
-            int32_t off = int32_t(target) - int32_t(data) - 1;
-            if (off < -128 || off > 127)
+            byte op = sec[pos - 1];
+            if (op == 0xeb || (op & 0xf0) == 0x70)
             {
-                record(x86_error, "rel8 branch out of range off=%d", off);
+                value -= 1;
+                if (value < -128 || value > 127)
+                {
+                    record(x86_error, "rel8 branch out of range off=%d", value);
+                    return;
+                }
+                sec.patch8(data, byte(int8_t(value)));
                 return;
             }
-            sec.patch8(data, byte(int8_t(off)));
-            return;
         }
+        value -= 4;
     }
-    int32_t off = int32_t(target) - int32_t(data) - 4;
-    sec.patch32le(data, uint32_t(off));
+
+    if (intptr_t(value) != int32_t(value))
+        record(x86_warning,
+               "Patching %lu with overflow 0x%llX", pos, value);
+    sec.patch32le(pos, uint32_t(value));
 }
 
 
@@ -315,41 +325,6 @@ x86::reginfo x86::register_definition(hwreg_t reg) const
 //
 // ============================================================================
 
-byte x86::setcc_from_rel(cstring rel)
-// ----------------------------------------------------------------------------
-//   Map a comparison name to a SETcc opcode byte
-// ----------------------------------------------------------------------------
-{
-    if (!strcmp(rel, "eq"))  return SETCC_EQ;
-    if (!strcmp(rel, "ne"))  return SETCC_NE;
-    if (!strcmp(rel, "lt"))  return SETCC_LT;
-    if (!strcmp(rel, "le"))  return SETCC_LE;
-    if (!strcmp(rel, "ltu")) return SETCC_LTU;
-    if (!strcmp(rel, "leu")) return SETCC_LEU;
-    record(x86_error, "Invalid relation %+s", rel);
-    return SETCC_EQ;
-}
-
-
-void x86::br_via_ip()
-// ----------------------------------------------------------------------------
-//   Branch to native address in rax
-// ----------------------------------------------------------------------------
-{
-    record(x86, "br_via_ip");
-    emit_jmp_rax();
-}
-
-
-int x86::local_disp(int n) const
-// ----------------------------------------------------------------------------
-//   Return stack displacement for bytecode local n (ularge_t slots)
-// ----------------------------------------------------------------------------
-{
-    return n * sizeof(ularge_t);
-}
-
-
 void x86::orex(int ll, x86reg_t r, x86reg_t x, byte c)
 // ----------------------------------------------------------------------------
 //   Emit REX prefix and opcode byte
@@ -383,12 +358,12 @@ void x86::emit_rex_modrm(int ll, x86reg_t r, x86reg_t x, x86reg_t b, byte op)
 }
 
 
-void x86::load_hw_imm(x86reg_t r, uint64_t imm)
+void x86::set_imm(x86reg_t r, uint64_t imm)
 // ----------------------------------------------------------------------------
 //   Load immediate into a hardware register (prefer short encodings)
 // ----------------------------------------------------------------------------
 {
-    record(x86, "load_hw_imm %u=%llu %lld 0x%llX", r, imm, imm, imm);
+    record(x86, "set_imm %u=%llu %lld 0x%llX", r, imm, imm, imm);
 
     // xor r32, r32 — 2–3 bytes; clears the full 64-bit register on x86-64
     if (imm == 0)
@@ -514,7 +489,7 @@ void x86::store_imm(local_t d, value_t v)
 {
     record(x86, "store_imm [%u]=%llu %lld 0x%llX", d, v, v, v);
     hwreg_t dreg = local(d);
-    load_hw_imm(hw(dreg), uint64_t(v));
+    set_imm(hw(dreg), uint64_t(v));
 }
 
 
@@ -616,23 +591,6 @@ void x86::binop_imm(local_t dloc, value_t v, op_t op)
 }
 
 
-void x86::set_pred_cmp(byte p, byte cc)
-// ----------------------------------------------------------------------------
-//   Set predicate bit p according to x86 SETcc condition
-// ----------------------------------------------------------------------------
-{
-    record(x86, "set_pred_cmp(%u, %u)", p, cc);
-    emit_setcc_al(cc);
-    emit_movzx_eax_al();
-    emit_mov_rr(hw_scr(), HW_RAX);
-    emit_pred_clear_bit(p);
-    emit_test_rr(hw_scr(), hw_scr());
-    size_t pos = emit_jcc_rel8(JCC_JZ);
-    emit_pred_set_bit(p);
-    patch_branch_site(pos, cursor());
-}
-
-
 void x86::set_pred(byte p, bool on)
 // ----------------------------------------------------------------------------
 //   Set or clear predicate bit p in flags register
@@ -646,28 +604,27 @@ void x86::set_pred(byte p, bool on)
 }
 
 
-void x86::cmp_local(byte p, local_t d, local_t s, cstring rel)
+void x86::cmp_local(byte p, local_t d, local_t s, byte jcc)
 // ----------------------------------------------------------------------------
 //   Compare two locals and set predicate p
 // ----------------------------------------------------------------------------
 {
-    record(x86, "cmp_local(%u, %u, %u, %s)", p, d, s, rel);
-    load_local(d, HW_RAX);
-    load_local(s, HW_RCX);
-    emit_cmp_rr(HW_RAX, HW_RCX);
-    set_pred_cmp(p, setcc_from_rel(rel));
+    x86reg_t dr = hw(local(d));
+    x86reg_t sr = hw(local(s));
+    record(x86, "cmp_local cc=%u p=%u d=%u r%u s=%u r%u", cc, p, d, dr, s, sr);
+    emit_pred_cmp(p, dr, sr, jcc);
 }
 
 
-void x86::cmp_imm(byte p, local_t d, value_t v, cstring rel)
+void x86::cmp_imm(byte p, local_t d, value_t v, byte jcc)
 // ----------------------------------------------------------------------------
 //   Compare local with signed immediate and set predicate
 // ----------------------------------------------------------------------------
 {
-    record(x86, "cmp_imm(%u, %u, %lld, %s)", p, d, v, rel);
-    load_local(d, HW_RAX);
-    emit_cmp_rax_imm32(uint32_t(v));
-    set_pred_cmp(p, setcc_from_rel(rel));
+    x86reg_t dr = hw(local(d));
+    set_imm(HW_RCX, v);
+    record(x86, "cmp_imm cc=%u p=%u d=%u r%u v=%u", cc, p, d, dr, v);
+    emit_pred_cmp(p, dr, HW_RCX, jcc);
 }
 
 
@@ -822,7 +779,7 @@ void x86::zext_local(local_t d, byte w)
     if (w < 64)
     {
         hwreg_t r = local(d);
-        load_hw_imm(HW_RCX, (1ULL << w) - 1);
+        set_imm(HW_RCX, (1ULL << w) - 1);
         emit_and_rr(r, HW_RCX);
     }
 }
@@ -837,20 +794,13 @@ void x86::store_mem(local_t d, local_t s, size_t sz)
     load_local(d, HW_RAX);
     load_local(s, HW_RCX);
     if (sz == 1)
-    {
-        emit_store_u8_at_rax_cl();
-    }
+        emit_store_u8(HW_RAX, HW_RCX);
     else if (sz == 2)
-    {
-        emit_store_u16_at_rax_rcx();
-    }
-
+        emit_store_u16(HW_RAX, HW_RCX);
     else if (sz == 4)
-    {
-        emit_store_u32_at_rax_rcx();
-    }
-
-    else { emit_rex_modrm(1, HW_RCX, HW_RAX, HW_RAX, 0x89); }
+        emit_store_u32(HW_RAX, HW_RCX);
+    else
+        emit_store_u64(HW_RAX, HW_RCX);
 }
 
 
@@ -862,21 +812,13 @@ void x86::load_mem(local_t d, local_t s, size_t sz)
     record(x86, "load_mem(%u, %u, %u)", d, s, sz);
     load_local(s, HW_RAX);
     if (sz == 1)
-    {
-        emit_load_u8_zext_rax();
-    }
-
+        emit_load_u8(HW_RAX, HW_RAX);
     else if (sz == 2)
-    {
-        emit_load_u16_zext_rax();
-    }
-
+        emit_load_u16(HW_RAX, HW_RAX);
     else if (sz == 4)
-    {
-        emit_load_u32_rax();
-    }
-
-    else { emit_rex_modrm(1, HW_RAX, HW_RAX, HW_RAX, 0x8b); }
+        emit_load_u32(HW_RAX, HW_RAX);
+    else
+        emit_load_u64(HW_RAX, HW_RAX);
     store_local(HW_RAX, d);
 }
 
@@ -888,28 +830,23 @@ void x86::store_mem_off(local_t d, local_t s, value_t o, size_t sz)
 {
     record(x86, "store_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
     load_local(d, HW_RAX);
-    if (o)
+    load_local(s, HW_RCX);
+    int offs = 0;
+    if (o == int32_t(o))
+        offs = int32_t(o);
+    else if (o)
     {
-        load_hw_imm(HW_RDX, uint64_t(o));
+        set_imm(HW_RDX, uint64_t(o));
         emit_add_rr(HW_RAX, HW_RDX);
     }
-    load_local(s, HW_RCX);
     if (sz == 1)
-    {
-        emit_store_u8_at_rax_cl();
-    }
-
+        emit_store_u8(HW_RAX, HW_RCX, offs);
     else if (sz == 2)
-    {
-        emit_store_u16_at_rax_rcx();
-    }
-
+        emit_store_u16(HW_RAX, HW_RCX, offs);
     else if (sz == 4)
-    {
-        emit_store_u32_at_rax_rcx();
-    }
-
-    else { emit_rex_modrm(1, HW_RCX, HW_RAX, HW_RAX, 0x89); }
+        emit_store_u32(HW_RAX, HW_RCX, offs);
+    else
+        emit_store_u64(HW_RAX, HW_RCX, offs);
 }
 
 
@@ -920,56 +857,51 @@ void x86::load_mem_off(local_t d, local_t s, value_t o, size_t sz)
 {
     record(x86, "load_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
     load_local(s, HW_RAX);
-    if (o)
+    int offs = 0;
+    if (o == int32_t(o))
+        offs = int32_t(o);
+    else if (o)
     {
-        load_hw_imm(HW_RCX, uint64_t(o));
+        set_imm(HW_RCX, uint64_t(o));
         emit_add_rr(HW_RAX, HW_RCX);
     }
     if (sz == 1)
-    {
-        emit_load_u8_zext_rax();
-    }
-
+        emit_load_u8(HW_RAX, HW_RAX, offs);
     else if (sz == 2)
-    {
-        emit_load_u16_zext_rax();
-    }
-
+        emit_load_u16(HW_RAX, HW_RAX, offs);
     else if (sz == 4)
-    {
-        emit_load_u32_rax();
-    }
-
-    else { emit_rex_modrm(1, HW_RAX, HW_RAX, HW_RAX, 0x8b); }
+        emit_load_u32(HW_RAX, HW_RAX, offs);
+    else
+        emit_load_u64(HW_RAX, HW_RAX, offs);
     store_local(HW_RAX, d);
 }
 
 
-void x86::load_signext_mem(byte w)
+void x86::load_signext_mem(byte w, int offs)
 // ----------------------------------------------------------------------------
-//   Load from [rax] and sign-extend to w bits into rax
+//   Load from [rax+offs] and sign-extend to w bits into rax
 // ----------------------------------------------------------------------------
 {
-    record(x86, "load_signext_mem(%u)", w);
+    record(x86, "load_signext_mem(%u, %d)", w, offs);
     if (w == 8)
-        emit_load_s8_sext_rax();
+        emit_load_s8(HW_RAX, HW_RAX, offs);
     else if (w == 16)
-        emit_load_s16_sext_rax();
+        emit_load_s16(HW_RAX, HW_RAX, offs);
     else if (w == 32)
-        emit_load_s32_sext_rax();
+        emit_load_s32(HW_RAX, HW_RAX, offs);
     else if (w >= 64)
-        emit_rex_modrm(1, HW_RAX, HW_RAX, HW_RAX, 0x8b);
+        emit_load_u64(HW_RAX, HW_RAX, offs);
     else
     {
         size_t sz = (w + 7) / 8;
         if (sz == 1)
-            emit_load_u8_zext_rax();
+            emit_load_u8(HW_RAX, HW_RAX, offs);
         else if (sz == 2)
-            emit_load_u16_zext_rax();
+            emit_load_u16(HW_RAX, HW_RAX, offs);
         else if (sz == 4)
-            emit_load_u32_rax();
+            emit_load_u32(HW_RAX, HW_RAX, offs);
         else
-            emit_rex_modrm(1, HW_RAX, HW_RAX, HW_RAX, 0x8b);
+            emit_load_u64(HW_RAX, HW_RAX, offs);
         sext_reg(HW_RAX, w);
     }
 }
@@ -993,12 +925,15 @@ void x86::load_signext_off(local_t d, local_t s, byte w, value_t o)
 {
     record(x86, "load_signext_off(%u, %u, %u, %lld)", d, s, w, o);
     load_local(s, HW_RAX);
-    if (o)
+    int offs = 0;
+    if (o == int32_t(o))
+        offs = int32_t(o);
+    else if (o)
     {
-        load_hw_imm(HW_RCX, uint64_t(o));
+        set_imm(HW_RCX, uint64_t(o));
         emit_add_rr(HW_RAX, HW_RCX);
     }
-    load_signext_mem(w);
+    load_signext_mem(w, offs);
     store_local(HW_RAX, d);
 }
 
@@ -1009,24 +944,13 @@ void x86::frame_addr(local_t d, local_t s)
 // ----------------------------------------------------------------------------
 {
     record(x86, "frame_addr(%u, %u)", d, s);
-    load_hw_imm(HW_RAX, uint64_t(local_disp(s)));
+    set_imm(HW_RAX, uint64_t(local_disp(s)));
     emit_add_rr(HW_RAX, HW_FRAME);
     store_local(HW_RAX, d);
 }
 
 
-void x86::bra_offset(broff_t b)
-// ----------------------------------------------------------------------------
-//   Emit unconditional branch with bytecode offset
-// ----------------------------------------------------------------------------
-{
-    record(x86, "bra_offset(%lld)", b);
-    uint pos = jump(0);
-    record_branch(b, pos);
-}
-
-
-void x86::bra_pred(byte p, broff_t b, bool sense)
+void x86::bra_pred(byte p, byte_p target, bool sense)
 // ----------------------------------------------------------------------------
 //   Emit branch on predicate p with given sense
 // ----------------------------------------------------------------------------
@@ -1034,245 +958,20 @@ void x86::bra_pred(byte p, broff_t b, bool sense)
     record(x86, "bra_pred(%u, %lld, %d)", p, b, sense);
     emit_pred_test_bit(p);                              // BT -> CF
     size_t pos = emit_jcc_rel32(sense ? JCC_JC : JCC_JNC);
-    record_branch(b, uint(pos));
+    emit32le(branch(target));
 }
 
 
-void x86::bra_zero(local_t s, broff_t b, bool eq)
-// ----------------------------------------------------------------------------
-//   Emit branch when local s is zero or non-zero
-// ----------------------------------------------------------------------------
-{
-    record(x86, "bra_zero(%u, %lld, %d)", s, b, eq);
-    load_local(s, HW_RAX);
-    emit_test_rr(HW_RAX, HW_RAX);
-    size_t pos = emit_jcc_rel32(eq ? JCC_JZ : JCC_JNZ);
-    record_branch(b, uint(pos));
-}
-
-
-void x86::bra_signed(local_t s, broff_t b, byte cc)
+void x86::bra_test(local_t s, byte_p target, byte cc)
 // ----------------------------------------------------------------------------
 //   Emit signed comparison branch on local s
 // ----------------------------------------------------------------------------
 {
     record(x86, "bra_signed(%u, %lld, %u)", s, b, cc);
-    load_local(s, HW_RAX);
-    emit_test_rr(HW_RAX, HW_RAX);
+    x86reg_t r = hw(local(s));
+    emit_test_rr(r, r);
     size_t pos = emit_jcc_rel32(cc);
-    record_branch(b, uint(pos));
-}
-
-
-void x86::dbra_local(local_t d, broff_t b)
-// ----------------------------------------------------------------------------
-//   Decrement local d and branch if non-zero
-// ----------------------------------------------------------------------------
-{
-    record(x86, "dbra_local(%u, %lld)", d, b);
-    load_local(d, HW_RAX);
-    emit_grp5_ff(HW_RAX, 0xc8);
-    store_local(HW_RAX, d);
-    bra_zero(d, b, false);
-}
-
-
-void x86::jmp_tok(tok_t t)
-// ----------------------------------------------------------------------------
-//   Emit jump to token-resolved label
-// ----------------------------------------------------------------------------
-{
-    record(x86, "jmp_tok %llu", t);
-    hwcode_t target = translate(t);
-    emit_jmp_to(target);
-}
-
-
-void x86::call_tok(tok_t t)
-// ----------------------------------------------------------------------------
-//   Emit call to token-resolved label
-// ----------------------------------------------------------------------------
-{
-    record(x86, "call_tok(%llu)", t);
-    size_t adr_at = reserve_pc_in_rax();
-    emit_set_arg0_rax();
-    emit_runtime_call("xlr8_push_value");
-    emit_cleanup_call_args(1);
-    emit_runtime_call("xlr8_sync_args");
-    uint head = tok_jumps.count(t) ? tok_jumps[t] : 0;
-    uint pos = jump(head);
-    record_tok_jump(t, pos);
-    patch_pc_rel(adr_at, uintptr_t(pos + 4));
-}
-
-
-void x86::ijmp_local(local_t s)
-// ----------------------------------------------------------------------------
-//   Indirect jump through local s (bytecode PC -> native)
-// ----------------------------------------------------------------------------
-{
-    record(x86, "ijmp_local(%u)", s);
-    load_local(s, HW_RAX);
-    emit_set_arg0_rax();
-    emit_runtime_call("xlr8_jit_addr");
-    emit_cleanup_call_args(1);
-    br_via_ip();
-}
-
-
-void x86::icall_local(local_t s)
-// ----------------------------------------------------------------------------
-//   Indirect call through local s (bytecode PC -> native)
-// ----------------------------------------------------------------------------
-{
-    record(x86, "icall_local(%u)", s);
-    size_t adr_at = reserve_pc_in_rax();
-    emit_set_arg0_rax();
-    emit_runtime_call("xlr8_push_value");
-    emit_cleanup_call_args(1);
-    emit_runtime_call("xlr8_sync_args");
-    load_local(s, HW_RAX);
-    emit_set_arg0_rax();
-    emit_runtime_call("xlr8_jit_addr");
-    emit_cleanup_call_args(1);
-    br_via_ip();
-    patch_pc_rel(adr_at, cursor());
-}
-
-
-void x86::push_pc()
-// ----------------------------------------------------------------------------
-//   Push program counter onto stack
-// ----------------------------------------------------------------------------
-{
-    record(x86, "push_pc()");
-    size_t adr_at = reserve_pc_in_rax();
-    emit_set_arg0_rax();
-    emit_runtime_call("xlr8_push_value");
-    emit_cleanup_call_args(1);
-    patch_pc_rel(adr_at, adr_at - 1);
-}
-
-
-void x86::load_pc(local_t d)
-// ----------------------------------------------------------------------------
-//   Load current PC into local d
-// ----------------------------------------------------------------------------
-{
-    record(x86, "load_pc(%u)", d);
-    load_hw_imm(HW_RAX, cursor());
-    store_local(HW_RAX, d);
-}
-
-
-void x86::load_pca(local_t d, broff_t b)
-// ----------------------------------------------------------------------------
-//   Load bytecode PC plus offset into local d (interpreter semantics)
-// ----------------------------------------------------------------------------
-{
-    record(x86, "load_pca(%u, %lld)", d, b);
-    (void) b;
-    load_hw_imm(HW_RAX, uint64_t(pending_branch_target));
-    store_local(HW_RAX, d);
-}
-
-
-void x86::get_arg(local_t d, local_t s)
-// ----------------------------------------------------------------------------
-//   Copy argument local s into d
-// ----------------------------------------------------------------------------
-{
-    record(x86, "get_arg(%u, %u)", d, s);
-    emit_set_arg1_imm(uint64_t(s));
-    emit_set_arg0_imm(uint64_t(d));
-    emit_runtime_call("xlr8_get_arg");
-    emit_cleanup_call_args(2);
-}
-
-
-void x86::set_arg(local_t d, local_t s)
-// ----------------------------------------------------------------------------
-//   Copy local s into argument slot d
-// ----------------------------------------------------------------------------
-{
-    record(x86, "set_arg(%u, %u)", d, s);
-    emit_set_arg1_imm(uint64_t(s));
-    emit_set_arg0_imm(uint64_t(d));
-    emit_runtime_call("xlr8_set_arg");
-    emit_cleanup_call_args(2);
-}
-
-
-void x86::push_local(local_t s)
-// ----------------------------------------------------------------------------
-//   Push local s onto stack
-// ----------------------------------------------------------------------------
-{
-    record(x86, "push_local(%u)", s);
-    load_local(s, HW_RAX);
-    emit_set_arg0_rax();
-    emit_runtime_call("xlr8_push_value");
-    emit_cleanup_call_args(1);
-}
-
-
-void x86::pop_local(local_t d)
-// ----------------------------------------------------------------------------
-//   Pop stack value into local d
-// ----------------------------------------------------------------------------
-{
-    record(x86, "pop_local(%u)", d);
-    emit_runtime_call("xlr8_pop_value");
-    store_local(HW_RAX, d);
-}
-
-
-void x86::push_flags()
-// ----------------------------------------------------------------------------
-//   Push flags register onto stack
-// ----------------------------------------------------------------------------
-{
-    record(x86, "push_flags()");
-    emit_set_arg0_r(hw_flags());
-    emit_runtime_call("xlr8_push_flags_val");
-    emit_cleanup_call_args(1);
-}
-
-
-void x86::pop_flags()
-// ----------------------------------------------------------------------------
-//   Pop stack value into flags register
-// ----------------------------------------------------------------------------
-{
-    record(x86, "pop_flags()");
-    emit_runtime_call("xlr8_pop_flags_val");
-    reload_flags_reg();
-}
-
-
-void x86::store_global(local_t d, local_t s)
-// ----------------------------------------------------------------------------
-//   Store local s into global slot d
-// ----------------------------------------------------------------------------
-{
-    record(x86, "store_global(%u, %u)", d, s);
-    emit_set_arg1_imm(uint64_t(s));
-    emit_set_arg0_imm(uint64_t(d));
-    emit_runtime_call("xlr8_store_global");
-    emit_cleanup_call_args(2);
-}
-
-
-void x86::load_global(local_t d, local_t s)
-// ----------------------------------------------------------------------------
-//   Load global slot s into local d
-// ----------------------------------------------------------------------------
-{
-    record(x86, "load_global(%u, %u)", d, s);
-    emit_set_arg1_imm(uint64_t(s));
-    emit_set_arg0_imm(uint64_t(d));
-    emit_runtime_call("xlr8_load_global");
-    emit_cleanup_call_args(2);
+    emit32le(branch(target));
 }
 
 
@@ -1288,7 +987,6 @@ void x86::prologue()
     emit_push_reg(HW_RBX);
     emit_push_reg(HW_RSI);
     emit_push_reg(HW_RDI);
-    emit_push_reg(HW_RBP);
 }
 
 
@@ -1298,7 +996,6 @@ void x86::epilogue()
 // ----------------------------------------------------------------------------
 {
     record(x86, "epilogue()");
-    emit_pop_reg(HW_RBP);
     emit_pop_reg(HW_RDI);
     emit_pop_reg(HW_RSI);
     emit_pop_reg(HW_RBX);
@@ -1315,88 +1012,37 @@ void x86::call_ptr(void *fn)
 #ifdef _WIN64
     // Microsoft x64: caller provides 32 bytes of register parameter home space
     if (ptr64())
-        emit_sub_rsp_imm8(0x20);
+        emit_sub_rsp_imm(0x20);
 #endif
-    load_hw_imm(HW_RAX, uint64_t(fn));
+    set_imm(HW_RAX, uint64_t(fn));
     emit_call_rax();
 #ifdef _WIN64
     if (ptr64())
-        emit_add_rsp_imm8(0x20);
+        emit_add_rsp_imm(0x20);
 #endif
 }
 
 
-void x86::emit_trap(cstring msg)
+void x86::dispatch(local_t loc, byte_p &pc, byte jcc)
 // ----------------------------------------------------------------------------
-//   Emit debug trap with message
-// ----------------------------------------------------------------------------
-{
-    record(x86_warning, "emit_trap(%s)", msg);
-    (void) msg;
-    emit_int3();
-}
-
-
-void x86::emit_runtime_call(cstring fn)
-// ----------------------------------------------------------------------------
-//   Emit call to runtime helper function
+//   Dispatch a branch table
 // ----------------------------------------------------------------------------
 {
-    record(x86, "emit_runtime_call(%s)", fn);
-    call_ptr(xlr8_runtime_fn(fn));
-    // xlr8_leave/enter return the new frame in rax — keep it for the reload.
-    if (!strcmp(fn, "xlr8_leave") || !strcmp(fn, "xlr8_enter"))
-        reload_frame_reg();
-    else if (pointer_size() == 4)
+    x86reg_t ref = hw(local(loc));
+    size_t   ncases  = arg<size_t>(pc);
+    for (size_t n = 0; n < ncases; n++)
     {
-        // Preserve helper return in eax.  Refresh frame only — flags live in
-        // esi until emit_sys syncs them; get_flags would wipe BTS/BTR updates.
-        emit_push_reg(HW_RAX);
-        call_ptr(xlr8_runtime_fn("xlr8_get_frame"));
-        emit_mov_frame_rax();
-        emit_pop_reg(HW_RAX);
+        value_t test = arg<value_t>(pc);
+        byte_p  bpc  = pc;
+        broff_t offs = arg<broff_t>(pc);
+        byte_p  tgt  = pc + offs;
+        set_imm(HW_RAX, test);
+        emit_cmp_rr(ref, HW_RAX);
+        emit_jcc_rel32(jcc);
+        emit32le(branch(tgt));
     }
 }
 
-
-void x86::emit_runtime_call(cstring fn, tok_t a)
-// ----------------------------------------------------------------------------
-//   Emit call to runtime helper function
-// ----------------------------------------------------------------------------
-{
-    record(x86, "emit_runtime_call(%s, %llu)", fn, a);
-    emit_set_arg0_imm(uint64_t(a));
-    call_ptr(xlr8_runtime_fn(fn));
-    emit_cleanup_call_args(1);
-    if (pointer_size() == 4)
-    {
-        emit_push_reg(HW_RAX);
-        call_ptr(xlr8_runtime_fn("xlr8_get_frame"));
-        emit_mov_frame_rax();
-        emit_pop_reg(HW_RAX);
-    }
-}
-
-
-void x86::emit_runtime_call(cstring fn, byte a)
-// ----------------------------------------------------------------------------
-//   Emit call to runtime helper function
-// ----------------------------------------------------------------------------
-{
-    record(x86, "emit_runtime_call(%s, %u)", fn, a);
-    emit_set_arg0_imm(uint64_t(a));
-    call_ptr(xlr8_runtime_fn(fn));
-    emit_cleanup_call_args(1);
-    if (!strcmp(fn, "xlr8_enter") || !strcmp(fn, "xlr8_leave"))
-        reload_frame_reg();
-    else if (pointer_size() == 4)
-    {
-        emit_push_reg(HW_RAX);
-        call_ptr(xlr8_runtime_fn("xlr8_get_frame"));
-        emit_mov_frame_rax();
-        emit_pop_reg(HW_RAX);
-    }
-}
 
 
 #define EMIT(op)        void x86::emit_##op(emit_args &e)

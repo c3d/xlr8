@@ -243,22 +243,17 @@ auto backend::equal_range(const translations &t, T v)
 }
 
 
-intptr_t backend::branch_offset(byte_p bytecode, hwcode_t hwcode)
+intptr_t backend::branch(byte_p target, hwcode_t hwcode)
 // ----------------------------------------------------------------------------
 //  Record that we have a branch, mapping bytecode to machine code
 // ----------------------------------------------------------------------------
 {
-    // Lookup in labels to check if we already know the target
-    byte_p  bpc    = bytecode;
-    broff_t offset = leb128<broff_t>(bpc);
-    byte_p  target = bytecode + offset;
-    auto    label  = lower_bound(labels, target);
-
-    // If it already exists, return the offset to the label
+    // If already translated, return the offset to the translation
+    auto label  = lower_bound(labels, target);
     if (label != labels.end() && label->bytecode == target)
         return label->hwcode - hwcode;
 
-    // If it does not, add it to the list of branches to patch
+    // Otherwise, add it to the list of branches to patch
     translation bt = { target, hwcode };
     auto branch = lower_bound(branches, bt);
     if (branch == branches.end() ||
@@ -268,7 +263,33 @@ intptr_t backend::branch_offset(byte_p bytecode, hwcode_t hwcode)
 }
 
 
-uint backend::translate_address(byte_p bytecode, hwcode_t hwcode)
+intptr_t backend::function(tok_t tok, hwcode_t hwcode)
+// ----------------------------------------------------------------------------
+//  Record that we have a call to a function offset
+// ----------------------------------------------------------------------------
+{
+    // Check if the function was already compiled, if so return its offset
+    size_t sz    = 0;
+    byte_p start = rt.tok(tok, &sz);
+    byte_p end   = start + sz;
+    auto   fn    = lowerbound(labels, start);
+    if (fn != labels.end())
+        return fn->hwcode - hwcode;
+
+    // Otherwise, add it to the list of branches to patch
+    translation bt = { start, hwcode };
+    auto branch = lower_bound(branches, bt);
+    if (branch == branches.end() ||
+        branch->bytecode != target || branch->hwcode != hwcode)
+        branches.insert(branch, bt);
+
+    // And add it to the list of functions to translate
+    functions.push_back(tok);
+    return 0;
+}
+
+
+uint backend::label(byte_p bytecode, hwcode_t hwcode)
 // ----------------------------------------------------------------------------
 //   Add an address translation, resolve labels if necessary
 // ----------------------------------------------------------------------------
@@ -278,15 +299,23 @@ uint backend::translate_address(byte_p bytecode, hwcode_t hwcode)
     // Record what we are currently translating
     translating = bytecode;
 
-    // Check if there are branches that need patching
-    auto range = equal_range(branches, hwcode);
-    for (auto b = range.first; b != range.second; ++b)
+    // Check if there are relative branches that need patching
+    auto nrange = equal_range(branches, hwcode);
+    for (auto b = brange.first; b != brange.second; ++b)
     {
-        patch_branch(b->hwcode, hwcode);
+        patch(b->hwcode, hwcode, true);
         count++;
     }
-    if (count)
-        branches.erase(range.first, range.second);
+    branches.erase(brange.first, brange.second);
+
+    // Check if there are absolute jumps / calls that need patching
+    auto jrange = equal_range(jumps, hwcode);
+    for (auto j = jrange.first; j != jrange.second; ++j)
+    {
+        patch(j->hwcode, hwcode, false);
+        count++;
+    }
+    branches.erase(range.first, range.second);
 
     // Record the mapping from bytecode to machine code for future branches
     labels.emplace_back(translation{bytecode, hwcode});
@@ -335,7 +364,7 @@ bool backend::translate(byte_p pc, byte_p end)
     {
         // Insert translation in address map
         byte_p insn = pc;
-        translate_address(pc, cursor());
+        label(pc, cursor());
 
         // Run that opcode
         op_t op            = op_t(*pc++);
@@ -383,7 +412,39 @@ bool backend::translate(byte_p pc, byte_p end)
         // It's possible that the opcode changed the pc or end
         pc  = args.pc;
         end = args.end;
+
+        // If we are done here, pick up the next item to translate
+        if (pc >= end)
+        {
+            // Pick up the next label to translate
+            auto branch = branches.begin();
+            if (branch != branches.end())
+            {
+                record(backend,
+                       "Picking up branch %p at offset %u",
+                       branch->bytecode, branch->hwcode);
+                pc = branch->bytecode;
+                continue;
+            }
+
+            // No branch left in this function, pick up the next function
+            auto fn = functions.begin();
+            if (fn != functions.end())
+            {
+                tok_t  tok   = *fn;
+                size_t sz    = 0;
+                byte_p fndef = rt.tok(tok, &sz);
+                byte_p fnend = fndef + sz;
+                args.pc      = fndef;
+                args.end     = fnend;
+                record(backend,
+                       "Picking up function %p..%p", args.pc, args.end);
+                functions.erase(fn);
+                continue;
+            }
+        }
     }
+
     if (args.error)
         record(backend_error, "Error during translation: %+s", args.error);
     return !args.error;
@@ -424,10 +485,10 @@ void backend::begin_translation()
 
     reg_local.clear();
     local_reg.clear();
-    functions.clear();
-    branches.clear();
-    calls.clear();
     labels.clear();
+    branches.clear();
+    jumps.clear();
+    functions.clear();
 
     // Default assignment for registers and locals
     reg_local.resize(registers(), NO_LOCAL);
@@ -454,56 +515,6 @@ void backend::emit_user(backend::emit_args &args)
            "emit_user not implemented op=%u pc=%p",
            args.op, args.pc);
     args.error = "Not implemented";
-}
-
-
-bool backend::branch(emit_args &args, byte_p target)
-// ----------------------------------------------------------------------------
-//   Check next thing to translate if we hit an uncnoditional branch
-// ----------------------------------------------------------------------------
-{
-    record(backend, "branch %p to %p", args.pc, target);
-
-    // Check if we already dealt with that code
-    auto label = lower_bound(labels, target);
-    if (label == labels.end() || label->bytecode != target)
-    {
-        // Label was not translated yet (e.g. forward branch):
-        // Translate that instruction next
-        // In that case, we can actually skip the branch
-        record(backend, "Not translated yet, jumping to %p", target);
-        args.pc = target;
-        return true;
-    }
-
-    // Pick up the next item to translate
-    auto branch = branches.begin();
-    if (branch != branches.end())
-    {
-        record(backend,
-               "Picking up branch %p at offset %u",
-               branch->bytecode, branch->hwcode);
-        args.pc = branch->bytecode;
-        return false;
-    }
-
-    // No branch left, pick up the next function
-    auto fn = functions.begin();
-    if (fn != functions.end())
-    {
-        byte_p fndef = fn->bytecode;
-        size_t sz    = leb128<size_t>(fndef);
-        byte_p fnend = fndef + sz;
-        args.pc      = fndef;
-        args.end     = fnend;
-        record(backend, "Picking up function %p..%p", args.pc, args.end);
-        return false;
-    }
-
-    // Nothing left to do - Stop
-    record(backend, "Done, %p moving to %p", args.pc, args.end);
-    args.pc = args.end;
-    return false;
 }
 
 
