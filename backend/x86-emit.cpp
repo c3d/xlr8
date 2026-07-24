@@ -1129,7 +1129,7 @@ EMIT(st8o)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_st8o(%u, %u, %lld)", e.dst, e.src, e.kint);
-    store_mem_off(e.dst, e.src, e.kint, 8);
+    store_mem(e.dst, e.src, 8, e.kint);
 }
 
 
@@ -1139,7 +1139,7 @@ EMIT(st4o)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_st4o(%u, %u, %lld)", e.dst, e.src, e.kint);
-    store_mem_off(e.dst, e.src, e.kint, 4);
+    store_mem(e.dst, e.src, 4, e.kint);
 }
 
 
@@ -1149,7 +1149,7 @@ EMIT(st2o)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_st2o(%u, %u, %lld)", e.dst, e.src, e.kint);
-    store_mem_off(e.dst, e.src, e.kint, 2);
+    store_mem(e.dst, e.src, 2, e.kint);
 }
 
 
@@ -1159,7 +1159,7 @@ EMIT(st1o)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_st1o(%u, %u, %lld)", e.dst, e.src, e.kint);
-    store_mem_off(e.dst, e.src, e.kint, 1);
+    store_mem(e.dst, e.src, 1, e.kint);
 }
 
 
@@ -1169,7 +1169,7 @@ EMIT(ld8o)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_ld8o(%u, %u, %lld)", e.dst, e.src, e.kint);
-    load_mem_off(e.dst, e.src, e.kint, 8);
+    load_mem(e.dst, e.src, 8, e.kint);
 }
 
 
@@ -1179,7 +1179,7 @@ EMIT(ld4o)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_ld4o(%u, %u, %lld)", e.dst, e.src, e.kint);
-    load_mem_off(e.dst, e.src, e.kint, 4);
+    load_mem(e.dst, e.src, 4, e.kint);
 }
 
 
@@ -1189,7 +1189,7 @@ EMIT(ld2o)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_ld2o(%u, %u, %lld)", e.dst, e.src, e.kint);
-    load_mem_off(e.dst, e.src, e.kint, 2);
+    load_mem(e.dst, e.src, 2, e.kint);
 }
 
 
@@ -1199,7 +1199,7 @@ EMIT(ld1o)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_ld1o(%u, %u, %lld)", e.dst, e.src, e.kint);
-    load_mem_off(e.dst, e.src, e.kint, 1);
+    load_mem(e.dst, e.src, 1, e.kint);
 }
 
 
@@ -1208,8 +1208,8 @@ EMIT(lds)
 //   Emit bytecode for the lds opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_lds(%u, %u, %u)", e.dst, e.src, e.kshift);
-    load_signext(e.dst, e.src, e.kshift);
+    record(x86_ops, "emit_lds%u %u=[%u]", e.kshift, e.dst, e.src);
+    load_sext(e.dst, e.src, e.kshift);
 }
 
 
@@ -1218,8 +1218,8 @@ EMIT(ldos)
 //   Emit bytecode for the ldos opcode
 // ----------------------------------------------------------------------------
 {
-    record(x86_ops, "emit_ldos(%u, %u, %u, %lld)", e.dst, e.src, e.kshift, e.kint);
-    load_signext_off(e.dst, e.src, e.kshift, e.kint);
+    record(x86_ops, "emit_ldos%u %u=[%u+%lld]", e.kshift, e.dst, e.src, e.kint);
+    load_sext(e.dst, e.src, e.kshift, e.kint);
 }
 
 

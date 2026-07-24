@@ -1238,8 +1238,7 @@ protected:
     void            load_signext_mem(byte w, int offs = 0);
     void            store_mem(local_t d, local_t s, size_t sz, value_t off=0);
     void            load_mem(local_t d, local_t s, size_t sz, value_t off=0);
-    void            load_signext(local_t d, local_t s, byte w);
-    void            load_signext_off(local_t d, local_t s, byte w, value_t o);
+    void            load_sext(local_t d, local_t s, byte w, value_t off=0);
     void            bra_pred(byte p, byte_p target, bool sense);
     void            bra_test(local_t s, byte_p target, byte cc);
     void            push_pc();

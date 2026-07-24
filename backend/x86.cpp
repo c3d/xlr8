@@ -764,9 +764,12 @@ void x86::sext_local(local_t d, byte w)
 //   Sign-extend local d to w bits
 // ----------------------------------------------------------------------------
 {
-    record(x86, "sext_local(%u, %u)", d, w);
-    hwreg_t r = local(d);
-    sext_reg(r, w);
+    record(x86, "sext_local%u %u", w, d);
+    if (w < 64)
+    {
+        x86reg_t r = hw_local(d);
+        sext_reg(r, w);
+    }
 }
 
 
@@ -775,17 +778,17 @@ void x86::zext_local(local_t d, byte w)
 //   Zero-extend local d to w bits
 // ----------------------------------------------------------------------------
 {
-    record(x86, "zext_local(%u, %u)", d, w);
+    record(x86, "zext_local%u %u", w, d);
     if (w < 64)
     {
-        hwreg_t r = local(d);
-        set_imm(HW_RCX, (1ULL << w) - 1);
-        emit_and_rr(r, HW_RCX);
+        x86reg_t r = hw_local(d);
+        set_imm(HW_RAX, (1ULL << w) - 1);
+        emit_and_rr(r, HW_RAX);
     }
 }
 
 
-void x86::store_mem(local_t d, local_t s, size_t sz, value_t off)
+void x86::store_mem(local_t d, local_t s, size_t sz, value_t offs)
 // ----------------------------------------------------------------------------
 //   Store value from local s at address in local d
 // ----------------------------------------------------------------------------
@@ -796,15 +799,15 @@ void x86::store_mem(local_t d, local_t s, size_t sz, value_t off)
     switch(sz)
     {
     default:            record(x86_error, "Invalid store size %u", sz);
-    case 1:             emit_store_u8 (dr, sr, off); break;
-    case 2:             emit_store_u16(dr, sr, off); break;
-    case 4:             emit_store_u32(dr, sr, off); break;
-    case 8:             emit_store_u64(dr, sr, off); break;
+    case 1:             emit_store_u8 (dr, sr, offs); break;
+    case 2:             emit_store_u16(dr, sr, offs); break;
+    case 4:             emit_store_u32(dr, sr, offs); break;
+    case 8:             emit_store_u64(dr, sr, offs); break;
     }
 }
 
 
-void x86::load_mem(local_t d, local_t s, size_t sz, value_t off)
+void x86::load_mem(local_t d, local_t s, size_t sz, value_t offs)
 // ----------------------------------------------------------------------------
 //   Load from address in local s into local d
 // ----------------------------------------------------------------------------
@@ -815,72 +818,36 @@ void x86::load_mem(local_t d, local_t s, size_t sz, value_t off)
     switch(sz)
     {
     default:            record(x86_error, "Invalid load size %u", sz);
-    case 1:             emit_load_u8 (dr, sr, off); break;
-    case 2:             emit_load_u16(dr, sr, off); break;
-    case 4:             emit_load_u32(dr, sr, off); break;
-    case 8:             emit_load_u64(dr, sr, off); break;
+    case 1:             emit_load_u8 (dr, sr, offs); break;
+    case 2:             emit_load_u16(dr, sr, offs); break;
+    case 4:             emit_load_u32(dr, sr, offs); break;
+    case 8:             emit_load_u64(dr, sr, offs); break;
     }
 }
 
 
-void x86::load_signext_mem(byte w, int offs)
+void x86::load_sext(local_t d, local_t s, byte w, value_t offs)
 // ----------------------------------------------------------------------------
 //   Load from [rax+offs] and sign-extend to w bits into rax
 // ----------------------------------------------------------------------------
 {
     record(x86, "load_signext_mem(%u, %d)", w, offs);
-    if (w == 8)
-        emit_load_s8(HW_RAX, HW_RAX, offs);
-    else if (w == 16)
-        emit_load_s16(HW_RAX, HW_RAX, offs);
-    else if (w == 32)
-        emit_load_s32(HW_RAX, HW_RAX, offs);
-    else if (w >= 64)
-        emit_load_u64(HW_RAX, HW_RAX, offs);
-    else
+
+    x86reg_t dr = hw_local(d);
+    x86reg_t sr = hw_local(s);
+
+    record(x86, "load_sext%u %u=[%u]", w, sz, d, s);
+    size_t sz = (w + 7) / 8;
+    switch(sz)
     {
-        size_t sz = (w + 7) / 8;
-        if (sz == 1)
-            emit_load_u8(HW_RAX, HW_RAX, offs);
-        else if (sz == 2)
-            emit_load_u16(HW_RAX, HW_RAX, offs);
-        else if (sz == 4)
-            emit_load_u32(HW_RAX, HW_RAX, offs);
-        else
-            emit_load_u64(HW_RAX, HW_RAX, offs);
-        sext_reg(HW_RAX, w);
+    default:            record(x86_error, "Invalid load_sext width %u", w);
+    case 1:             emit_load_s8 (dr, sr, offs); break;
+    case 2:             emit_load_s16(dr, sr, offs); break;
+    case 4:             emit_load_s32(dr, sr, offs); break;
+    case 8:             emit_load_s64(dr, sr, offs); break;
     }
-}
-
-
-void x86::load_signext(local_t d, local_t s, byte w)
-// ----------------------------------------------------------------------------
-//   Load from memory with sign extension
-// ----------------------------------------------------------------------------
-{
-    record(x86, "load_signext(%u, %u, %u)", d, s, w);
-    load_local(s, HW_RAX);
-    load_signext_mem(w);
-    store_local(HW_RAX, d);
-}
-
-void x86::load_signext_off(local_t d, local_t s, byte w, value_t o)
-// ----------------------------------------------------------------------------
-//   Load from memory at offset with sign extension
-// ----------------------------------------------------------------------------
-{
-    record(x86, "load_signext_off(%u, %u, %u, %lld)", d, s, w, o);
-    load_local(s, HW_RAX);
-    int offs = 0;
-    if (o == int32_t(o))
-        offs = int32_t(o);
-    else if (o)
-    {
-        set_imm(HW_RCX, uint64_t(o));
-        emit_add_rr(HW_RAX, HW_RCX);
-    }
-    load_signext_mem(w, offs);
-    store_local(HW_RAX, d);
+    if (w & 7)
+        sext_reg(dr, w);
 }
 
 
