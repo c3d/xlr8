@@ -523,8 +523,8 @@ void x86::binop_local(local_t dloc, local_t sloc, op_t op, byte fp)
 // ----------------------------------------------------------------------------
 {
     hwspec_t spec = fp == 64 ? RSPEC_DBL : fp == 32 ? RSPEC_FLT : RSPEC_INT;
-    x86reg_t d = hw(local(dloc, spec));
-    x86reg_t s = hw(local(sloc, spec));
+    x86reg_t d = hw_local(dloc, spec);
+    x86reg_t s = hw_local(sloc, spec);
     record(x86, "binop_local%+s [%u]=[%u] reg %u=%u",
            opcode_name(op), dloc, sloc, d, s);
     switch (op)
@@ -563,7 +563,7 @@ void x86::binop_imm(local_t dloc, value_t v, op_t op)
 //   Apply binary operator with immediate to local
 // ----------------------------------------------------------------------------
 {
-    x86reg_t d = hw(local(dloc));
+    x86reg_t d = hw_local(dloc);
     record(x86, "binop_imm%+s [%u] %lld reg %u",
            opcode_name(op), dloc, v, d);
     switch (op)
@@ -609,8 +609,8 @@ void x86::cmp_local(byte p, local_t d, local_t s, byte jcc)
 //   Compare two locals and set predicate p
 // ----------------------------------------------------------------------------
 {
-    x86reg_t dr = hw(local(d));
-    x86reg_t sr = hw(local(s));
+    x86reg_t dr = hw_local(d);
+    x86reg_t sr = hw_local(s);
     record(x86, "cmp_local cc=%u p=%u d=%u r%u s=%u r%u", cc, p, d, dr, s, sr);
     emit_pred_cmp(p, dr, sr, jcc);
 }
@@ -621,7 +621,7 @@ void x86::cmp_imm(byte p, local_t d, value_t v, byte jcc)
 //   Compare local with signed immediate and set predicate
 // ----------------------------------------------------------------------------
 {
-    x86reg_t dr = hw(local(d));
+    x86reg_t dr = hw_local(d);
     set_imm(HW_RCX, v);
     record(x86, "cmp_imm cc=%u p=%u d=%u r%u v=%u", cc, p, d, dr, v);
     emit_pred_cmp(p, dr, HW_RCX, jcc);
@@ -785,95 +785,41 @@ void x86::zext_local(local_t d, byte w)
 }
 
 
-void x86::store_mem(local_t d, local_t s, size_t sz)
+void x86::store_mem(local_t d, local_t s, size_t sz, value_t off)
 // ----------------------------------------------------------------------------
 //   Store value from local s at address in local d
 // ----------------------------------------------------------------------------
 {
-    record(x86, "store_mem(%u, %u, %u)", d, s, sz);
-    load_local(d, HW_RAX);
-    load_local(s, HW_RCX);
-    if (sz == 1)
-        emit_store_u8(HW_RAX, HW_RCX);
-    else if (sz == 2)
-        emit_store_u16(HW_RAX, HW_RCX);
-    else if (sz == 4)
-        emit_store_u32(HW_RAX, HW_RCX);
-    else
-        emit_store_u64(HW_RAX, HW_RCX);
+    x86reg_t dr = hw_local(d);
+    x86reg_t sr = hw_local(s);
+    record(x86, "store_mem%u [%u]=%u", sz, d, s);
+    switch(sz)
+    {
+    default:            record(x86_error, "Invalid store size %u", sz);
+    case 1:             emit_store_u8 (dr, sr, off); break;
+    case 2:             emit_store_u16(dr, sr, off); break;
+    case 4:             emit_store_u32(dr, sr, off); break;
+    case 8:             emit_store_u64(dr, sr, off); break;
+    }
 }
 
 
-void x86::load_mem(local_t d, local_t s, size_t sz)
+void x86::load_mem(local_t d, local_t s, size_t sz, value_t off)
 // ----------------------------------------------------------------------------
 //   Load from address in local s into local d
 // ----------------------------------------------------------------------------
 {
-    record(x86, "load_mem(%u, %u, %u)", d, s, sz);
-    load_local(s, HW_RAX);
-    if (sz == 1)
-        emit_load_u8(HW_RAX, HW_RAX);
-    else if (sz == 2)
-        emit_load_u16(HW_RAX, HW_RAX);
-    else if (sz == 4)
-        emit_load_u32(HW_RAX, HW_RAX);
-    else
-        emit_load_u64(HW_RAX, HW_RAX);
-    store_local(HW_RAX, d);
-}
-
-
-void x86::store_mem_off(local_t d, local_t s, value_t o, size_t sz)
-// ----------------------------------------------------------------------------
-//   Store value from local s at address in local d plus offset
-// ----------------------------------------------------------------------------
-{
-    record(x86, "store_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
-    load_local(d, HW_RAX);
-    load_local(s, HW_RCX);
-    int offs = 0;
-    if (o == int32_t(o))
-        offs = int32_t(o);
-    else if (o)
+    x86reg_t dr = hw_local(d);
+    x86reg_t sr = hw_local(s);
+    record(x86, "load_mem%u %u=[%u]", sz, d, s);
+    switch(sz)
     {
-        set_imm(HW_RDX, uint64_t(o));
-        emit_add_rr(HW_RAX, HW_RDX);
+    default:            record(x86_error, "Invalid load size %u", sz);
+    case 1:             emit_load_u8 (dr, sr, off); break;
+    case 2:             emit_load_u16(dr, sr, off); break;
+    case 4:             emit_load_u32(dr, sr, off); break;
+    case 8:             emit_load_u64(dr, sr, off); break;
     }
-    if (sz == 1)
-        emit_store_u8(HW_RAX, HW_RCX, offs);
-    else if (sz == 2)
-        emit_store_u16(HW_RAX, HW_RCX, offs);
-    else if (sz == 4)
-        emit_store_u32(HW_RAX, HW_RCX, offs);
-    else
-        emit_store_u64(HW_RAX, HW_RCX, offs);
-}
-
-
-void x86::load_mem_off(local_t d, local_t s, value_t o, size_t sz)
-// ----------------------------------------------------------------------------
-//   Load from address in local s plus offset into local d
-// ----------------------------------------------------------------------------
-{
-    record(x86, "load_mem_off(%u, %u, %lld, %u)", d, s, o, sz);
-    load_local(s, HW_RAX);
-    int offs = 0;
-    if (o == int32_t(o))
-        offs = int32_t(o);
-    else if (o)
-    {
-        set_imm(HW_RCX, uint64_t(o));
-        emit_add_rr(HW_RAX, HW_RCX);
-    }
-    if (sz == 1)
-        emit_load_u8(HW_RAX, HW_RAX, offs);
-    else if (sz == 2)
-        emit_load_u16(HW_RAX, HW_RAX, offs);
-    else if (sz == 4)
-        emit_load_u32(HW_RAX, HW_RAX, offs);
-    else
-        emit_load_u64(HW_RAX, HW_RAX, offs);
-    store_local(HW_RAX, d);
 }
 
 
@@ -938,18 +884,6 @@ void x86::load_signext_off(local_t d, local_t s, byte w, value_t o)
 }
 
 
-void x86::frame_addr(local_t d, local_t s)
-// ----------------------------------------------------------------------------
-//   Compute frame-relative address of local slot s into local d
-// ----------------------------------------------------------------------------
-{
-    record(x86, "frame_addr(%u, %u)", d, s);
-    set_imm(HW_RAX, uint64_t(local_disp(s)));
-    emit_add_rr(HW_RAX, HW_FRAME);
-    store_local(HW_RAX, d);
-}
-
-
 void x86::bra_pred(byte p, byte_p target, bool sense)
 // ----------------------------------------------------------------------------
 //   Emit branch on predicate p with given sense
@@ -968,7 +902,7 @@ void x86::bra_test(local_t s, byte_p target, byte cc)
 // ----------------------------------------------------------------------------
 {
     record(x86, "bra_signed(%u, %lld, %u)", s, b, cc);
-    x86reg_t r = hw(local(s));
+    x86reg_t r = hw_local(s);
     emit_test_rr(r, r);
     size_t pos = emit_jcc_rel32(cc);
     emit32le(branch(target));
@@ -1028,7 +962,7 @@ void x86::dispatch(local_t loc, byte_p &pc, byte jcc)
 //   Dispatch a branch table
 // ----------------------------------------------------------------------------
 {
-    x86reg_t ref = hw(local(loc));
+    x86reg_t ref = hw_local(loc);
     size_t   ncases  = arg<size_t>(pc);
     for (size_t n = 0; n < ncases; n++)
     {

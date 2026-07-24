@@ -171,6 +171,14 @@ protected:
         return x86reg_t(r);
     }
 
+    x86reg_t hw_local(local_t loc)
+    // ------------------------------------------------------------------------
+    //   Return hardware x86 register associated with a local
+    // ------------------------------------------------------------------------
+    {
+        return hw(local(loc));
+    }
+
     x86reg_t hw_flags() const
     // ------------------------------------------------------------------------
     //   Register used for hardware flags
@@ -493,7 +501,7 @@ protected:
         emit_modrm_frame(op_ext, local_disp(n));
     }
 
-    void emit_alu_imm_frame(byte n, byte op_ext, int32_t imm)
+    void emit_alu_imm_frame(local_t n, byte op_ext, int32_t imm)
     // ------------------------------------------------------------------------
     //   Emit add/sub/… [frame+disp], imm (83 ib or 81 id); op_ext=/0 add /5 sub
     // ------------------------------------------------------------------------
@@ -754,6 +762,16 @@ protected:
         emit8(byte((r << 3) | b));
         if (b == 4)
             emit8(0x24);
+    }
+
+    void emit_lea(x86reg_t rd, x86reg_t rs, int offs = 0)
+    // ------------------------------------------------------------------------
+    //   Emit lea rd, [rs+offs]  (rd = rs + offs; does not touch flags)
+    // ------------------------------------------------------------------------
+    {
+        emit_rex_mem(ptr64() ? 8 : 0, rd, rs);
+        emit8(0x8d);
+        emit_modrm_reg_base(rd, rs, offs);
     }
 
     void emit_store_u8(x86reg_t dstptr, x86reg_t src, int offs = 0)
@@ -1218,13 +1236,10 @@ protected:
     void            zext_local(local_t d, byte w);
     void            sext_reg(x86reg_t r, byte w);
     void            load_signext_mem(byte w, int offs = 0);
-    void            store_mem(local_t d, local_t s, size_t sz);
-    void            load_mem(local_t d, local_t s, size_t sz);
-    void            store_mem_off(local_t d, local_t s, value_t o, size_t sz);
-    void            load_mem_off(local_t d, local_t s, value_t o, size_t sz);
+    void            store_mem(local_t d, local_t s, size_t sz, value_t off=0);
+    void            load_mem(local_t d, local_t s, size_t sz, value_t off=0);
     void            load_signext(local_t d, local_t s, byte w);
     void            load_signext_off(local_t d, local_t s, byte w, value_t o);
-    void            frame_addr(local_t d, local_t s);
     void            bra_pred(byte p, byte_p target, bool sense);
     void            bra_test(local_t s, byte_p target, byte cc);
     void            push_pc();

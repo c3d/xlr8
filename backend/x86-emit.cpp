@@ -192,7 +192,7 @@ EMIT(ijmp)
 //   Emit bytecode for the ijmp opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t r = hw(local(e.src));
+    x86reg_t r = hw_local(e.src);
     record(x86_ops, "emit_ijmp %u reg %u", e.src, r);
     spill_all();
     // TODO: Translate bytecode address to physical address
@@ -205,7 +205,7 @@ EMIT(icall)
 //   Emit bytecode for the icall opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t r = hw(local(e.src));
+    x86reg_t r = hw_local(e.src);
     record(x86_ops, "emit_icall %u reg %u", e.src, r);
     spill_all();
     // TODO: Translate bytecode address to physical address
@@ -239,7 +239,7 @@ EMIT(pc)
 //   Emit bytecode for the pc opcode (load bytecode pc)
 // ----------------------------------------------------------------------------
 {
-    x86reg_t r = hw(local(e.dst));
+    x86reg_t r = hw_local(e.dst);
     record(x86_ops, "emit_pc %u reg %u", e.dst, r);
     set_imm(r, e.pc);
 }
@@ -250,7 +250,7 @@ EMIT(pca)
 //   Emit bytecode for the pca opcode (PC-relative offset of the bytecode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t r = hw(local(e.dst));
+    x86reg_t r = hw_local(e.dst);
     record(x86_ops, "emit_pca %u reg %u = %lld)", e.dst, e.broff);
     set_imm(r, r.ppc + e.broff);
 }
@@ -292,7 +292,7 @@ EMIT(get)
 //   Emit bytecode for the get opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t dr  = hw(local(e.dst));
+    x86reg_t dr  = hw_local(e.dst);
     int      off = arg_disp(e.src);
     record(x86_ops, "emit_get [%u] = %u reg %u offs %d",
            e.dst, e.src, dr, off);
@@ -305,7 +305,7 @@ EMIT(set)
 //   Emit bytecode for the set opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t sr  = hw(local(e.src));
+    x86reg_t sr  = hw_local(e.src);
     int      off = arg_disp(e.dst);
     record(x86_ops, "emit_set %u = [%u] reg %u offs %d",
            e.dst, e.src, sr, off);
@@ -318,7 +318,7 @@ EMIT(push)
 //   Emit bytecode for the push opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t sr  = hw(local(e.src));
+    x86reg_t sr  = hw_local(e.src);
     record(x86_ops, "emit_push %u reg %u", e.src, sr);
     emit_push_reg(sr);
 }
@@ -329,7 +329,7 @@ EMIT(pop)
 //   Emit bytecode for the pop opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t dr  = hw(local(e.src));
+    x86reg_t dr  = hw_local(e.src);
     record(x86_ops, "emit_pop %u reg %u", e.src, sr);
     emit_pop_reg(dr);
 }
@@ -378,7 +378,7 @@ EMIT(dbra)
 //   Emit bytecode for the dbra opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t r = hw(local(e.dst));
+    x86reg_t r = hw_local(e.dst);
     record(x86_ops, "emit_dbra %u, %lld reg %u", e.dst, e.broff, r);
     emit_grp5_ff(r, 0xc8); // Decr
     emit_jcc_rel32(JCC_JZ);
@@ -1036,7 +1036,10 @@ EMIT(frame)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_frame(%u, %u)", e.dst, e.src);
-    frame_addr(e.dst, e.src);
+    x86reg_t dr = hw_local(e.dst);
+    int      offs = local_disp(e.src);
+    emit_lea(dr, HW_FRAME, offs);
+    spill_all();                // So that we can use the result
 }
 
 
