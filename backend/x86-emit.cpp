@@ -329,8 +329,8 @@ EMIT(pop)
 //   Emit bytecode for the pop opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t dr  = hw_local(e.src);
-    record(x86_ops, "emit_pop %u reg %u", e.src, dr);
+    x86reg_t dr  = hw_local(e.dst);
+    record(x86_ops, "emit_pop %u reg %u", e.dst, dr);
     emit_pop_reg(dr);
 }
 

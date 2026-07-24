@@ -330,8 +330,8 @@ EMIT(pop)
 //   Emit bytecode for the pop opcode
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t dr  = hw_local(e.src);
-    record(arm64_ops, "emit_pop %u reg %u", e.src, dr);
+    arm64reg_t dr  = hw_local(e.dst);
+    record(arm64_ops, "emit_pop %u reg %u", e.dst, dr);
     emit_pop(dr);
 }
 

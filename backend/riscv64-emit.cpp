@@ -352,8 +352,8 @@ EMIT(pop)
 //   Emit bytecode for the pop opcode
 // ----------------------------------------------------------------------------
 {
-    riscv64reg_t dr  = hw_local(e.src);
-    record(riscv64_ops, "emit_pop %u reg %u", e.src, dr);
+    riscv64reg_t dr  = hw_local(e.dst);
+    record(riscv64_ops, "emit_pop %u reg %u", e.dst, dr);
     emit_pop(dr);
 }
 
