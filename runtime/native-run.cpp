@@ -118,7 +118,7 @@ static void dump_jit_code(void *mem, size_t sz, backend &be, cstring path)
                        path, path, path, arch, path, path, path);
 
 
-    record(native_run, "JIT disasm: %s", cmd);
+    record(native_run, "JIT disasm: \n%s", cmd);
     FILE *pipe = popen(cmd, "r");
     free(cmd);
     if (!pipe)
