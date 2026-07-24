@@ -6,8 +6,7 @@
 //
 //   File Description:
 //
-//     32-bit ARM (AArch32 / AAPCS) code generation backend for all built-in
-//     opcodes.  Instruction encoding follows the ARM mode used by TinyCC.
+//     32-bit ARM (AArch32 / AAPCS, ARM mode) code generation backend.
 //
 //
 //
@@ -17,7 +16,7 @@
 //
 // ****************************************************************************
 //   (C) 2026 Christophe de Dinechin <christophe@dinechin.org>
-//   This software is licensed under the terms outlined in LICENSE.txt
+//   This software is licensed under the terms outlined in LICENSE.txt file
 // ****************************************************************************
 //   This file is part of XLR8.
 //
@@ -33,28 +32,23 @@
 //  REGISTER ALLOCATION CONVENTIONS (32-bit ARM / AArch32)
 //  ===========================================================================
 //
-//  Bytecode locals are frame[n] slots (ularge_t, 8 bytes).  Locals 0..3 live
-//  in shadow registers r0..r3 while valid; locals >= 4 use frame memory only
-//  (ldr/str via [r11, #local*8]).  See regmap.h.
-//
-//  TinyCC allocates r0-r3 and r12 for expression temps; this backend shadows
-//  only r0-r3 (syscall/arg regs) and keeps r4-r7 as dedicated scratches so
-//  temps never silently clobber live locals (BACKEND-REVIEW §6.11).
+//  Locals use [r11 - (local+1)*8]; r11 is adjusted by op_enter and op_leave.
+//  Args use [r11 + arg*8 + 8] (skip saved FP+LR).
+//  Flags (predicates) live in r10 (HW_FLAGS).
 //
 //  Register map:
-//    Shadow locals     r0 .. r3      frame[0] .. frame[3] when valid
-//    Scratch value     r4  (HW_SCR_VAL)
-//    Scratch offset    r5  (HW_SCR_OFF)
-//    (free callee-saved r6, r7 — reserved for future temps)
-//    Scratch address   r8  (HW_SCR_ADDR)
-//    Frame pointer     r11 (HW_FRAME)  rt.frame (reloaded in prologue)
-//    Flags/predicates  r10 (HW_FLAGS)   rt.flags low half (reloaded in prologue)
-//    Callee-saved pack  r4-r11, lr      pushed in prologue; pop {r4-r11,pc}
-//    Intra-call IP     r12 (HW_IP)      call_abs target (AAPCS IP)
-//    Stack pointer     r13 (sp)         native stack (8-byte aligned at calls)
 //
-//  Bytecode PC is the translator cursor, not a fixed HW register.  Runtime is
-//  reached via xlr8_get_runtime() today.
+//    Frame pointer     r11 (HW_FRAME)   Native FP for locals / args
+//    Link register     r14 (HW_LR)      Saved with FP on enter
+//    Flags/predicates  r10 (HW_FLAGS)   Callee-saved predicate bits
+//    Scratch           r12 (HW_IP)      Temps / call targets (not allocatable)
+//    Allocatable GPRs  r4-r8            Callee-saved only (survive sys calls)
+//                      r0-r3,r12-r15    Call-clobbered / reserved (not alloc)
+//                      r9               Avoid on some ABIs
+//    Stack pointer     r13 (HW_SP)      Native stack
+//
+//  Bytecode PC is the translator cursor, not a fixed HW register.
+//  Runtime is reached via xlr8_get_runtime() in spill/sys paths.
 //
 //  ===========================================================================
 
@@ -62,52 +56,133 @@
 #include "recorder.h"
 #include "regmap.h"
 
-#include <cstring>
+
+RECORDER_DECLARE(arm);
+RECORDER_DECLARE(arm_ops);
+RECORDER_DECLARE(arm_error);
+RECORDER_DECLARE(arm_warning);
 
 
 struct arm : backend
 // ----------------------------------------------------------------------------
-//   32-bit ARM code generator implementing every built-in opcode
+//   32-bit ARM code generator implementing every opcode
 // ----------------------------------------------------------------------------
 {
     arm(runtime &rt);
-    static arm *make(runtime &rt) { return new arm(rt); }
+    static backend *make(runtime &rt) { return new arm(rt); }
 
 #include "backend-iface.h"
 
-
 protected:
-    enum hwreg_t : uint
+    enum armreg_t : hwreg_t
+    // ------------------------------------------------------------------------
+    //    Hardware register names for AArch32 ARM mode
+    // ------------------------------------------------------------------------
     {
-        HW_LOC0     = 0, // shadow frame[0] .. frame[3]
-        HW_LOC3     = 3,
-        HW_SCR_VAL  = 4, // dedicated scratch (not a shadow)
-        HW_SCR_OFF  = 5, // dedicated scratch (not a shadow)
-        HW_SCR_ADDR = 8,
-        HW_SB       = 9,  // leave r9 alone (platform/PIC sb on some ABIs)
-        HW_FLAGS    = 10, // callee-saved, rt.flags (low 32 of predicates)
-        HW_FRAME    = 11, // callee-saved fp, rt.frame base for spill
-        HW_IP       = 12, // intra-procedure call scratch (AAPCS IP)
+        HW_R0,
+        HW_R1,
+        HW_R2,
+        HW_R3,
+        HW_R4,
+        HW_R5,
+        HW_R6,
+        HW_R7,
+        HW_R8,
+        HW_R9,
+        HW_R10,
+        HW_R11,
+        HW_R12,
+        HW_R13,
+        HW_R14,
+        HW_R15,
+
+        HW_COUNT,
+
+        HW_FRAME = HW_R11,
+        HW_FLAGS = HW_R10,
+        HW_IP    = HW_R12,
+        HW_SP    = HW_R13,
+        HW_LR    = HW_R14,
+        HW_PC    = HW_R15,
     };
 
-    static const uint  ARM_SHADOW_COUNT = 4;
-    static const uint  ARM_SLOT_SIZE    = 8; // sizeof(ularge_t)
+    static constexpr byte COND_EQ = 0;
+    static constexpr byte COND_NE = 1;
+    static constexpr byte COND_CS = 2;
+    static constexpr byte COND_CC = 3;
+    static constexpr byte COND_MI = 4;
+    static constexpr byte COND_PL = 5;
+    static constexpr byte COND_VS = 6;
+    static constexpr byte COND_VC = 7;
+    static constexpr byte COND_HI = 8;
+    static constexpr byte COND_LS = 9;
+    static constexpr byte COND_GE = 10;
+    static constexpr byte COND_LT = 11;
+    static constexpr byte COND_GT = 12;
+    static constexpr byte COND_LE = 13;
+    static constexpr byte COND_AL = 14;
 
-    static inline uint slot_off(byte n)
+    armreg_t hw(hwreg_t r)
     // ------------------------------------------------------------------------
-    //   Byte offset of bytecode local n in the runtime frame
+    //   Convert hwreg_t to armreg_t
     // ------------------------------------------------------------------------
     {
-        return uint(n) * ARM_SLOT_SIZE;
+        if (r >= HW_COUNT)
+        {
+            record(arm_error, "Invalid hardware register index %u", r);
+            r = HW_R0;
+        }
+        return armreg_t(r);
     }
 
-    static inline uint rreg(byte n)
+    armreg_t hw_local(local_t loc)
     // ------------------------------------------------------------------------
-    //   Map bytecode local n to shadow hardware register rn
+    //   Return hardware register associated with a local
     // ------------------------------------------------------------------------
     {
-        return n;
+        return hw(local(loc));
     }
+
+    static inline uint rn(armreg_t r)
+    // ------------------------------------------------------------------------
+    //   Physical ARM register number for encoding (0..15)
+    // ------------------------------------------------------------------------
+    {
+        if (r < HW_COUNT)
+            return uint(r);
+        record(arm_error, "rn() on invalid register %u", r);
+        return 0;
+    }
+
+    static inline byte invert_cond(byte cond)
+    {
+        static const byte inv[] =
+            { 1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 14, 15 };
+        return inv[cond & 15];
+    }
+
+    int local_disp(int n) const
+    // ------------------------------------------------------------------------
+    //   Return stack displacement for bytecode local n (ularge_t slots)
+    // ------------------------------------------------------------------------
+    {
+        return ~n * int(sizeof(ularge_t));
+    }
+
+    int arg_disp(int n) const
+    // ------------------------------------------------------------------------
+    //   Return stack displacement for argument (skip saved FP+LR)
+    // ------------------------------------------------------------------------
+    {
+        return n * int(sizeof(ularge_t)) + 2 * int(pointer_size());
+    }
+
+
+    // ========================================================================
+    //
+    //    AArch32 ARM-mode instruction encoders
+    //
+    // ========================================================================
 
     static inline uint mov_rr(uint rd, uint rm)
     // ------------------------------------------------------------------------
@@ -143,7 +218,7 @@ protected:
 
     static inline uint ands_rrr(uint rd, uint rn, uint rm)
     // ------------------------------------------------------------------------
-    //   Encode ands rd, rn, rm  (sets NZCV for following BEQ/BNE)
+    //   Encode ands rd, rn, rm  (sets NZCV)
     // ------------------------------------------------------------------------
     {
         return 0xE0100000u | (rd << 12) | (rn << 16) | rm;
@@ -166,18 +241,12 @@ protected:
              | (rd << 12) | (rn << 16) | rm;
     }
 
-    static inline byte cond_from_op(cstring op)
+    static inline uint bic_rrr(uint rd, uint rn, uint rm)
     // ------------------------------------------------------------------------
-    //   Map comparison name to ARM condition code
+    //   Encode bic rd, rn, rm  (rd = rn AND NOT rm)
     // ------------------------------------------------------------------------
     {
-        if (!strcmp(op, "eq")) return 0;
-        if (!strcmp(op, "ne")) return 1;
-        if (!strcmp(op, "lt")) return 11;
-        if (!strcmp(op, "le")) return 13;
-        if (!strcmp(op, "ltu")) return 3;
-        if (!strcmp(op, "leu")) return 9;
-        return 0;
+        return 0xE1C00000u | (rd << 12) | (rn << 16) | rm;
     }
 
     static inline uint eor_rrr(uint rd, uint rn, uint rm)
@@ -222,8 +291,7 @@ protected:
 
     static inline uint shift_rrr(uint rd, uint rm, uint rs, uint stype)
     // ------------------------------------------------------------------------
-    //   Encode mov rd, rm, shift-by-rs (LSL=0, LSR=1, ASR=2).  Bit 4 selects
-    //   the register-controlled form; without it this is lsl #imm (rs<<1).
+    //   Encode mov rd, rm, shift-by-rs (LSL=0, LSR=1, ASR=2)
     // ------------------------------------------------------------------------
     {
         return 0xE1A00000u | (rd << 12) | (rs << 8) | (stype << 5)
@@ -237,6 +305,30 @@ protected:
     {
         return 0xE1A00000u | (rd << 12) | ((imm & 31u) << 7)
              | (stype << 5) | rm;
+    }
+
+    static inline uint mvn_rr(uint rd, uint rm)
+    // ------------------------------------------------------------------------
+    //   Encode mvn rd, rm  (bitwise NOT)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE1E00000u | (rd << 12) | rm;
+    }
+
+    static inline uint rsb_imm(uint rd, uint rn, uint imm)
+    // ------------------------------------------------------------------------
+    //   Encode rsb rd, rn, #imm  (rd = imm - rn; use imm=0 for negate)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE2600000u | (rd << 12) | (rn << 16) | (imm & 0xFFFu);
+    }
+
+    static inline uint tst_rr(uint rn, uint rm)
+    // ------------------------------------------------------------------------
+    //   Encode tst rn, rm  (AND, set flags, discard result)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE1100000u | (rn << 16) | rm;
     }
 
     static inline uint cmp_rr(uint rn, uint rm)
@@ -271,20 +363,58 @@ protected:
         return 0xE3500000u | (rn << 16) | (imm & 0xFFFu);
     }
 
-    static inline uint ldr_off(uint rd, uint rn, uint off)
+    static inline uint and_imm(uint rd, uint rn, uint imm)
     // ------------------------------------------------------------------------
-    //   Encode ldr rd, [rn, #off]
+    //   Encode and rd, rn, #imm12
     // ------------------------------------------------------------------------
     {
-        return 0xE5900000u | (rd << 12) | (rn << 16) | (off & 0xFFFu);
+        return 0xE2000000u | (rd << 12) | (rn << 16) | (imm & 0xFFFu);
     }
 
-    static inline uint str_off(uint rd, uint rn, uint off)
+    static inline uint bic_imm(uint rd, uint rn, uint imm)
     // ------------------------------------------------------------------------
-    //   Encode str rd, [rn, #off]
+    //   Encode bic rd, rn, #imm12  (rd = rn AND NOT imm)
     // ------------------------------------------------------------------------
     {
-        return 0xE5800000u | (rd << 12) | (rn << 16) | (off & 0xFFFu);
+        return 0xE3C00000u | (rd << 12) | (rn << 16) | (imm & 0xFFFu);
+    }
+
+    static inline uint ldr_off(uint rd, uint rn, int off)
+    // ------------------------------------------------------------------------
+    //   Encode ldr rd, [rn, #off]  (signed imm12, pre-indexed)
+    // ------------------------------------------------------------------------
+    {
+        uint imm12 = uint(off < 0 ? -off : off) & 0xFFFu;
+        uint up    = off >= 0 ? 0x00800000u : 0u;
+        return 0xE5100000u | up | (rn << 16) | (rd << 12) | imm12;
+    }
+
+    static inline uint str_off(uint rd, uint rn, int off)
+    // ------------------------------------------------------------------------
+    //   Encode str rd, [rn, #off]  (signed imm12, pre-indexed)
+    // ------------------------------------------------------------------------
+    {
+        uint imm12 = uint(off < 0 ? -off : off) & 0xFFFu;
+        uint up    = off >= 0 ? 0x00800000u : 0u;
+        return 0xE5000000u | up | (rn << 16) | (rd << 12) | imm12;
+    }
+
+    static inline uint ldr_reg(uint rd, uint rn, uint rm, bool up = true)
+    // ------------------------------------------------------------------------
+    //   Encode ldr rd, [rn, +/-rm]
+    // ------------------------------------------------------------------------
+    {
+        return (up ? 0xE7900000u : 0xE7100000u)
+             | (rn << 16) | (rd << 12) | (rm & 0xFu);
+    }
+
+    static inline uint str_reg(uint rd, uint rn, uint rm, bool up = true)
+    // ------------------------------------------------------------------------
+    //   Encode str rd, [rn, +/-rm]
+    // ------------------------------------------------------------------------
+    {
+        return (up ? 0xE7800000u : 0xE7000000u)
+             | (rn << 16) | (rd << 12) | (rm & 0xFu);
     }
 
     static inline uint ldrb_off(uint rd, uint rn, uint off)
@@ -319,6 +449,56 @@ protected:
     {
         return 0xE1C000B0u | (rn << 16) | (rd << 12)
              | ((imm8 & 0xF0u) << 4) | (imm8 & 0x0Fu);
+    }
+
+    static inline uint ldrsb_off(uint rd, uint rn, uint imm8)
+    // ------------------------------------------------------------------------
+    //   Encode ldrsb rd, [rn, #imm8]  (sign-extends byte; imm8 only)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE1D000D0u | (rn << 16) | (rd << 12)
+             | ((imm8 & 0xF0u) << 4) | (imm8 & 0x0Fu);
+    }
+
+    static inline uint ldrsh_off(uint rd, uint rn, uint imm8)
+    // ------------------------------------------------------------------------
+    //   Encode ldrsh rd, [rn, #imm8]  (sign-extends halfword; imm8 only)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE1D000F0u | (rn << 16) | (rd << 12)
+             | ((imm8 & 0xF0u) << 4) | (imm8 & 0x0Fu);
+    }
+
+    static inline uint sxtb(uint rd, uint rm)
+    // ------------------------------------------------------------------------
+    //   Encode sxtb rd, rm  (sign-extend byte, ARMv6+)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE6AF0070u | (rd << 12) | rm;
+    }
+
+    static inline uint sxth(uint rd, uint rm)
+    // ------------------------------------------------------------------------
+    //   Encode sxth rd, rm  (sign-extend halfword, ARMv6+)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE6BF0070u | (rd << 12) | rm;
+    }
+
+    static inline uint uxtb(uint rd, uint rm)
+    // ------------------------------------------------------------------------
+    //   Encode uxtb rd, rm  (zero-extend byte, ARMv6+)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE6EF0070u | (rd << 12) | rm;
+    }
+
+    static inline uint uxth(uint rd, uint rm)
+    // ------------------------------------------------------------------------
+    //   Encode uxth rd, rm  (zero-extend halfword, ARMv6+)
+    // ------------------------------------------------------------------------
+    {
+        return 0xE6FF0070u | (rd << 12) | rm;
     }
 
     static inline uint movw(uint rd, uint imm16)
@@ -363,44 +543,50 @@ protected:
         return 0xE12FFF10u | (rm & 0xFu);
     }
 
-    static inline uint push_callee_lr()
+    static inline uint push_regs(uint reg_mask)
     // ------------------------------------------------------------------------
-    //   Encode push {r4-r11, lr}  (stmfd sp!, ...). Caller must then
-    //   sub sp,#4 so the stack stays 8-byte aligned for AAPCS C calls.
-    // ------------------------------------------------------------------------
-    {
-        return 0xE92D4FF0u;
-    }
-
-    static inline uint pop_callee_pc()
-    // ------------------------------------------------------------------------
-    //   Encode pop {r4-r11, pc}  (ldmfd sp!, ...). Caller must add sp,#4
-    //   first to undo the prologue alignment pad.
+    //   Encode push {reg_mask}  (stmdb sp!, reg_mask)
     // ------------------------------------------------------------------------
     {
-        return 0xE8BD8FF0u;
+        return 0xE92D0000u | (reg_mask & 0xFFFFu);
     }
 
-    static inline uint b_imm(int offset)
+    static inline uint pop_regs(uint reg_mask)
     // ------------------------------------------------------------------------
-    //   Encode b #offset  (ARM PC = insn_addr + 8)
+    //   Encode pop {reg_mask}  (ldmia sp!, reg_mask)
     // ------------------------------------------------------------------------
     {
-        return 0xEA000000u | (uint32_t(offset) & 0x00FFFFFFu);
+        return 0xE8BD0000u | (reg_mask & 0xFFFFu);
     }
 
-    static inline uint b_cond_imm(byte cond, int offset)
+    static inline uint b_imm(int32_t imm24)
     // ------------------------------------------------------------------------
-    //   Encode b{cond} #offset
+    //   Encode b #imm24  (word-aligned PC-relative immediate field)
+    // ------------------------------------------------------------------------
+    {
+        return 0xEA000000u | (uint32_t(imm24) & 0x00FFFFFFu);
+    }
+
+    static inline uint bl_imm(int32_t imm24)
+    // ------------------------------------------------------------------------
+    //   Encode bl #imm24  (word-aligned PC-relative immediate field)
+    // ------------------------------------------------------------------------
+    {
+        return 0xEB000000u | (uint32_t(imm24) & 0x00FFFFFFu);
+    }
+
+    static inline uint b_cond_imm(byte cond, int32_t imm24)
+    // ------------------------------------------------------------------------
+    //   Encode b{cond} #imm24
     // ------------------------------------------------------------------------
     {
         return (uint32_t(cond) << 28) | 0x0A000000u
-             | (uint32_t(offset) & 0x00FFFFFFu);
+             | (uint32_t(imm24) & 0x00FFFFFFu);
     }
 
     static inline uint vmov_s_r(uint sn, uint rt)
     // ------------------------------------------------------------------------
-    //   Encode vmov Sn, Rt  (ARM core → single). N is bit 7, Vn = Sn[4:1].
+    //   Encode vmov Sn, Rt  (ARM core -> single)
     // ------------------------------------------------------------------------
     {
         return 0xEE000A10u | (rt << 12)
@@ -409,7 +595,7 @@ protected:
 
     static inline uint vmov_r_s(uint rt, uint sn)
     // ------------------------------------------------------------------------
-    //   Encode vmov Rt, Sn  (single → ARM core). N is bit 7, Vn = Sn[4:1].
+    //   Encode vmov Rt, Sn  (single -> ARM core)
     // ------------------------------------------------------------------------
     {
         return 0xEE100A10u | (rt << 12)
@@ -418,8 +604,7 @@ protected:
 
     static inline uint vfp_ss(uint base, uint sd, uint sn, uint sm)
     // ------------------------------------------------------------------------
-    //   Encode single-precision VFP 3-operand op (Sd, Sn, Sm).
-    //   Vd/Vn/Vm = Sx[4:1]; D/N/M = Sx[0] at bits 22/7/5.
+    //   Encode single-precision VFP 3-operand op (Sd, Sn, Sm)
     // ------------------------------------------------------------------------
     {
         return base
@@ -429,33 +614,21 @@ protected:
     }
 
     static inline uint vadd_ss(uint sd, uint sn, uint sm)
-    // ------------------------------------------------------------------------
-    //   Encode vadd.f32 sd, sn, sm
-    // ------------------------------------------------------------------------
     {
         return vfp_ss(0xEE300A00u, sd, sn, sm);
     }
 
     static inline uint vsub_ss(uint sd, uint sn, uint sm)
-    // ------------------------------------------------------------------------
-    //   Encode vsub.f32 sd, sn, sm
-    // ------------------------------------------------------------------------
     {
         return vfp_ss(0xEE300A40u, sd, sn, sm);
     }
 
     static inline uint vmul_ss(uint sd, uint sn, uint sm)
-    // ------------------------------------------------------------------------
-    //   Encode vmul.f32 sd, sn, sm
-    // ------------------------------------------------------------------------
     {
         return vfp_ss(0xEE200A00u, sd, sn, sm);
     }
 
     static inline uint vdiv_ss(uint sd, uint sn, uint sm)
-    // ------------------------------------------------------------------------
-    //   Encode vdiv.f32 sd, sn, sm
-    // ------------------------------------------------------------------------
     {
         return vfp_ss(0xEE800A00u, sd, sn, sm);
     }
@@ -480,7 +653,7 @@ protected:
 
     static inline uint vfp_dd(uint base, uint dd, uint dn, uint dm)
     // ------------------------------------------------------------------------
-    //   Encode double-precision VFP 3-operand op (Dd, Dn, Dm), Dd/Dn/Dm < 16
+    //   Encode double-precision VFP 3-operand op (Dd, Dn, Dm)
     // ------------------------------------------------------------------------
     {
         return base
@@ -509,80 +682,67 @@ protected:
         return vfp_dd(0xEE800B00u, dd, dn, dm);
     }
 
-    void load_local(byte n, uint r);
-    void store_local(uint r, byte n);
-    void load_imm32(uint r, uint32_t v);
-    void call_abs(void *fn);
-    void spill_frame();
-    void reload_frame_reg();
-    void reload_flags_reg();
-    void touch_local(byte d);
-    void mov_local(byte d, byte s);
-    void swap_locals(byte d, byte s);
-    void store_imm(byte d, value_t v);
-    void store_float(byte d, float v);
-    void store_double(byte d, double v);
-    void binop_local(byte d, byte s, cstring op);
-    void binop_imm(byte d, value_t v, cstring op);
-    void cmp_local(byte p, byte d, byte s, cstring op);
-    void cmp_imm(byte p, byte d, value_t v, cstring op);
-    void cmp_uimm(byte p, byte d, uvalue_t v, cstring op);
-    void set_pred(byte p, bool on);
-    void set_pred_cmp(byte p, byte cond);
-    void cond_mov_local(byte p, byte d, byte s);
-    void select_local(byte p, byte d, byte s, byte x);
-    void neg_local(byte d);
-    void not_local(byte d);
-    void incr_local(byte d);
-    void decr_local(byte d);
-    void sext_reg(uint rd, uint rn, byte w);
-    void sext_local(byte d, byte w);
-    void zext_local(byte d, byte w);
-    void add_addr_off(uint addr_r, value_t o);
-    void emit_store_sized(uint val_r, uint addr_r, uint sz);
-    void emit_load_sized(uint dst_r, uint addr_r, uint sz);
-    void store_local64(uint lo_r, uint hi_r, byte d);
-    void store_mem(byte d, byte s, uint sz);
-    void load_mem(byte d, byte s, uint sz);
-    void store_mem_off(byte d, byte s, value_t o, uint sz);
-    void load_mem_off(byte d, byte s, value_t o, uint sz);
-    void load_signext(byte d, byte s, byte w);
-    void load_signext_off(byte d, byte s, byte w, value_t o);
-    void frame_addr(byte d, byte s);
-    void br_via_ip();
-    void bra_offset(broff_t b);
-    void bra_pred(byte p, broff_t b, bool sense);
-    void bra_zero(byte s, broff_t b, bool eq);
-    void bra_signed(byte s, broff_t b, byte cond);
-    void dbra_local(byte d, broff_t b);
-    void jmp_tok(tok_t t);
-    void call_tok(tok_t t);
-    void ijmp_local(byte s);
-    void icall_local(byte s);
-    void push_pc();
-    void load_pc(byte d);
-    void load_pca(byte d, broff_t b);
-    void get_arg(byte d, byte s);
-    void set_arg(byte d, byte s);
-    void push_local(byte s);
-    void pop_local(byte d);
-    void push_flags();
-    void pop_flags();
-    void store_global(byte d, byte s);
-    void load_global(byte d, byte s);
-    void epilogue();
-    void trap(cstring msg);
-    void rtcall(cstring fn);
-    void rtcall(cstring fn, tok_t a);
-    void rtcall(cstring fn, byte a);
 
-    bool spill_arg_regs = true;
-    bool frame_memory_touched = false;
+    // ========================================================================
+    //
+    //    Emit helpers
+    //
+    // ========================================================================
+
+    void            emit_load_off(armreg_t rd, armreg_t rn, int offs);
+    void            emit_store_off(armreg_t rn, armreg_t rt, int offs);
+    void            emit_push(armreg_t r);
+    void            emit_pop(armreg_t r);
+    hwcode_t        emit_b_rel();
+    hwcode_t        emit_bl_rel();
+    hwcode_t        emit_bcond_rel(byte cond);
+
+    void            load_imm32(armreg_t r, uint32_t v);
+    void            load_local(local_t loc, armreg_t r);
+    void            store_local(armreg_t r, local_t loc);
+    void            mov_local(local_t d, local_t s);
+    void            swap_locals(local_t d, local_t s);
+    void            store_imm(local_t d, value_t v);
+    void            store_float(local_t d, float v);
+    void            store_double(local_t d, double v);
+    void            binop_local(local_t d, local_t s, op_t op, byte fpsz=0);
+    void            binop_imm(local_t d, value_t v, op_t op);
+    void            cmp_local(byte p, local_t d, local_t s, byte cond);
+    void            cmp_imm(byte p, local_t d, value_t v, byte cond);
+    void            cmp_uimm(byte p, local_t d, uvalue_t v, byte cond);
+    void            set_pred(byte p, bool on);
+    void            set_pred_cmp(byte p, byte cond);
+    void            cond_mov_local(byte p, local_t d, local_t s);
+    void            select_local(byte p, local_t d, local_t s, byte x);
+    void            neg_local(local_t d);
+    void            not_local(local_t d);
+    void            incr_local(local_t d);
+    void            decr_local(local_t d);
+    void            sext_local(local_t d, byte w);
+    void            zext_local(local_t d, byte w);
+    void            sext_reg(armreg_t r, byte w);
+    void            store_mem(local_t d, local_t s, size_t sz, value_t off=0);
+    void            load_mem(local_t d, local_t s, size_t sz, value_t off=0);
+    void            load_sext(local_t d, local_t s, byte w, value_t off=0);
+    void            bra_pred(byte p, byte_p target, bool sense);
+    void            bra_test(local_t s, byte_p target, byte cond);
+    void            rel_branch(byte_p target, hwcode_t site);
+    void            rel_function(tok_t tok, hwcode_t site);
+    void            push_pc();
+    void            load_pc(local_t d);
+    void            load_pca(local_t d, broff_t b);
+    virtual void    prologue();
+    virtual void    epilogue();
+    void            call_ptr(void (*fn)());
+    template <typename T, typename ...U>
+    void            call_ptr(T (*fn)(U...)) { return call(((void (*)()) fn)); }
+    void            dispatch(local_t loc, byte_p &pc, byte cond);
+    void            trap(cstring msg);
+
+protected:
+    using relocations_t = std::vector<hwcode_t>;
+    relocations_t relocations;
+    bool          frame_active = false; // true after op_enter allocates locals
 };
-
-RECORDER_DECLARE(arm);
-RECORDER_DECLARE(arm_ops);
-RECORDER_DECLARE(arm_error);
-RECORDER_DECLARE(arm_warning);
 
 #endif // ARM_H
