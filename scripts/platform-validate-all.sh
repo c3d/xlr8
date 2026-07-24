@@ -22,10 +22,10 @@ mkdir -p "$OUTDIR"
 
 # nickname -> ssh host (empty = local).  Slowest first.
 HOSTS=(
-  "risky:fedora-riscv"
+  "risky:risky"
   "pi3:pi3"
   "torpille:torpille"
-  "holy:holy"
+  "crazypad:crazypad"
   "turbo:turbo"
   "macOS:"
 )

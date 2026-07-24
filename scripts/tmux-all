@@ -19,10 +19,10 @@ TMUX_TARGET="${TMUX_TARGET:-${TMUX_SESSION}:0.0}"
 # platform-validate-all.sh.
 # Slowest first so long-running hosts get kicked earliest.
 HOSTS=(
-  "risky:fedora-riscv"
+  "risky:risky"
   "pi3:pi3"
   "torpille:torpille"
-  "holy:holy"
+  "crazypad:crazypad"
   "turbo:turbo"
   "macOS:"
 )

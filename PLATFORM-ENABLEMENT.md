@@ -12,7 +12,7 @@ or any backend. Do not claim success without evidence from the steps below.
 | **turbo**    | Linux x86-64      | amd64        | amd64         |
 | **torpille** | Linux arm64       | aarch64      | arm64         |
 | **risky**    | Linux RISC-V      | riscv64      | riscv64       |
-| **turbo-x86** | Linux i386       | i686         | i386          |
+| **crazypad** | Linux amd64 host, i686 via `BUILDENV=i686` | i686 | i386 |
 | **turbo-arm** | Linux arm32      | armv7l       | arm           |
 
 The machine name **risky** is a nick-name for **fedora-riscv**, so use  `ssh fedora-riscv`.
@@ -169,5 +169,5 @@ different ABI handling:
 2. Restore **torpille** (arm64 Linux JIT, especially float ops) without
    breaking **turbo** (amd64).
 3. Keep **macOS** at 224/224 reference and `-O`.
-4. Track **risky**, **turbo-x86**, **turbo-arm** status; do not regress green
-   platforms while fixing red ones.
+4. Track **risky**, **crazypad**, **turbo-arm** / **pi3** status; do not
+   regress green platforms while fixing red ones.

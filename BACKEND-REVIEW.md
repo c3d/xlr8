@@ -14,7 +14,7 @@ table-driven architecture: `.tbl` files define opcodes once, and per-platform
 sound, but all four backends share a set of cross-cutting correctness bugs
 (`switch`), and each platform has its own encoding or semantic
 errors.  The arm64 backend is the most mature; arm32 and i386 now pass the full
-functional suite on **pi3** and **holy** (ref and `-O`).
+functional suite on **pi3** and **crazypad** (ref and `-O`).
 
 ### Severity Legend
 
@@ -92,7 +92,7 @@ across syscalls; `restore_frame_ptr()` is `mov x19, x27` (no C call).
 |----------|-------------|-------------------------|
 | arm64    | arm64       | macOS (dev), torpille   |
 | x86-64   | amd64       | turbo                   |
-| x86-32   | x86         | **holy** (was turbo-x86)|
+| x86-32   | x86         | **crazypad** (was holy / turbo-x86)|
 | arm32    | arm         | **pi3** (was turbo-arm) |
 | riscv64  | riscv64     | risky (`fedora-riscv`)  |
 
@@ -100,15 +100,16 @@ across syscalls; `restore_frame_ptr()` is `mov x19, x27` (no C call).
 
 - **pi3** — physical Raspberry Pi (armv7l / Cortex-A7).  Preferred arm32
   check machine; much faster than the old QEMU **turbo-arm** box.
-- **holy** — x86 32-bit checks.  Builds must use **`BUILDENV=i686`**.  The
-  `xlr8` tmux pane on holy already has `export BUILDENV=i686`, so the usual
-  protocol (`tmux send-keys` into `xlr8:0.0`, no extra env) picks it up
-  automatically.  Any **direct SSH** `make` / one-off shell outside that pane
-  must set `BUILDENV=i686` explicitly or the wrong (likely amd64) config is
-  used.
+- **crazypad** — x86 32-bit checks on an amd64 host via multilib
+  (`lib32-glibc`, `lib32-gcc-libs`).  Builds must use **`BUILDENV=i686`**.
+  The `xlr8` tmux pane on crazypad already has `export BUILDENV=i686`, so
+  the usual protocol (`tmux send-keys` into `xlr8:0.0`, no extra env) picks
+  it up automatically.  Any **direct SSH** `make` / one-off shell outside
+  that pane must set `BUILDENV=i686` explicitly or the wrong (likely amd64)
+  config is used.
 
 Baseline functional rows below still mix older snapshot status with current
-hosts; **holy** / **pi3** are the live ILP32 machines.  Do **not** reuse
+hosts; **crazypad** / **pi3** are the live ILP32 machines.  Do **not** reuse
 QEMU **turbo-x86** / **turbo-arm** timing as a stand-in for those hosts.
 
 
@@ -132,7 +133,7 @@ OPTLEVEL=-O`.
 | turbo       | x86-64   | 226 / 0 failed     | 226 / 0 failed     | Green  |
 | torpille    | arm64    | 226 / 0 failed     | 226 / 0 failed     | Green  |
 | risky       | riscv64  | 226 / 0 failed     | **226 / 0 failed** | Green  |
-| holy        | x86-32   | 226 / 0 failed     | **226 / 0 failed** | Green  |
+| crazypad    | x86-32   | 226 / 0 failed     | **226 / 0 failed** | Green  |
 | pi3         | arm32    | **226 / 0 failed** | **226 / 0 failed** | Green  |
 
 risky’s **226 / 0** ref and `-O` were verified on-host after the riscv64 JIT
@@ -144,7 +145,7 @@ Expected baseline: **226** functional tests per run (Jul 2026).
 LP64 hosts turbo / torpille / risky build and pass the full suite after
 `9c1e9f9` and the riscv64 JIT fixes.  Do not treat the old `ef61add`-era
 “build failed” rows as current.
-holy’s **226 / 0** at `-O` was verified on-host after the i386 JIT fixes.
+crazypad’s **226 / 0** at `-O` was verified on-host after the i386 JIT fixes.
 pi3’s **226 / 0** ref and `-O` were verified on-host after the arm32 JIT fixes
 (tmux `xlr8:0.0`, mirror `/tmp/xlr8-pi3-local.log`).
 
@@ -153,10 +154,10 @@ pi3’s **226 / 0** ref and `-O` were verified on-host after the arm32 JIT fixes
 Runs 232 tests (226 functional + 6 `performance/` benchmarks).
 
 **Hosts vs profiles:** pass/fail and especially wall-clock times are tied to
-the machine class.  **holy** and **pi3** are physical boxes; the old
+the machine class.  **crazypad** and **pi3** are physical boxes; the old
 **turbo-x86** / **turbo-arm** entries were QEMU VMs.  Real-metal and VM
 profiles are not interchangeable — re-measure on the current host, do not
-carry QEMU numbers over to holy/pi3 (or the reverse).
+carry QEMU numbers over to crazypad/pi3 (or the reverse).
 
 Pass/fail rows below are from earlier green runs on the names then in use
 (not re-measured at `ef61add`).  ILP32 rows use the **current** host names.
@@ -167,7 +168,7 @@ Pass/fail rows below are from earlier green runs on the names then in use
 | turbo    | 224 / 6 failed\*   | 224 / 6 failed\*   | All six `performance/` tests fail: `timeout: invalid time interval './time'` (harness issue, not codegen) |
 | torpille | 227 / 3 failed\*   | incomplete\*       | `millions`, `millions-addi`, `millions-incr` fail in reference perf run |
 | risky    | not run            | not run            | Functional JIT green; perf not refreshed in this pass |
-| holy     | not run            | not run            | Functional JIT green; perf not yet measured on this host |
+| crazypad | not run            | not run            | Functional JIT green; perf not yet measured on this host |
 | pi3      | not run            | not run            | Functional JIT green; perf not yet measured on this host |
 
 #### Embedded timing (from `make tests` summary table)
@@ -192,10 +193,10 @@ ILP32 `snprintf` casting for scanner printf-style formatting:
 
 | Host | Reference | Remaining failures |
 |------|-----------|--------------------|
-| holy      | 226 / 0 | — |
+| crazypad  | 226 / 0 | — |
 | pi3       | 226 / 0 | — |
 
-**JIT (`-O`) on holy (i386)**: **226 / 0 failed**.  i386 path is green.
+**JIT (`-O`) on crazypad (i386 / `BUILDENV=i686`)**: **226 / 0 failed**.  i386 path is green.
 
 Key fixes along the way: callee-saved prologue; preserve helper /
 `after_sys` / `dispatch` return values across C reloads; keep live flags
