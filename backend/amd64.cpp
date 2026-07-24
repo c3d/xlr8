@@ -56,6 +56,15 @@ cstring amd64::machine_defs() const
 }
 
 
+uint amd64::pointer_size() const
+// ----------------------------------------------------------------------------
+//   Pointer size for AMD64
+// ----------------------------------------------------------------------------
+{
+    return 8;
+}
+
+
 amd64::reginfo amd64::register_definition(hwreg_t reg) const
 // ----------------------------------------------------------------------------
 //   Return the register specification flags for amd64

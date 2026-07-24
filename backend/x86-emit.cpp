@@ -167,10 +167,9 @@ EMIT(jmp)
 // ----------------------------------------------------------------------------
 {
     spill_all();
-    emit8(0xE9);
-    intptr_t offs = function(e.tok);
-    emit32le(offs + 4);
-    record(x86_ops, "emit_jump %llu = %ld", e.tok, offs);
+    hwcode_t site = emit_near_jmp_rel32();
+    rel32_function(e.tok, site);
+    record(x86_ops, "emit_jump %llu", e.tok);
 }
 
 
@@ -181,9 +180,10 @@ EMIT(call)
 {
     spill_all();
     emit8(0xE8);
-    intptr_t offs = function(e.tok);
-    emit32le(offs + 4);
-    record(x86_ops, "emit_call %llu = %ld", e.tok, offs);
+    hwcode_t site = cursor();
+    emit32le(0);
+    rel32_function(e.tok, site);
+    record(x86_ops, "emit_call %llu", e.tok);
 }
 
 
@@ -381,8 +381,8 @@ EMIT(dbra)
     x86reg_t r = hw_local(e.dst);
     record(x86_ops, "emit_dbra %u, %lld reg %u", e.dst, e.broff, r);
     emit_grp5_ff(r, 0xc8); // Decr
-    emit_jcc_rel32(JCC_JZ);
-    emit32le(branch(e.bpc + e.broff));
+    hwcode_t pos = emit_jcc_rel32(JCC_JZ);
+    rel32_branch(e.bpc + e.broff, pos);
 }
 
 
@@ -393,8 +393,8 @@ EMIT(bra)
 {
     record(x86_ops, "emit_bra %lld + %lld -> %lld",
            e.bpc, e.broff, e.bpc+e.broff);
-    emit8(0xe9);
-    emit32le(branch(e.bpc + e.broff));
+    hwcode_t site = emit_near_jmp_rel32();
+    rel32_branch(e.bpc + e.broff, site);
 }
 
 

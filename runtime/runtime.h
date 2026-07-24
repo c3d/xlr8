@@ -619,6 +619,8 @@ public:
     argument_list       cmdline;
 
     scanner            *input;
+
+    static cstring      dump_file;
 };
 
 

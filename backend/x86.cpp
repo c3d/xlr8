@@ -530,7 +530,7 @@ void x86::store_double(local_t d, double v)
     record(x86, "store_dbl [%u] = %g", d, v);
     x86reg_t dreg = hw(local(d, RSPEC_DBL));
     uint64_t bits = *((uint64_t *) &v);
-    emit_set_xmm_imm(dreg, bits, false);
+    emit_set_xmm_imm(dreg, bits, true);
 }
 
 
@@ -871,8 +871,8 @@ void x86::bra_pred(byte p, byte_p target, bool sense)
 {
     record(x86, "bra_%+s %u, %lld", sense ? "true" : "false" ,p, target);
     emit_pred_test_bit(p);                              // BT -> CF
-    emit_jcc_rel32(sense ? JCC_JC : JCC_JNC);
-    emit32le(branch(target));
+    hwcode_t pos = emit_jcc_rel32(sense ? JCC_JC : JCC_JNC);
+    rel32_branch(target, pos);
 }
 
 
@@ -884,8 +884,30 @@ void x86::bra_test(local_t s, byte_p target, byte cc)
     record(x86, "bra_test %u, %lld cc=%u", s, target, cc);
     x86reg_t r = hw_local(s);
     emit_test_rr(r, r);
-    emit_jcc_rel32(cc);
-    emit32le(branch(target));
+    hwcode_t pos = emit_jcc_rel32(cc);
+    rel32_branch(target, pos);
+}
+
+
+void x86::rel32_branch(byte_p target, hwcode_t site)
+// ----------------------------------------------------------------------------
+//   Record or patch a rel32 site to bytecode target (Intel −4 via patch)
+// ----------------------------------------------------------------------------
+{
+    intptr_t off = branch(target, site);
+    if (off)
+        patch(site, site + off, true);
+}
+
+
+void x86::rel32_function(tok_t tok, hwcode_t site)
+// ----------------------------------------------------------------------------
+//   Record or patch a rel32 site to a function token (Intel −4 via patch)
+// ----------------------------------------------------------------------------
+{
+    intptr_t off = function(tok, site);
+    if (off)
+        patch(site, site + off, true);
 }
 
 
@@ -896,8 +918,8 @@ void x86::prologue()
 {
     record(x86, "prologue");
 
-    // i386 SysV: ebx/esi/edi/ebp are callee-saved.  We keep frame in edi
-    // and flags in esi for the whole translation (see hw_frame/hw_flags).
+    // i386 SysV: ebx/esi/edi are callee-saved. Frame is rbp (HW_FRAME) via
+    // enter/leave; flags live in esi (hw_flags()).
     emit_push_reg(HW_RBX);
     emit_push_reg(HW_RSI);
     emit_push_reg(HW_RDI);
@@ -923,17 +945,13 @@ void x86::call_ptr(void (*fn)())
 // ----------------------------------------------------------------------------
 {
     record(x86, "call_ptr %p", fn);
-#ifdef _WIN64
     // Microsoft x64: caller provides 32 bytes of register parameter home space
-    if (ptr64())
+    if (win64_abi())
         emit_sub_rsp_imm(0x20);
-#endif
     set_imm(HW_RAX, uint64_t(fn));
     emit_call_rr(HW_RAX);
-#ifdef _WIN64
-    if (ptr64())
+    if (win64_abi())
         emit_add_rsp_imm(0x20);
-#endif
 }
 
 
@@ -952,8 +970,8 @@ void x86::dispatch(local_t loc, byte_p &pc, byte jcc)
         byte_p  tgt  = bpc + offs;
         set_imm(HW_RAX, test);
         emit_cmp_rr(ref, HW_RAX);
-        emit_jcc_rel32(jcc);
-        emit32le(branch(tgt));
+        hwcode_t pos = emit_jcc_rel32(jcc);
+        rel32_branch(tgt, pos);
     }
 }
 

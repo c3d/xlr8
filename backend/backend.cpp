@@ -270,7 +270,7 @@ intptr_t backend::function(tok_t tok, hwcode_t hwcode)
     // Check if the function was already compiled, if so return its offset
     byte_p start = byte_p(rt.tok(tok));
     auto   fn    = lower_bound(labels, start);
-    if (fn != labels.end())
+    if (fn != labels.end() && fn->bytecode == start)
         return fn->hwcode - hwcode;
 
     // Otherwise, add it to the list of branches to patch
@@ -293,8 +293,8 @@ uint backend::label(byte_p bytecode, hwcode_t hwcode)
 {
     uint count = 0;
 
-    // Check if there are relative branches that need patching
-    auto brange = equal_range(branches, hwcode);
+    // Pending branches are keyed by bytecode target, not by the patch site
+    auto brange = equal_range(branches, bytecode);
     for (auto b = brange.first; b != brange.second; ++b)
     {
         patch(b->hwcode, hwcode, true);
@@ -302,14 +302,14 @@ uint backend::label(byte_p bytecode, hwcode_t hwcode)
     }
     branches.erase(brange.first, brange.second);
 
-    // Check if there are absolute jumps / calls that need patching
-    auto jrange = equal_range(jumps, hwcode);
+    // Absolute jumps / calls waiting on this bytecode address
+    auto jrange = equal_range(jumps, bytecode);
     for (auto j = jrange.first; j != jrange.second; ++j)
     {
         patch(j->hwcode, hwcode, false);
         count++;
     }
-    branches.erase(jrange.first, jrange.second);
+    jumps.erase(jrange.first, jrange.second);
 
     // Record the mapping from bytecode to machine code for future branches
     labels.emplace_back(translation{bytecode, hwcode});
@@ -324,7 +324,7 @@ hwcode_t backend::translated_address(byte_p pc)
 // ----------------------------------------------------------------------------
 {
     auto label = lower_bound(labels, pc);
-    if (label != labels.end() && label->bytecode != pc)
+    if (label != labels.end() && label->bytecode == pc)
         return label->hwcode;
     return hwcode_t(-1);
 }

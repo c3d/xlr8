@@ -44,7 +44,8 @@
 //    Flags/predicates  esi (HW_FLAGS)   First 32 flags
 //    Scratch           ecx (HW_SCRATCH) General temporary
 //    Value temps       eax, ecx, edx    used by opcode helpers
-//    Callee-saved      ebx,esi,edi,ebp  Saved/restored in prologue/epilogue
+//    Callee-saved      ebx,esi,edi      Saved/restored in prologue/epilogue
+//                       (ebp saved by enter/leave)
 //    C args (SysV)     edi, esi         first two integer helper args
 //    C args (Win64)    ecx, edx         first two integer helper args
 //    Stack pointer     esp              native stack
@@ -1167,7 +1168,7 @@ protected:
         }
         else
         {
-            emit_btx_frame_imm8(8, op_ext, p & 31);
+            emit_btx_frame_imm8(4, op_ext, p & 31);
         }
     }
 
@@ -1230,6 +1231,8 @@ protected:
     void            load_sext(local_t d, local_t s, byte w, value_t off=0);
     void            bra_pred(byte p, byte_p target, bool sense);
     void            bra_test(local_t s, byte_p target, byte cc);
+    void            rel32_branch(byte_p target, hwcode_t site);
+    void            rel32_function(tok_t tok, hwcode_t site);
     void            push_pc();
     void            load_pc(local_t d);
     void            load_pca(local_t d, broff_t b);

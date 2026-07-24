@@ -33,24 +33,25 @@
 //  REGISTER ALLOCATION CONVENTIONS (x86-64 / amd64)
 //  ===========================================================================
 //
-//  Locals use [r12 + local*8]
+//  Locals use [rbp - (local+1)*8]; rbp is set by op_enter / op_leave
 //
 //  Register map (x86-64/amd64):
 //
-//    Frame pointer     r12 (HW_FRAME)   Runtime frame for locals
-//    Flags/predicates  r15 (HW_FLAGS)   rt.flags (64-bit), primed at entry
-//    Scratch           r11 (HW_SCR)     general temp (swap, etc.)
+//    Frame pointer     rbp (HW_FRAME)   Native frame for locals (via enter)
+//    Flags/predicates  r15 (HW_FLAGS)   rt.flags (64-bit)
+//    Scratch           r11              general temp (swap, etc.)
 //    Value temps       rax, rcx, rdx    used by opcode helpers
-//    Callee-saved      rbx,rbp,r12,r15  saved/restored in prologue/epilogue
+//    Callee-saved      rbx,r12,r15      saved/restored in prologue/epilogue
+//                       (rbp saved by enter; r12 allocatable shadow)
 //    C args (SysV)     rdi, rsi         first two integer helper args
 //    C args (Win64)    rcx, rdx         first two integer helper args
 //    Stack pointer     rsp              native stack (Win64: 32-byte call shadow)
 //
-//  i386 variant: ularge_t slots (8 bytes), no shadow locals (registers == 8).
-//    Frame pointer     edi (HW_RDI)     rt.frame, callee-saved (avoid ebx PIC/GOT)
-//    Flags/predicates  esi (HW_RSI)     rt.flags, callee-saved
+//  i386 variant: ularge_t slots (8 bytes), no shadow locals.
+//    Frame pointer     ebp (HW_FRAME)   Native frame via enter/leave
+//    Flags/predicates  esi (HW_FLAGS)   low 32 flags; high half at [ebp+4]
 //    Scratch           ecx (HW_RCX)     general temp
-//    Prologue saves    ebx,esi,edi,ebp  (SysV callee-saved); restored in epilogue
+//    Prologue saves    ebx,esi,edi      (SysV callee-saved); restored in epilogue
 //
 //  Bytecode PC is the translator cursor, not a fixed HW register.  Runtime is
 //  reached via xlr8_get_runtime() in spill/sys paths.
@@ -80,8 +81,10 @@ struct amd64 : x86
 
     cstring     machine_defs() const                            override;
     reginfo     register_definition(hwreg_t reg) const          override;
+    uint        pointer_size() const                            override;
 
-protected:
+
+  protected:
     void        prologue()                                      override;
     void        epilogue()                                      override;
 };

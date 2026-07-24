@@ -43,6 +43,9 @@ RECORDER(runtime_error,   16, "Runtime errors");
 RECORDER(runtime_warning, 16, "Runtime warnings");
 
 
+cstring runtime::dump_file = nullptr;
+
+
 runtime::runtime(size_t sz, size_t argc, char *argv[])
 // ----------------------------------------------------------------------------
 //   Initialize the runtime with the given memory size
