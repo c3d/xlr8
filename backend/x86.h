@@ -285,17 +285,6 @@ protected:
         return byte(0x00 | (reg_value(r) << 3) | reg_value(b));
     }
 
-    byte branch_offset8()
-    // ------------------------------------------------------------------------
-    //   Emit an 8-bit branch offset
-    // ------------------------------------------------------------------------
-    {
-        intptr_t offset = branch_offset();
-        if (offset < -128 || offset > 127)
-            record(x86_error, "Invalid 8-bit branch offset %ld", offset);
-        return byte(offset);
-    }
-
 
 
     // =========================================================================
@@ -477,7 +466,7 @@ protected:
         }
         emit8(byte(((reg_field & 7) << 3) | fr));
         if (fr == 4)
-            emit8(byte((reg_value(HW_RSP) << 3) | fr);
+            emit8(byte((reg_value(HW_RSP) << 3) | fr));
     }
 
     void emit_rex_frame_rm()
@@ -1149,8 +1138,8 @@ protected:
     {
         x86reg_t flags = hw_flags();
         emit_mov_rr(HW_RAX, flags);
-        emit_btx_imm8(flags, /*BTR*/ 6, n);
-        emit_btx_imm8(HW_RAX, /*BTS*/ 5, n);
+        emit_btx_imm8(flags,  /*BTR*/ 6, p);
+        emit_btx_imm8(HW_RAX, /*BTS*/ 5, p);
         emit_cmp_rr(x, y);
         emit_cmov_rr(cc, flags, HW_RAX);
     }
@@ -1213,7 +1202,7 @@ protected:
     void            set_imm(x86reg_t r, uint64_t imm);
     void            load_local(local_t loc, x86reg_t r);
     void            store_local(x86reg_t r, local_t loc);
-    x864reg_t       load_fp(local_t loc, byte sz);
+    x86reg_t        load_fp(local_t loc, byte sz);
     void            store_fp(local_t loc, x86reg_t reg);
     void            mov_local(local_t d, local_t s);
     void            swap_locals(local_t d, local_t s);

@@ -132,7 +132,6 @@ struct backend
 
     // Translate a range and a bytecode function
     bool             translate(byte_p start, byte_p end);
-    hwcode_t         translate(tok_t tok);
 
     // Low-level code emission
     section         &code()                     { return text_section; }
@@ -142,8 +141,11 @@ struct backend
     void             emit32be(uint32_t c);
 
     // Recording offsets for function calls and intra-function branches
-    intptr_t         function(tok_t tok, hwcode_t hwcode = cursor());
-    intptr_t         branch(byte_p target, hwcode_t hwcode = cursor());
+    intptr_t         function(tok_t tok, hwcode_t hwcode);
+    intptr_t         function(tok_t tok) { return function(tok, cursor()); }
+    intptr_t         branch(byte_p tgt, hwcode_t hwcode);
+    intptr_t         branch(byte_p tgt)  { return branch(tgt, cursor()); }
+
 
     // Resolving labels
     uint             label(byte_p bytecode, hwcode_t hwcode);
@@ -159,7 +161,7 @@ struct backend
     virtual void     begin_translation();
     virtual void     finish_translation();
     virtual hwreg_t  local(local_t loc, hwspec_t spec = RSPEC_INT);
-    virtual hwreg_t  saved(local_t loc, hwreg_t reg);
+    virtual void     saved(local_t loc, hwreg_t reg);
 
     virtual bool     spill(hwreg_t r);
     virtual size_t   spill_all();
@@ -193,8 +195,8 @@ struct backend
     // ========================================================================
 
     virtual bool     move(hwreg_t to, hwreg_t from)             = 0;
-    virtual bool     load(hwreg_t, local_t r, hwspec_t spec)    = 0;
-    virtual bool     store(local_t r, hwreg_t, hwspec_t spec)   = 0;
+    virtual bool     load(hwreg_t, local_t r)                   = 0;
+    virtual bool     store(local_t r, hwreg_t)                  = 0;
 
     struct reginfo { cstring  name; hwspec_t spec; };
     virtual reginfo  register_definition(hwreg_t) const         = 0;

@@ -229,7 +229,7 @@ EMIT(ppc)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_ppc");
-    set_imm(HW_RAX, e.pc);
+    set_imm(HW_RAX, uint64_t(e.pc));
     emit_push_reg(HW_RAX);
 }
 
@@ -241,7 +241,7 @@ EMIT(pc)
 {
     x86reg_t r = hw_local(e.dst);
     record(x86_ops, "emit_pc %u reg %u", e.dst, r);
-    set_imm(r, e.pc);
+    set_imm(r, uint64_t(e.pc));
 }
 
 
@@ -252,7 +252,7 @@ EMIT(pca)
 {
     x86reg_t r = hw_local(e.dst);
     record(x86_ops, "emit_pca %u reg %u = %lld)", e.dst, e.broff);
-    set_imm(r, r.ppc + e.broff);
+    set_imm(r, uint64_t(e.ppc + e.broff));
 }
 
 
@@ -330,7 +330,7 @@ EMIT(pop)
 // ----------------------------------------------------------------------------
 {
     x86reg_t dr  = hw_local(e.src);
-    record(x86_ops, "emit_pop %u reg %u", e.src, sr);
+    record(x86_ops, "emit_pop %u reg %u", e.src, dr);
     emit_pop_reg(dr);
 }
 
@@ -350,7 +350,7 @@ EMIT(sto)
 //   Emit bytecode for the sto opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t r = local(e.src);
+    x86reg_t  r     = hw_local(e.src);
     uintptr_t gaddr = uintptr_t(&rt.globals[e.dst]);
     set_imm(HW_RAX, gaddr);
     emit_store_u64(HW_RAX, r);
@@ -364,7 +364,7 @@ EMIT(rcl)
 //   Emit bytecode for the rcl opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t r = local(e.dst);
+    x86reg_t r = hw_local(e.dst);
     uintptr_t gaddr = uintptr_t(&rt.globals[e.src]);
     set_imm(HW_RAX, gaddr);
     emit_load_u64(r, HW_RAX);
@@ -394,7 +394,7 @@ EMIT(bra)
     record(x86_ops, "emit_bra %lld + %lld -> %lld",
            e.bpc, e.broff, e.bpc+e.broff);
     emit8(0xe9);
-    emit32(branch(e.bpc + e.broff));
+    emit32le(branch(e.bpc + e.broff));
 }
 
 
@@ -554,7 +554,7 @@ EMIT(cmple)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_cmple(%u, %u, %u)", e.pred, e.dst, e.src);
-    cmp_local(e.pred, e.dst, e.src, SETCC_LU);
+    cmp_local(e.pred, e.dst, e.src, SETCC_LE);
 }
 
 
@@ -680,7 +680,7 @@ EMIT(popf)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_popf()");
-    x864reg_t flags = hw_flags();
+    x86reg_t flags = hw_flags();
     emit_pop_reg(flags);
     if (!ptr64())
     {

@@ -87,7 +87,7 @@ static bool run(runtime &rt, std::istream &input, bool optimize)
             if (ok)
             {
                 if (optimize)
-                    ok = rt.run_native(rt.entry);
+                    ok = rt.run_native(s.pgmid);
                 else
                     ok = rt.run();
             }

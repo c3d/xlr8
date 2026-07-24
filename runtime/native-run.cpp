@@ -201,15 +201,15 @@ static void invoke_amd64(runtime &rt, void *code)
 {
     typedef void (*entry_fn)(void);
     entry_fn entry = (entry_fn) code;
-    stack_p frame = rt.frame;
+    stack_p  frame = rt.frame;
     uint64_t flags = rt.flags;
     asm volatile(
-        "mov %1, %%r12\n\t"
+        "mov %1, %%rbp\n\t"
         "mov %2, %%r15\n\t"
         "call *%0"
         :
         : "r"(entry), "r"(frame), "r"(flags)
-        : "r12", "r15", "memory", "cc");
+        : "rbp", "r15", "memory", "cc");
 }
 #endif
 
@@ -221,14 +221,13 @@ static void invoke_i386(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
 {
     typedef void (*entry_fn)(void);
-    entry_fn entry = (entry_fn) code;
+    entry_fn  entry  = (entry_fn) code;
     uintptr_t framep = uintptr_t(rt.frame);
-    uint32_t flags = uint32_t(rt.flags);
-    asm volatile(
-        "call *%0"
-        :
-        : "r"(entry), "D"(framep), "S"(flags)
-        : "eax", "ecx", "edx", "memory", "cc");
+    uint32_t  flags  = uint32_t(rt.flags);
+    asm volatile("call *%0"
+                 :
+                 : "r"(entry), "D"(framep), "S"(flags)
+                 : "eax", "ecx", "edx", "memory", "cc");
 }
 #endif
 
@@ -279,10 +278,10 @@ static void invoke_arm(runtime &rt, void *code)
 static void invoke_riscv64(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
 //   Jump to generated RISC-V code; s0 = rt.frame, s1 = rt.flags.
+// ----------------------------------------------------------------------------
 //   Save ra and s2-s11 around the call: JIT uses x18-x25 as shadow locals
 //   (callee-saved under the ABI).  Do not list s2-s11 as clobbers — that
 //   starves GCC of registers for the three "r" inputs.
-// ----------------------------------------------------------------------------
 {
     stack_p frame = rt.frame;
     uint64_t flags = rt.flags;
@@ -324,14 +323,13 @@ static void invoke_riscv64(runtime &rt, void *code)
 #endif
 
 
-static bool native_run_impl(runtime &rt, backend &be, byte_p entry)
+static bool native_run(runtime &rt, backend &be, byte_p start, byte_p end)
 // ----------------------------------------------------------------------------
 //   Translate bytecode and execute the generated native code
 // ----------------------------------------------------------------------------
 {
     xlr8_set_runtime(&rt);
-    byte_p pc = entry;
-    if (!be.translate(pc))
+    if (!be.translate(start, end))
         return false;
 
     section &code = be.code();
@@ -343,9 +341,8 @@ static bool native_run_impl(runtime &rt, backend &be, byte_p entry)
     if (!mem)
         return false;
 
-    rt.jit_code = mem;
+    rt.jit_code     = mem;
     rt.jit_map_size = sz;
-    rt.jit_pc_off = be.bytecode_positions();
 
     if (cstring dump = getenv("XLR8_DUMP_JIT"))
         dump_jit_code(mem, sz, be, dump);
@@ -373,20 +370,24 @@ static bool native_run_impl(runtime &rt, backend &be, byte_p entry)
 }
 
 
-bool runtime::run_native(byte_p entry)
+bool runtime::run_native(tok_t tok)
 // ----------------------------------------------------------------------------
 //   Compile entry bytecode to native code and run it on the host CPU
 // ----------------------------------------------------------------------------
 {
-    if (!entry)
-        entry = this->entry;
     backend *be = backend::make(*this, backend::ARCH_NATIVE);
     if (!be)
     {
         error("No native backend for this CPU");
         return false;
     }
-    bool ok = native_run_impl(*this, *be, entry);
+
+    size_t sz    = 0;
+    byte_p start = byte_p(rt.tok(tok, &sz));
+    byte_p end   = start + sz;
+
+    bool   ok    = native_run(*this, *be, start, end);
+
     delete be;
     return ok;
 }

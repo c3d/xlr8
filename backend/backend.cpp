@@ -31,12 +31,13 @@
 
 #include "leb128.h"
 #include "native-bridge.h"
+#include "runtime.h"
 #include "save.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cctype>
 #include <cstring>
-#include <cassert>
 
 
 RECORDER(backend,           16, "Architecture-neutral code generation");
@@ -161,15 +162,13 @@ bool backend::set_options(cstring options)
 //
 // ============================================================================
 
-hwcode_t backend::emit8(byte c)
+void backend::emit8(byte c)
 // ----------------------------------------------------------------------------
 //   Emit one byte into the current text section
 // ----------------------------------------------------------------------------
 {
     record(backend_emit, "emit8 0x%02X", c);
-    hwcode_t pos = text_section.size();
     text_section.append8(c);
-    return pos;
 }
 
 
@@ -269,10 +268,8 @@ intptr_t backend::function(tok_t tok, hwcode_t hwcode)
 // ----------------------------------------------------------------------------
 {
     // Check if the function was already compiled, if so return its offset
-    size_t sz    = 0;
-    byte_p start = rt.tok(tok, &sz);
-    byte_p end   = start + sz;
-    auto   fn    = lowerbound(labels, start);
+    byte_p start = byte_p(rt.tok(tok));
+    auto   fn    = lower_bound(labels, start);
     if (fn != labels.end())
         return fn->hwcode - hwcode;
 
@@ -280,7 +277,7 @@ intptr_t backend::function(tok_t tok, hwcode_t hwcode)
     translation bt = { start, hwcode };
     auto branch = lower_bound(branches, bt);
     if (branch == branches.end() ||
-        branch->bytecode != target || branch->hwcode != hwcode)
+        branch->bytecode != start || branch->hwcode != hwcode)
         branches.insert(branch, bt);
 
     // And add it to the list of functions to translate
@@ -296,11 +293,8 @@ uint backend::label(byte_p bytecode, hwcode_t hwcode)
 {
     uint count = 0;
 
-    // Record what we are currently translating
-    translating = bytecode;
-
     // Check if there are relative branches that need patching
-    auto nrange = equal_range(branches, hwcode);
+    auto brange = equal_range(branches, hwcode);
     for (auto b = brange.first; b != brange.second; ++b)
     {
         patch(b->hwcode, hwcode, true);
@@ -315,7 +309,7 @@ uint backend::label(byte_p bytecode, hwcode_t hwcode)
         patch(j->hwcode, hwcode, false);
         count++;
     }
-    branches.erase(range.first, range.second);
+    branches.erase(jrange.first, jrange.second);
 
     // Record the mapping from bytecode to machine code for future branches
     labels.emplace_back(translation{bytecode, hwcode});
@@ -396,6 +390,8 @@ bool backend::translate(byte_p pc, byte_p end)
 #define KTYPE(n) memcpy(&args.n, pc, sizeof(args.n)); pc += sizeof(args.n);
 #define KFLT    KTYPE(kflt)
 #define KDBL    KTYPE(kdbl)
+#define ISTREAM KNAT
+#define OSTREAM KNAT
 
 #define OP(op, decl, code)                      \
         case op_##op:                           \
@@ -433,7 +429,7 @@ bool backend::translate(byte_p pc, byte_p end)
             {
                 tok_t  tok   = *fn;
                 size_t sz    = 0;
-                byte_p fndef = rt.tok(tok, &sz);
+                byte_p fndef = byte_p(rt.tok(tok, &sz));
                 byte_p fnend = fndef + sz;
                 args.pc      = fndef;
                 args.end     = fnend;
@@ -515,26 +511,6 @@ void backend::emit_user(backend::emit_args &args)
            "emit_user not implemented op=%u pc=%p",
            args.op, args.pc);
     args.error = "Not implemented";
-}
-
-
-hwcode_t backend::translate(tok_t tok)
-// ----------------------------------------------------------------------------
-//   Find the bytecode associated with a token and translate it if needed
-// ----------------------------------------------------------------------------
-{
-    size_t sz    = 0;
-    byte_p start = rt.tok(tok, &sz);
-    byte_p end   = start + sz;
-    auto   fn    = lowerbound(functions, start);
-    if (fn != functions.end())
-        return fn->hwcode;
-
-    hwcode_t entry = cursor();
-    functions.emplace_back(translation{start, entry}); // Generate only once
-    if (!translate(start, end))
-        record(backend_error, "Error translating token %u at %u", tok, entry);
-    return entry;
 }
 
 
@@ -620,14 +596,13 @@ hwreg_t backend::local(local_t loc, hwspec_t spec)
 }
 
 
-bool backend::saved(local_t loc, hwreg_t reg)
+void backend::saved(local_t loc, hwreg_t reg)
 // ----------------------------------------------------------------------------
 //   After a store, record where we saved a given register
 // ----------------------------------------------------------------------------
 {
     reg_local[reg] = loc;
     local_reg[loc] = reg;
-    return true;
 }
 
 

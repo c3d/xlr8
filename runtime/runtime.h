@@ -115,7 +115,7 @@ struct runtime
 
 
     bool run();
-    bool run_native(byte_p entry = nullptr);
+    bool run_native(tok_t tok);
     bool trace();
     // ------------------------------------------------------------------------
     //   Run all instructions at current code pointer
@@ -581,7 +581,6 @@ public:
     uintptr_t           jit_link;       // Saved native return address for -O
     void               *jit_code;       // Base of mmap'd JIT code (-O)
     size_t              jit_map_size;   // Mapped size for safe unmap after JIT
-    std::map<byte_p, size_t> jit_pc_off; // Bytecode PC -> native offset
     byte_p              pc;             // Current PC
     byte_p              memory;         // Memory allocated for that runtime
     byte_p              heap;           // Top of heap (lo marker for stack)

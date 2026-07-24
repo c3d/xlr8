@@ -47,7 +47,7 @@ amd64::amd64(runtime &rt, arch_t arch)
 }
 
 
-cstring amd64::machine_defs() const override
+cstring amd64::machine_defs() const
 // ----------------------------------------------------------------------------
 //   Machine definition for 32-bit amd64
 // ----------------------------------------------------------------------------

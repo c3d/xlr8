@@ -29,15 +29,17 @@
 
 #include "x86.h"
 
+#include "leb128.h"
 #include "native-bridge.h"
+#include "runtime.h"
 
 #include <cstring>
 
 
-RECORDER(x86,            256, "x86 family code generation helpers");
-RECORDER(x86_ops,        256, "x86 family opcode emission");
-RECORDER(x86_error,       64, "x86 family code generation errors");
-RECORDER(x86_warning,     64, "x86 family code generation warnings");
+RECORDER(x86,             32, "x86 family code generation helpers");
+RECORDER(x86_ops,         32, "x86 family opcode emission");
+RECORDER(x86_error,        8, "x86 family code generation errors");
+RECORDER(x86_warning,      8, "x86 family code generation warnings");
 
 
 x86::x86(runtime &rt, arch_t arch)
@@ -106,18 +108,26 @@ void x86::finish_translation()
 }
 
 
-void x86::patch(hwcode_t pos, hwcode_t value, bool rel)
+void x86::patch(hwcode_t pos, hwcode_t pvalue, bool rel)
 // ----------------------------------------------------------------------------
 //   Patch a recorded branch (rel8 or rel32) to jump to target_native
 // ----------------------------------------------------------------------------
 {
-    record(x86, "patch %+s pos=%u target=%u",
-           rel ? "relative" : "absolute", pos, value);
+    record(x86, "patch %+s pos=%llu target=%llu",
+           rel ? "relative" : "absolute", pos, pvalue);
 
     section &sec = code();
+    uint32_t value;
     if (rel)
     {
-        value -= pos;
+        ptrdiff_t diff   = pvalue - pos;
+        int32_t   diff32 = int32_t(diff);
+        if (diff != diff32)
+        {
+            record(x86_error,
+                   "Patching %lu with overflow offset 0x%llX-0x%llX=%lld",
+                   pos, pvalue, pos, diff);
+        }
 
         // Short forms return the disp8 site; opcode is the preceding byte.
         if (pos)
@@ -125,23 +135,29 @@ void x86::patch(hwcode_t pos, hwcode_t value, bool rel)
             byte op = sec[pos - 1];
             if (op == 0xeb || (op & 0xf0) == 0x70)
             {
-                value -= 1;
-                if (value < -128 || value > 127)
+                diff32 -= 1;
+                if (diff32 < -128 || diff32 > 127)
                 {
-                    record(x86_error, "rel8 branch out of range off=%d", value);
+                    record(x86_error,
+                           "rel8 branch out of range off=%d",
+                           diff32);
                     return;
                 }
-                sec.patch8(data, byte(int8_t(value)));
+                sec.patch8(pos, byte(int8_t(diff32)));
                 return;
             }
         }
-        value -= 4;
+        diff32 -= 4;
+        value = uint32_t(diff32);
+    }
+    else
+    {
+        value = pvalue;
+        if (value != pvalue)
+            record(x86_error, "Patching %lu with overflow 0x%llX", pos, pvalue);
     }
 
-    if (intptr_t(value) != int32_t(value))
-        record(x86_warning,
-               "Patching %lu with overflow 0x%llX", pos, value);
-    sec.patch32le(pos, uint32_t(value));
+    sec.patch32le(pos, value);
 }
 
 
@@ -220,7 +236,7 @@ bool x86::load(hwreg_t h, local_t n)
         uint w = ptr64() ? 8 : 0;
         if (w || r >= 8 || HW_FRAME >= 8)
             emit8(0x40 | w | (rex_r(r) ? 4 : 0) | (rex_b(HW_FRAME) ? 1 : 0));
-        emit(0x8B);
+        emit8(0x8B);
     }
     emit_modrm_frame(r, disp);
     return true;
@@ -248,10 +264,11 @@ bool x86::store(local_t n, hwreg_t h)
         uint w = ptr64() ? 8 : 0;
         if (w || r >= 8 || HW_FRAME >= 8)
             emit8(0x40 | w | (rex_r(r) ? 4 : 0) | (rex_b(HW_FRAME) ? 1 : 0));
-        emit(0x89);
+        emit8(0x89);
     }
     emit_modrm_frame(r, disp);
-    return saved(loc, h);
+    saved(n, h);
+    return true;
 }
 
 
@@ -408,20 +425,20 @@ void x86::set_imm(x86reg_t r, uint64_t imm)
 }
 
 
-x86::x864reg_t x86::load_fp(local_t loc, byte sz)
+x86::x86reg_t x86::load_fp(local_t loc, byte sz)
 // ----------------------------------------------------------------------------
 //   Load a float / double local into an xmm register
 // ----------------------------------------------------------------------------
 {
-    record(x86, "load_%+s [%u]", sz == 64 ? "dbl" : "flt", n);
+    record(x86, "load_%+s [%u]", sz == 64 ? "dbl" : "flt", loc);
     if (sz != 32 && sz != 64)
     {
         record(x86_error, "Invalid size %u in load_fp", sz);
         sz = 64;
     }
 
-    hwreg_t r = local(loc, sz == 32 ? RSPEC_FLT : RSPEC_DBL);
-    record(x86, "load_%+s %u=[%u]", sz == 64 ? "dbl" : "flt", r, n);
+    x86reg_t r = hw(local(loc, sz == 32 ? RSPEC_FLT : RSPEC_DBL));
+    record(x86, "load_%+s %u=[%u]", sz == 64 ? "dbl" : "flt", r, loc);
     return r;
 }
 
@@ -499,9 +516,9 @@ void x86::store_float(local_t d, float v)
 // ----------------------------------------------------------------------------
 {
     record(x86, "store_flt [%u] = %g", d, v);
-    hwreg_t dreg = local(d, RSPEC_FLT);
-    uint32_t bits = *((uint32t *) &v);
-    emit_load_xmm_bin(dreg, bits, false);
+    x86reg_t dreg = hw(local(d, RSPEC_FLT));
+    uint32_t bits = *((uint32_t *) &v);
+    emit_set_xmm_imm(dreg, bits, false);
 }
 
 
@@ -511,9 +528,9 @@ void x86::store_double(local_t d, double v)
 // ----------------------------------------------------------------------------
 {
     record(x86, "store_dbl [%u] = %g", d, v);
-    hwreg_t dreg = local(d, RSPEC_DBL);
+    x86reg_t dreg = hw(local(d, RSPEC_DBL));
     uint64_t bits = *((uint64_t *) &v);
-    emit_load_xmm_bin(dreg, bits, false);
+    emit_set_xmm_imm(dreg, bits, false);
 }
 
 
@@ -523,8 +540,8 @@ void x86::binop_local(local_t dloc, local_t sloc, op_t op, byte fp)
 // ----------------------------------------------------------------------------
 {
     hwspec_t spec = fp == 64 ? RSPEC_DBL : fp == 32 ? RSPEC_FLT : RSPEC_INT;
-    x86reg_t d = hw_local(dloc, spec);
-    x86reg_t s = hw_local(sloc, spec);
+    x86reg_t d = hw(local(dloc, spec));
+    x86reg_t s = hw(local(sloc, spec));
     record(x86, "binop_local%+s [%u]=[%u] reg %u=%u",
            opcode_name(op), dloc, sloc, d, s);
     switch (op)
@@ -611,7 +628,7 @@ void x86::cmp_local(byte p, local_t d, local_t s, byte jcc)
 {
     x86reg_t dr = hw_local(d);
     x86reg_t sr = hw_local(s);
-    record(x86, "cmp_local cc=%u p=%u d=%u r%u s=%u r%u", cc, p, d, dr, s, sr);
+    record(x86, "cmp_local cc=%u p=%u d=%u r%u s=%u r%u", jcc, p, d, dr, s, sr);
     emit_pred_cmp(p, dr, sr, jcc);
 }
 
@@ -623,18 +640,17 @@ void x86::cmp_imm(byte p, local_t d, value_t v, byte jcc)
 {
     x86reg_t dr = hw_local(d);
     set_imm(HW_RCX, v);
-    record(x86, "cmp_imm cc=%u p=%u d=%u r%u v=%u", cc, p, d, dr, v);
+    record(x86, "cmp_imm cc=%u p=%u d=%u r%u v=%u", jcc, p, d, dr, v);
     emit_pred_cmp(p, dr, HW_RCX, jcc);
 }
 
 
-void x86::cmp_uimm(byte p, local_t d, uvalue_t v, cstring rel)
+void x86::cmp_uimm(byte p, local_t d, uvalue_t v, byte jcc)
 // ----------------------------------------------------------------------------
 //   Compare local with unsigned immediate and set predicate
 // ----------------------------------------------------------------------------
 {
-    record(x86, "cmp_uimm(%u, %u, %llu, %s)", p, d, v, rel);
-    cmp_imm(p, d, value_t(v), rel);
+    cmp_imm(p, d, value_t(v), jcc);
 }
 
 
@@ -647,7 +663,7 @@ void x86::cond_mov_local(byte p, local_t d, local_t s)
     emit_pred_test_bit(p);      // BT -> CF
     hwcode_t off = emit_jcc_rel8(JCC_JNC);     // skip if bit clear
     mov_local(d, s);
-    patch_branch(off, cursor());
+    patch(off, cursor(), true);
 }
 
 
@@ -661,9 +677,9 @@ void x86::select_local(byte p, local_t d, local_t s, byte x)
     hwcode_t jnc_pos = emit_jcc_rel8(JCC_JNC); // bit clear -> pick x
     mov_local(d, s);
     hwcode_t jmp_pos = emit_jmp_rel8();
-    patch_branch(jnc_pos, cursor());
+    patch(jnc_pos, cursor(), true);
     mov_local(d, x);
-    patch_branch(jmp_pos, cursor());
+    patch(jmp_pos, cursor(), true);
 }
 
 
@@ -672,7 +688,7 @@ void x86::neg_local(local_t d)
 //   Negate bytecode local d
 // ----------------------------------------------------------------------------
 {
-    hwreg_t r = local(d);
+    x86reg_t r = hw_local(d);
     emit_grp3_f7(r, 0xd8);
     record(x86, "neg_local %u reg %u", d, r);
 }
@@ -683,7 +699,7 @@ void x86::not_local(local_t d)
 //   Bitwise complement of bytecode local d
 // ----------------------------------------------------------------------------
 {
-    hwreg_t r = local(d);
+    x86reg_t r = hw_local(d);
     emit_grp3_f7(r, 0xd0);
     record(x86, "not_local %u reg %u", d, r);
 }
@@ -694,7 +710,7 @@ void x86::incr_local(local_t d)
 //   Increment bytecode local d
 // ----------------------------------------------------------------------------
 {
-    hwreg_t r = local(d);
+    x86reg_t r = hw_local(d);
     emit_grp5_ff(r, 0xc0);
     record(x86, "incr_local %u reg %u", d, r);
 }
@@ -705,7 +721,7 @@ void x86::decr_local(local_t d)
 //   Decrement bytecode local d
 // ----------------------------------------------------------------------------
 {
-    hwreg_t r = local(d);
+    x86reg_t r = hw_local(d);
     emit_grp5_ff(r, 0xc8);
     record(x86, "decr_local %u reg %u", d, r);
 }
@@ -814,7 +830,7 @@ void x86::load_mem(local_t d, local_t s, size_t sz, value_t offs)
 {
     x86reg_t dr = hw_local(d);
     x86reg_t sr = hw_local(s);
-    record(x86, "load_mem%u %u=[%u]", sz, d, s);
+    record(x86, "load_mem%u %u=[%u] r%u=[r%u]", sz, d, s, dr, sr);
     switch(sz)
     {
     default:            record(x86_error, "Invalid load size %u", sz);
@@ -831,20 +847,17 @@ void x86::load_sext(local_t d, local_t s, byte w, value_t offs)
 //   Load from [rax+offs] and sign-extend to w bits into rax
 // ----------------------------------------------------------------------------
 {
-    record(x86, "load_signext_mem(%u, %d)", w, offs);
-
     x86reg_t dr = hw_local(d);
     x86reg_t sr = hw_local(s);
-
-    record(x86, "load_sext%u %u=[%u]", w, sz, d, s);
     size_t sz = (w + 7) / 8;
+    record(x86, "load_sext%u %u=[%u] r%u=[r%u] sz %u", w, d, s, dr, sr, sz);
     switch(sz)
     {
     default:            record(x86_error, "Invalid load_sext width %u", w);
     case 1:             emit_load_s8 (dr, sr, offs); break;
     case 2:             emit_load_s16(dr, sr, offs); break;
     case 4:             emit_load_s32(dr, sr, offs); break;
-    case 8:             emit_load_s64(dr, sr, offs); break;
+    case 8:             emit_load_u64(dr, sr, offs); break;
     }
     if (w & 7)
         sext_reg(dr, w);
@@ -856,9 +869,9 @@ void x86::bra_pred(byte p, byte_p target, bool sense)
 //   Emit branch on predicate p with given sense
 // ----------------------------------------------------------------------------
 {
-    record(x86, "bra_pred(%u, %lld, %d)", p, b, sense);
+    record(x86, "bra_%+s %u, %lld", sense ? "true" : "false" ,p, target);
     emit_pred_test_bit(p);                              // BT -> CF
-    size_t pos = emit_jcc_rel32(sense ? JCC_JC : JCC_JNC);
+    emit_jcc_rel32(sense ? JCC_JC : JCC_JNC);
     emit32le(branch(target));
 }
 
@@ -868,10 +881,10 @@ void x86::bra_test(local_t s, byte_p target, byte cc)
 //   Emit signed comparison branch on local s
 // ----------------------------------------------------------------------------
 {
-    record(x86, "bra_signed(%u, %lld, %u)", s, b, cc);
+    record(x86, "bra_test %u, %lld cc=%u", s, target, cc);
     x86reg_t r = hw_local(s);
     emit_test_rr(r, r);
-    size_t pos = emit_jcc_rel32(cc);
+    emit_jcc_rel32(cc);
     emit32le(branch(target));
 }
 
@@ -904,7 +917,7 @@ void x86::epilogue()
 }
 
 
-void x86::call_ptr(void *fn)
+void x86::call_ptr(void (*fn)())
 // ----------------------------------------------------------------------------
 //   Emit a call through a function pointer in RAX
 // ----------------------------------------------------------------------------
@@ -916,7 +929,7 @@ void x86::call_ptr(void *fn)
         emit_sub_rsp_imm(0x20);
 #endif
     set_imm(HW_RAX, uint64_t(fn));
-    emit_call_rax();
+    emit_call_rr(HW_RAX);
 #ifdef _WIN64
     if (ptr64())
         emit_add_rsp_imm(0x20);
@@ -930,13 +943,13 @@ void x86::dispatch(local_t loc, byte_p &pc, byte jcc)
 // ----------------------------------------------------------------------------
 {
     x86reg_t ref = hw_local(loc);
-    size_t   ncases  = arg<size_t>(pc);
+    size_t   ncases  = leb128<size_t>(pc);
     for (size_t n = 0; n < ncases; n++)
     {
-        value_t test = arg<value_t>(pc);
+        value_t test = leb128<value_t>(pc);
         byte_p  bpc  = pc;
-        broff_t offs = arg<broff_t>(pc);
-        byte_p  tgt  = pc + offs;
+        broff_t offs = leb128<broff_t>(pc);
+        byte_p  tgt  = bpc + offs;
         set_imm(HW_RAX, test);
         emit_cmp_rr(ref, HW_RAX);
         emit_jcc_rel32(jcc);
