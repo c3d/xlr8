@@ -574,10 +574,12 @@ void backend::emit_user(backend::emit_args &args)
 //
 // ============================================================================
 
-hwreg_t backend::local(local_t loc, hwspec_t spec)
+hwreg_t backend::local(local_t loc, hwspec_t spec, hwspec_t needed)
 // ----------------------------------------------------------------------------
 //  The default register allocator when loading locals
 // ----------------------------------------------------------------------------
+//  Any of the bits in spec need to be set
+//  All of the bits in needed need to be set
 {
     if (loc >= local_reg.size())
     {
@@ -596,7 +598,7 @@ hwreg_t backend::local(local_t loc, hwspec_t spec)
 
         // Check if this matches the new spec
         hwspec_t rspec = register_specification(reg);
-        if (rspec & spec)
+        if ((rspec & spec) && (rspec & needed) == needed)
             return reg;
     }
 
@@ -607,7 +609,7 @@ hwreg_t backend::local(local_t loc, hwspec_t spec)
         for (hwreg_t r = 0; r < nregs; r++)
         {
             hwspec_t rspec = register_specification(r);
-            if (rspec & spec)
+            if ((rspec & spec) && (rspec & needed) == needed)
             {
                 local_t rloc = reg_local[r];
 

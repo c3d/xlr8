@@ -46,10 +46,65 @@ void      xlr8_null_opcode();
 void      xlr8_user_opcode();
 void      xlr8_undef_opcode();
 
-// Minimal JIT sys helpers (AAPCS: x0=stream id / unused, x1=value)
+// Stream I/O (AAPCS64: x0=stream id, x1/s0/d0=value)
 void      xlr8_jit_write_integer(uvalue_t stream, value_t value);
+void      xlr8_jit_write_natural(uvalue_t stream, uvalue_t value);
+void      xlr8_jit_write_char(uvalue_t stream, uvalue_t ch);
+void      xlr8_jit_write_float(uvalue_t stream, float value);
+void      xlr8_jit_write_double(uvalue_t stream, double value);
+void      xlr8_jit_write_text(uvalue_t stream, uvalue_t tok_or_ptr);
 void      xlr8_jit_write_token(uvalue_t stream, tok_t tok);
 void      xlr8_jit_write_newline(uvalue_t stream);
+
+value_t   xlr8_jit_read_char(uvalue_t stream);
+value_t   xlr8_jit_read_integer(uvalue_t stream);
+uvalue_t  xlr8_jit_read_natural(uvalue_t stream);
+float     xlr8_jit_read_float(uvalue_t stream);
+double    xlr8_jit_read_double(uvalue_t stream);
+
+void      xlr8_jit_nat_append(uvalue_t stream, uvalue_t value);
+void      xlr8_jit_int_append(uvalue_t stream, value_t value);
+void      xlr8_jit_flt_append(uvalue_t stream, float value);
+void      xlr8_jit_dbl_append(uvalue_t stream, double value);
+
+void      xlr8_jit_read_scanner(uvalue_t stream, ularge_t *tok, ularge_t *val);
+void      xlr8_jit_print_error(uvalue_t stream);
+void      xlr8_jit_clear_error();
+int       xlr8_jit_has_error(); // 0/1
+
+int       xlr8_jit_stream_eof(uvalue_t stream);
+int       xlr8_jit_stream_bad(uvalue_t stream);
+
+void      xlr8_jit_globals(size_t n);
+void     *xlr8_jit_alloca(value_t n);
+uvalue_t  xlr8_jit_argv(uvalue_t i);
+uvalue_t  xlr8_jit_env(uvalue_t i);
+uintptr_t xlr8_jit_stack_ptr();
+
+void      xlr8_jit_infix();
+void      xlr8_jit_prefix();
+void      xlr8_jit_postfix();
+void      xlr8_jit_block();
+void      xlr8_jit_builtin();
+void      xlr8_jit_parsing();
+
+int       xlr8_jit_fpush(float v);   // 0 ok, 1 fail
+int       xlr8_jit_dpush(double v);
+float     xlr8_jit_fpop();
+double    xlr8_jit_dpop();
+
+uvalue_t  xlr8_jit_tokaddr(uvalue_t tok);
+utf8      xlr8_jit_cstring(tok_t tok);
+
+// LEB128: returns value in .value and updated pointer in .next (x0/x1)
+typedef struct { value_t  value; byte_p next; } xlr8_leb_i_t;
+typedef struct { uvalue_t value; byte_p next; } xlr8_leb_u_t;
+xlr8_leb_i_t xlr8_jit_leb2i(byte_p p);
+xlr8_leb_u_t xlr8_jit_leb2u(byte_p p);
+byte        *xlr8_jit_i2leb(byte *p, value_t v);
+byte        *xlr8_jit_u2leb(byte *p, uvalue_t v);
+uvalue_t     xlr8_jit_i2lebsz(value_t v);
+uvalue_t     xlr8_jit_u2lebsz(uvalue_t v);
 
 #ifdef __cplusplus
 }

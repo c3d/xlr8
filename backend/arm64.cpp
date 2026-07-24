@@ -33,7 +33,12 @@
 #include "native-bridge.h"
 #include "runtime.h"
 
+#include <cmath>
 #include <cstring>
+
+#if !defined(__APPLE__)
+extern "C" char *strcasestr(const char *, const char *);
+#endif
 
 
 RECORDER(arm64,             32, "AArch64 code generation helpers");
@@ -229,17 +234,31 @@ uint arm64::relocate(void *base)
 
 bool arm64::move(hwreg_t to, hwreg_t from)
 // ----------------------------------------------------------------------------
-//   Move between registers
+//   Move between registers (GPR↔GPR, V↔V, or int↔fp via fmov)
 // ----------------------------------------------------------------------------
 {
     arm64reg_t d = hw(to);
     arm64reg_t s = hw(from);
-    if (is_fp(d) || is_fp(s))
+    if (is_fp(d) && is_fp(s))
     {
         if (is_flt(d) || is_flt(s))
             emit32le(fmov_ss(vn(d), vn(s)));
         else
             emit32le(fmov_dd(vn(d), vn(s)));
+    }
+    else if (is_fp(d))
+    {
+        if (is_flt(d))
+            emit32le(fmov_s_w(vn(d), xn(s)));
+        else
+            emit32le(fmov_d_x(vn(d), xn(s)));
+    }
+    else if (is_fp(s))
+    {
+        if (is_flt(s))
+            emit32le(fmov_w_s(xn(d), vn(s)));
+        else
+            emit32le(fmov_x_d(xn(d), vn(s)));
     }
     else
     {
@@ -377,6 +396,14 @@ arm64::reginfo arm64::register_definition(hwreg_t reg) const
         {  "v5d",              RSPEC_DBL },
         {  "v6d",              RSPEC_DBL },
         {  "v7d",              RSPEC_DBL },
+        {  "v8d",  RSPEC_CALL | RSPEC_DBL },
+        {  "v9d",  RSPEC_CALL | RSPEC_DBL },
+        { "v10d",  RSPEC_CALL | RSPEC_DBL },
+        { "v11d",  RSPEC_CALL | RSPEC_DBL },
+        { "v12d",  RSPEC_CALL | RSPEC_DBL },
+        { "v13d",  RSPEC_CALL | RSPEC_DBL },
+        { "v14d",  RSPEC_CALL | RSPEC_DBL },
+        { "v15d",  RSPEC_CALL | RSPEC_DBL },
 
         {  "v0f",              RSPEC_FLT },
         {  "v1f",              RSPEC_FLT },
@@ -386,6 +413,14 @@ arm64::reginfo arm64::register_definition(hwreg_t reg) const
         {  "v5f",              RSPEC_FLT },
         {  "v6f",              RSPEC_FLT },
         {  "v7f",              RSPEC_FLT },
+        {  "v8f",  RSPEC_CALL | RSPEC_FLT },
+        {  "v9f",  RSPEC_CALL | RSPEC_FLT },
+        { "v10f",  RSPEC_CALL | RSPEC_FLT },
+        { "v11f",  RSPEC_CALL | RSPEC_FLT },
+        { "v12f",  RSPEC_CALL | RSPEC_FLT },
+        { "v13f",  RSPEC_CALL | RSPEC_FLT },
+        { "v14f",  RSPEC_CALL | RSPEC_FLT },
+        { "v15f",  RSPEC_CALL | RSPEC_FLT },
     };
 
     return reg < HW_COUNT ? arm64_registers[reg] : reginfo{"INVALID", 0};
@@ -660,7 +695,7 @@ void arm64::store_float(local_t d, float v)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "store_flt [%u] = %g", d, v);
-    arm64reg_t dreg = hw(local(d, RSPEC_FLT));
+    arm64reg_t dreg = hw(local(d, RSPEC_FLT, RSPEC_CALL));
     uint32_t bits = 0;
     memcpy(&bits, &v, sizeof(bits));
     set_imm(HW_SCRATCH, bits);
@@ -674,7 +709,7 @@ void arm64::store_double(local_t d, double v)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "store_dbl [%u] = %g", d, v);
-    arm64reg_t dreg = hw(local(d, RSPEC_DBL));
+    arm64reg_t dreg = hw(local(d, RSPEC_DBL, RSPEC_CALL));
     uint64_t bits = 0;
     memcpy(&bits, &v, sizeof(bits));
     set_imm(HW_SCRATCH, bits);
@@ -687,9 +722,22 @@ void arm64::binop_local(local_t dloc, local_t sloc, op_t op, byte fp)
 //   Apply binary operator to two bytecode locals
 // ----------------------------------------------------------------------------
 {
-    hwspec_t spec = fp == 64 ? RSPEC_DBL : fp == 32 ? RSPEC_FLT : RSPEC_INT;
-    arm64reg_t d = hw(local(dloc, spec));
-    arm64reg_t s = hw(local(sloc, spec));
+    arm64reg_t d, s;
+    if (fp == 64)
+    {
+        d = hw(local(dloc, RSPEC_DBL, RSPEC_CALL));
+        s = hw(local(sloc, RSPEC_DBL, RSPEC_CALL));
+    }
+    else if (fp == 32)
+    {
+        d = hw(local(dloc, RSPEC_FLT, RSPEC_CALL));
+        s = hw(local(sloc, RSPEC_FLT, RSPEC_CALL));
+    }
+    else
+    {
+        d = hw(local(dloc, RSPEC_INT));
+        s = hw(local(sloc, RSPEC_INT));
+    }
     record(arm64, "binop_local%+s [%u]=[%u] reg %u=%u",
            opcode_name(op), dloc, sloc, d, s);
 

@@ -12,6 +12,7 @@
 //
 //
 //
+//
 // ****************************************************************************
 //   (C) 2026 Christophe de Dinechin <christophe@dinechin.org>
 //   This software is licensed under the terms outlined in LICENSE.txt
@@ -30,9 +31,9 @@
 #include "runtime.h"
 #include "leb128.h"
 #include "scanner.h"
+#include "utf8.h"
 
 #include <cstring>
-#include <functional>
 #include <iostream>
 
 
@@ -40,27 +41,18 @@ static runtime *xlr8_current_rt = nullptr;
 
 
 void xlr8_set_runtime(runtime *rt)
-// ----------------------------------------------------------------------------
-//   Select the runtime used by native helper calls
-// ----------------------------------------------------------------------------
 {
     xlr8_current_rt = rt;
 }
 
 
 runtime *xlr8_get_runtime()
-// ----------------------------------------------------------------------------
-//   Return the runtime used by native helper calls
-// ----------------------------------------------------------------------------
 {
     return xlr8_current_rt;
 }
 
 
 void xlr8_null_opcode()
-// ----------------------------------------------------------------------------
-//   Trap for a null opcode
-// ----------------------------------------------------------------------------
 {
     record(runtime_error, "Hit null opcode at runtime");
     exit(1);
@@ -68,9 +60,6 @@ void xlr8_null_opcode()
 
 
 void xlr8_user_opcode()
-// ----------------------------------------------------------------------------
-//   Trap for an undefined user opcode
-// ----------------------------------------------------------------------------
 {
     record(runtime_error, "Hit undefined user opcode at runtime");
     exit(1);
@@ -78,46 +67,346 @@ void xlr8_user_opcode()
 
 
 void xlr8_undef_opcode()
-// ----------------------------------------------------------------------------
-//   Trap for an undefined opcode
-// ----------------------------------------------------------------------------
 {
     record(runtime_error, "Hit 'undef' opcode at runtime");
     exit(1);
 }
 
 
-void xlr8_jit_write_integer(uvalue_t stream, value_t value)
-// ----------------------------------------------------------------------------
-//   Write a signed integer to a runtime output stream (JIT helper)
-// ----------------------------------------------------------------------------
+static std::ostream *out_stream(uvalue_t stream)
 {
-    if (!xlr8_current_rt)
-        return;
-    if (std::ostream *out = xlr8_current_rt->ostream(stream))
+    return xlr8_current_rt ? xlr8_current_rt->ostream(stream) : nullptr;
+}
+
+
+static std::istream *in_stream(uvalue_t stream)
+{
+    return xlr8_current_rt ? xlr8_current_rt->istream(stream) : nullptr;
+}
+
+
+void xlr8_jit_write_integer(uvalue_t stream, value_t value)
+{
+    if (std::ostream *out = out_stream(stream))
         *out << value;
 }
 
 
-void xlr8_jit_write_token(uvalue_t stream, tok_t tok)
-// ----------------------------------------------------------------------------
-//   Write a token's text to a runtime output stream (JIT helper)
-// ----------------------------------------------------------------------------
+void xlr8_jit_write_natural(uvalue_t stream, uvalue_t value)
+{
+    if (std::ostream *out = out_stream(stream))
+        *out << value;
+}
+
+
+void xlr8_jit_write_char(uvalue_t stream, uvalue_t ch)
+{
+    if (std::ostream *out = out_stream(stream))
+    {
+        byte buffer[4] = { 0 };
+        size_t sz = utf8_encode(unicode(ch), buffer);
+        *out << text(cstring(buffer), sz);
+    }
+}
+
+
+void xlr8_jit_write_float(uvalue_t stream, float value)
+{
+    if (std::ostream *out = out_stream(stream))
+        *out << value;
+}
+
+
+void xlr8_jit_write_double(uvalue_t stream, double value)
+{
+    if (std::ostream *out = out_stream(stream))
+        *out << value;
+}
+
+
+void xlr8_jit_write_text(uvalue_t stream, uvalue_t tok_or_nat)
 {
     if (!xlr8_current_rt)
         return;
-    if (std::ostream *out = xlr8_current_rt->ostream(stream))
+    if (std::ostream *out = out_stream(stream))
+        *out << xlr8_current_rt->as_text(tok_or_nat);
+}
+
+
+void xlr8_jit_write_token(uvalue_t stream, tok_t tok)
+{
+    if (!xlr8_current_rt)
+        return;
+    if (std::ostream *out = out_stream(stream))
         *out << xlr8_current_rt->as_text(tok);
 }
 
 
 void xlr8_jit_write_newline(uvalue_t stream)
-// ----------------------------------------------------------------------------
-//   Write a newline to a runtime output stream (JIT helper)
-// ----------------------------------------------------------------------------
+{
+    if (std::ostream *out = out_stream(stream))
+        (*out) << '\n';
+}
+
+
+value_t xlr8_jit_read_char(uvalue_t stream)
+{
+    char value = 0;
+    if (std::istream *in = in_stream(stream))
+        (*in) >> value;
+    return value_t(value);
+}
+
+
+value_t xlr8_jit_read_integer(uvalue_t stream)
+{
+    value_t value = 0;
+    if (std::istream *in = in_stream(stream))
+        (*in) >> value;
+    return value;
+}
+
+
+uvalue_t xlr8_jit_read_natural(uvalue_t stream)
+{
+    uvalue_t value = 0;
+    if (std::istream *in = in_stream(stream))
+        (*in) >> value;
+    return value;
+}
+
+
+float xlr8_jit_read_float(uvalue_t stream)
+{
+    float value = 0;
+    if (std::istream *in = in_stream(stream))
+        (*in) >> value;
+    return value;
+}
+
+
+double xlr8_jit_read_double(uvalue_t stream)
+{
+    double value = 0;
+    if (std::istream *in = in_stream(stream))
+        (*in) >> value;
+    return value;
+}
+
+
+void xlr8_jit_nat_append(uvalue_t stream, uvalue_t value)
+{
+    if (std::ostream *out = out_stream(stream))
+        scanner::append(out, value);
+}
+
+
+void xlr8_jit_int_append(uvalue_t stream, value_t value)
+{
+    if (std::ostream *out = out_stream(stream))
+        scanner::append(out, value);
+}
+
+
+void xlr8_jit_flt_append(uvalue_t stream, float value)
+{
+    if (std::ostream *out = out_stream(stream))
+        scanner::append(out, value);
+}
+
+
+void xlr8_jit_dbl_append(uvalue_t stream, double value)
+{
+    if (std::ostream *out = out_stream(stream))
+        scanner::append(out, value);
+}
+
+
+void xlr8_jit_read_scanner(uvalue_t stream, ularge_t *tok, ularge_t *val)
+{
+    *tok = 0;
+    *val = 0;
+    if (!xlr8_current_rt)
+        return;
+    std::istream *in = in_stream(stream);
+    if (!in)
+        return;
+    scanner s(*in, *xlr8_current_rt);
+    scanner::expr e;
+    if (!s.label_value(e))
+        return;
+    *tok = e.type;
+    *val = e.xnat;
+}
+
+
+void xlr8_jit_print_error(uvalue_t stream)
 {
     if (!xlr8_current_rt)
         return;
-    if (std::ostream *out = xlr8_current_rt->ostream(stream))
-        (*out) << '\n';
+    if (std::ostream *out = out_stream(stream))
+        if (utf8 err = xlr8_current_rt->error())
+            *out << err;
+}
+
+
+void xlr8_jit_clear_error()
+{
+    if (xlr8_current_rt)
+        xlr8_current_rt->error(nullptr);
+}
+
+
+int xlr8_jit_has_error()
+{
+    return xlr8_current_rt && xlr8_current_rt->error() ? 1 : 0;
+}
+
+
+int xlr8_jit_stream_eof(uvalue_t stream)
+{
+    std::istream *in = in_stream(stream);
+    return in && in->eof() ? 1 : 0;
+}
+
+
+int xlr8_jit_stream_bad(uvalue_t stream)
+{
+    std::istream *in = in_stream(stream);
+    return in && in->bad() ? 1 : 0;
+}
+
+
+void xlr8_jit_globals(size_t n)
+{
+    if (xlr8_current_rt)
+        xlr8_current_rt->globals.resize(n);
+}
+
+
+void *xlr8_jit_alloca(value_t n)
+{
+    return xlr8_current_rt ? xlr8_current_rt->alloca(n) : nullptr;
+}
+
+
+uvalue_t xlr8_jit_argv(uvalue_t i)
+{
+    return xlr8_current_rt ? xlr8_current_rt->argv(i) : 0;
+}
+
+
+uvalue_t xlr8_jit_env(uvalue_t i)
+{
+    return xlr8_current_rt ? xlr8_current_rt->env(i) : 0;
+}
+
+
+uintptr_t xlr8_jit_stack_ptr()
+{
+    return xlr8_current_rt ? uintptr_t(xlr8_current_rt->stack) : 0;
+}
+
+
+void xlr8_jit_infix()   { if (xlr8_current_rt) xlr8_current_rt->infix(); }
+void xlr8_jit_prefix()  { if (xlr8_current_rt) xlr8_current_rt->prefix(); }
+void xlr8_jit_postfix() { if (xlr8_current_rt) xlr8_current_rt->postfix(); }
+void xlr8_jit_block()   { if (xlr8_current_rt) xlr8_current_rt->block(); }
+void xlr8_jit_builtin() { if (xlr8_current_rt) xlr8_current_rt->parsing_mode(false); }
+void xlr8_jit_parsing() { if (xlr8_current_rt) xlr8_current_rt->parsing_mode(true); }
+
+
+int xlr8_jit_fpush(float v)
+{
+    if (!xlr8_current_rt)
+        return 1;
+    ularge_t bits = 0;
+    memcpy(&bits, &v, sizeof(v));
+    return xlr8_current_rt->push(bits) ? 0 : 1;
+}
+
+
+int xlr8_jit_dpush(double v)
+{
+    if (!xlr8_current_rt)
+        return 1;
+    ularge_t bits = 0;
+    memcpy(&bits, &v, sizeof(v));
+    return xlr8_current_rt->push(bits) ? 0 : 1;
+}
+
+
+float xlr8_jit_fpop()
+{
+    float f = 0;
+    if (xlr8_current_rt)
+    {
+        ularge_t bits = xlr8_current_rt->pop();
+        memcpy(&f, &bits, sizeof(f));
+    }
+    return f;
+}
+
+
+double xlr8_jit_dpop()
+{
+    double d = 0;
+    if (xlr8_current_rt)
+    {
+        ularge_t bits = xlr8_current_rt->pop();
+        memcpy(&d, &bits, sizeof(d));
+    }
+    return d;
+}
+
+
+uvalue_t xlr8_jit_tokaddr(uvalue_t tok)
+{
+    return xlr8_current_rt ? uvalue_t(xlr8_current_rt->tokaddr(tok)) : 0;
+}
+
+
+utf8 xlr8_jit_cstring(tok_t tok)
+{
+    return xlr8_current_rt ? xlr8_current_rt->tok(tok) : nullptr;
+}
+
+
+xlr8_leb_i_t xlr8_jit_leb2i(byte_p p)
+{
+    xlr8_leb_i_t r = { 0, p };
+    r.value = leb128<value_t>(r.next);
+    return r;
+}
+
+
+xlr8_leb_u_t xlr8_jit_leb2u(byte_p p)
+{
+    xlr8_leb_u_t r = { 0, p };
+    r.value = leb128<uvalue_t>(r.next);
+    return r;
+}
+
+
+byte *xlr8_jit_i2leb(byte *p, value_t v)
+{
+    return leb128(p, v);
+}
+
+
+byte *xlr8_jit_u2leb(byte *p, uvalue_t v)
+{
+    return leb128(p, v);
+}
+
+
+uvalue_t xlr8_jit_i2lebsz(value_t v)
+{
+    return uvalue_t(leb128size(v));
+}
+
+
+uvalue_t xlr8_jit_u2lebsz(uvalue_t v)
+{
+    return uvalue_t(leb128size(v));
 }

@@ -125,10 +125,22 @@ NATIVE(f2u,             DST SRC,        DNAT = uvalue_t(SFLT))
 NATIVE(d2u,             DST SRC,        DNAT = uvalue_t(SDBL))
 NATIVE(f2d,             DST SRC,        DDBL = SFLT)
 NATIVE(d2f,             DST SRC,        DFLT = SDBL)
-NATIVE(fpush,           SRC,            done = !rt.push(SFLT))
-NATIVE(dpush,           SRC,            done = !rt.push(SDBL))
-NATIVE(fpop,            DST,            DFLT = rt.pop<float>())
-NATIVE(dpop,            DST,            DDBL = rt.pop<double>())
+NATIVE(fpush,           SRC,            ularge_t fbits = 0;                     \
+                                        { float fv = SFLT;                      \
+                                          memcpy(&fbits, &fv, sizeof(fv)); }    \
+                                        done = !rt.push(fbits))
+NATIVE(dpush,           SRC,            ularge_t dbits = 0;                     \
+                                        { double dv = SDBL;                     \
+                                          memcpy(&dbits, &dv, sizeof(dv)); }    \
+                                        done = !rt.push(dbits))
+NATIVE(fpop,            DST,            { ularge_t fbits = rt.pop();            \
+                                          float fv = 0;                         \
+                                          memcpy(&fv, &fbits, sizeof(fv));      \
+                                          DFLT = fv; })
+NATIVE(dpop,            DST,            { ularge_t dbits = rt.pop();            \
+                                          double dv = 0;                        \
+                                          memcpy(&dv, &dbits, sizeof(dv));      \
+                                          DDBL = dv; })
 NATIVE(fmod,            DST SRC,        DFLT = std::fmod(DFLT, SFLT))
 NATIVE(dmod,            DST SRC,        DDBL = std::fmod(DDBL, SDBL))
 

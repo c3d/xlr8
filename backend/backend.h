@@ -121,6 +121,7 @@ struct backend
     };
 
 
+
     // Creation / factory
     virtual         ~backend()   = default;
     static backend  *make(runtime &rt, arch_t arch = ARCH_NATIVE);
@@ -163,7 +164,18 @@ struct backend
 
     virtual void     begin_translation();
     virtual void     finish_translation();
-    virtual hwreg_t  local(local_t loc, hwspec_t spec = RSPEC_INT);
+    // Allocate a register for `loc`.
+    // Matching: any bit in `spec` must be present; every bit in `needed`
+    // must be present. Example: local(loc, RSPEC_FLT, RSPEC_CALL) picks a
+    // float register that is also call-safe.
+    virtual hwreg_t  local(local_t  loc,
+                           hwspec_t spec   = RSPEC_INT,
+                           hwspec_t needed = 0);
+    // Require every bit in `spec` (equivalent to local(loc, spec, spec)).
+    hwreg_t          local_all(local_t loc, hwspec_t spec)
+    {
+        return local(loc, spec, spec);
+    }
     virtual void     saved(local_t loc, hwreg_t reg);
 
     virtual bool     spill(hwreg_t r);

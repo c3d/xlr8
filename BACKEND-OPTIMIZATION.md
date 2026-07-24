@@ -484,6 +484,39 @@ zero.
 **Fix**: Find the first non-zero halfword and use it for the base MOVZ.
 Saves 1 instruction for sparse upper-halfword values.
 
+### 3.8 Helper Calls: Replace MOVZ/MOVK + BLR Absolute Materialization
+
+**Status**: deferred (recorded 2026-07-24).  Correct today; optimize later.
+
+**Current** (`arm64::call_ptr` → `set_imm` + `blr x16`): every C helper call
+materializes a full 64-bit absolute address, typically:
+
+```asm
+mov   x16, #0xe7e0
+movk  x16, #0x10a, lsl #16
+movk  x16, #0x1, lsl #32
+blr   x16
+```
+
+That is ~3–4 instructions (12–16 bytes) plus an indirect branch per call.
+Fine for correctness; heavy for hot paths (`xlr8_jit_write_*`, sys helpers).
+
+**Preferred (when JIT buffer and helpers are within range)**:
+
+1. **PC-relative helper pointer table** next to the code buffer (see also §7.4):
+   `adrp x16, page` / `ldr x16, [x16, #off]` / `blr x16` — usually 3
+   instructions, no 64-bit immediate construction.  Range ±4 GiB from the JIT
+   page.
+2. **Direct `bl`** with a post-`mmap` reloc when the helper is within ±128 MiB
+   of the call site — 1 instruction, best case.
+3. Keep MOVZ/MOVK + BLR as fallback for far / unknown targets.
+
+**Savings**: ~1–3 instructions and a cheaper call pattern per helper site;
+tens of bytes per translated function that prints or calls sys helpers.
+
+Cross-platform twin: x86-64 §4.7 (`call [rip+disp32]`), riscv64 AUIPC+LD
+(§7.4).
+
 ---
 
 ## 4. x86-64-Specific Optimizations
@@ -841,6 +874,9 @@ Each backend can then use PC-relative addressing (ADRP+LDR on arm64,
 `call [rip+disp32]` on x86-64, AUIPC+LD on riscv64) instead of materializing
 full absolute addresses.
 
+Arm64 detail and concrete current sequence: §3.8 (MOVZ/MOVK + BLR → ADRP/LDR
+or direct BL).
+
 ---
 
 ## 8. Prioritized Action Plan
@@ -915,6 +951,7 @@ full absolute addresses.
 | E7 | Dirty tracking (§7.1) | All 4 | 1-4 insns/op |
 | E8 | Code caching (§7.2) | All | eliminates re-JIT |
 | E9 | Compare-and-branch fusion (§5.7) | riscv64 | 9-11 insns |
+| E10 | Helper call PC-relative / BL (§3.8, §4.7, §7.4) | arm64, x86-64, riscv64 | 1-3 insns/call |
 
 ---
 

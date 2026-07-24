@@ -124,6 +124,14 @@ protected:
         HW_V5D,
         HW_V6D,
         HW_V7D,
+        HW_V8D,
+        HW_V9D,
+        HW_V10D,
+        HW_V11D,
+        HW_V12D,
+        HW_V13D,
+        HW_V14D,
+        HW_V15D,
 
         HW_V0F,
         HW_V1F,
@@ -133,6 +141,14 @@ protected:
         HW_V5F,
         HW_V6F,
         HW_V7F,
+        HW_V8F,
+        HW_V9F,
+        HW_V10F,
+        HW_V11F,
+        HW_V12F,
+        HW_V13F,
+        HW_V14F,
+        HW_V15F,
 
         HW_COUNT,
 
@@ -197,10 +213,18 @@ protected:
     //   Physical V register number for FP encoding
     // ------------------------------------------------------------------------
     {
-        if (r >= HW_V0F)
+        if (r >= HW_V0F && r <= HW_V15F)
+        {
+            if (r >= HW_V8F)
+                return 8u + uint(r - HW_V8F);
             return uint(r - HW_V0F);
-        if (r >= HW_V0D)
+        }
+        if (r >= HW_V0D && r <= HW_V15D)
+        {
+            if (r >= HW_V8D)
+                return 8u + uint(r - HW_V8D);
             return uint(r - HW_V0D);
+        }
         record(arm64_error, "vn() on non-V register %u", r);
         return 0;
     }
@@ -210,7 +234,7 @@ protected:
     //   True when r is a V-register bank entry
     // ------------------------------------------------------------------------
     {
-        return r >= HW_V0D;
+        return (r >= HW_V0D && r <= HW_V15D) || (r >= HW_V0F && r <= HW_V15F);
     }
 
     static inline bool is_flt(arm64reg_t r)
@@ -218,7 +242,7 @@ protected:
     //   True when r is in the float (S) bank
     // ------------------------------------------------------------------------
     {
-        return r >= HW_V0F;
+        return r >= HW_V0F && r <= HW_V15F;
     }
 
     int local_disp(int n) const
@@ -642,6 +666,56 @@ protected:
     static inline uint fmov_dd(uint dd, uint dn)
     {
         return 0x1e604000u | (dn << 5) | dd;
+    }
+
+    // Signed/unsigned int <-> FP and FP precision converts
+    static inline uint scvtf_s_x(uint sd, uint xn)
+    {
+        return 0x9e220000u | (xn << 5) | sd;
+    }
+    static inline uint scvtf_d_x(uint dd, uint xn)
+    {
+        return 0x9e620000u | (xn << 5) | dd;
+    }
+    static inline uint ucvtf_s_x(uint sd, uint xn)
+    {
+        return 0x9e230000u | (xn << 5) | sd;
+    }
+    static inline uint ucvtf_d_x(uint dd, uint xn)
+    {
+        return 0x9e630000u | (xn << 5) | dd;
+    }
+    static inline uint fcvtzs_x_s(uint xd, uint sn)
+    {
+        return 0x9e380000u | (sn << 5) | xd;
+    }
+    static inline uint fcvtzs_x_d(uint xd, uint dn)
+    {
+        return 0x9e780000u | (dn << 5) | xd;
+    }
+    static inline uint fcvtzu_x_s(uint xd, uint sn)
+    {
+        return 0x9e390000u | (sn << 5) | xd;
+    }
+    static inline uint fcvtzu_x_d(uint xd, uint dn)
+    {
+        return 0x9e790000u | (dn << 5) | xd;
+    }
+    static inline uint fcvt_d_s(uint dd, uint sn)
+    {
+        return 0x1e22c000u | (sn << 5) | dd;
+    }
+    static inline uint fcvt_s_d(uint sd, uint dn)
+    {
+        return 0x1e624000u | (dn << 5) | sd;
+    }
+    static inline uint fcmp_ss(uint sn, uint sm)
+    {
+        return 0x1e202000u | (sm << 16) | (sn << 5);
+    }
+    static inline uint fcmp_dd(uint dn, uint dm)
+    {
+        return 0x1e602000u | (dm << 16) | (dn << 5);
     }
 
     // FP op field fragments for fop_ss / fop_dd
