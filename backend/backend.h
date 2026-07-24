@@ -146,10 +146,10 @@ struct backend
     intptr_t         branch(byte_p tgt, hwcode_t hwcode);
     intptr_t         branch(byte_p tgt)  { return branch(tgt, cursor()); }
 
-
     // Resolving labels
     uint             label(byte_p bytecode, hwcode_t hwcode);
-
+    hwcode_t         translated_address(byte_p bytecode);
+    const auto      &address_translations() const { return labels; }
 
 
     // ========================================================================

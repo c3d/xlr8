@@ -33,6 +33,7 @@
 #include "backend.h"
 #include "recorder.h"
 #include "section.h"
+#include "native-bridge.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -50,6 +51,8 @@
 
 RECORDER(native_run,            16, "Native JIT execution");
 RECORDER(native_run_error,      16, "Native JIT errors");
+
+static backend *xlr8_backend = nullptr;
 
 
 static void dump_jit_code(void *mem, size_t sz, backend &be, cstring path)
@@ -71,9 +74,9 @@ static void dump_jit_code(void *mem, size_t sz, backend &be, cstring path)
     fclose(out);
     record(native_run, "JIT dump %zu bytes -> %s", sz, path);
 
-    for (auto const &entry : be.bytecode_positions())
+    for (auto const &label : be.address_translations())
         record(native_run, "  bc %p -> native %zu",
-               (void *) entry.first, entry.second);
+               label.bytecode, label.hwcode);
 
 #if defined(__aarch64__)
     const char *arch = "aarch64";
@@ -344,8 +347,12 @@ static bool native_run(runtime &rt, backend &be, byte_p start, byte_p end)
     rt.jit_code     = mem;
     rt.jit_map_size = sz;
 
-    if (cstring dump = getenv("XLR8_DUMP_JIT"))
+    cstring dump    = runtime::dump_file;
+    if (!dump)
+        dump = getenv("XLR8_DUMP_JIT");
+    if (dump)
         dump_jit_code(mem, sz, be, dump);
+    xlr8_backend = &be;
 
 #if defined(__x86_64__) || defined(__amd64__)
     invoke_amd64(rt, mem);
@@ -358,6 +365,7 @@ static bool native_run(runtime &rt, backend &be, byte_p start, byte_p end)
 #elif defined(__riscv)
     invoke_riscv64(rt, mem);
 #else
+
     unmap_executable(mem, sz);
     rt.error("Native execution is not supported on this CPU");
     return false;
@@ -366,11 +374,12 @@ static bool native_run(runtime &rt, backend &be, byte_p start, byte_p end)
     unmap_executable(rt.jit_code, rt.jit_map_size);
     rt.jit_code = nullptr;
     rt.jit_map_size = 0;
+    xlr8_backend = nullptr;
     return rt.error() == nullptr;
 }
 
 
-bool runtime::run_native(tok_t tok)
+bool runtime::run_native(tok_t t)
 // ----------------------------------------------------------------------------
 //   Compile entry bytecode to native code and run it on the host CPU
 // ----------------------------------------------------------------------------
@@ -383,11 +392,28 @@ bool runtime::run_native(tok_t tok)
     }
 
     size_t sz    = 0;
-    byte_p start = byte_p(rt.tok(tok, &sz));
+    byte_p start = byte_p(tok(t, &sz));
     byte_p end   = start + sz;
 
     bool   ok    = native_run(*this, *be, start, end);
 
     delete be;
     return ok;
+}
+
+
+uintptr_t xlr8_jit_addr(uintptr_t bc_pc)
+// ----------------------------------------------------------------------------
+//   Map a bytecode PC to a native code address
+// ----------------------------------------------------------------------------
+//   Only map if the bytecode is found in the range, otherwise leave as is
+{
+    if (!xlr8_backend)
+        return bc_pc;
+    uintptr_t addr = xlr8_backend->translated_address(byte_p(bc_pc));
+    if (addr == hwcode_t(-1))
+        return bc_pc;
+    if (runtime *rt = xlr8_get_runtime())
+        addr += uintptr_t(rt->jit_code);
+    return addr;
 }

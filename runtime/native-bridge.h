@@ -38,47 +38,13 @@ struct runtime;
 extern "C" {
 #endif
 
-void     xlr8_set_runtime(runtime *rt);
-runtime *xlr8_get_runtime();
+void      xlr8_set_runtime(runtime *rt);
+runtime  *xlr8_get_runtime();
+uintptr_t xlr8_jit_addr(uintptr_t bytecode_pc);
 
-void     xlr8_null_opcode();
-void     xlr8_user_opcode();
-void     xlr8_undef_opcode();
-
-void     xlr8_set_sys_args(byte_p args);
-void     xlr8_skip_sys_args(tok_t t, byte_p &pc);
-size_t   xlr8_sys_branch_targets(tok_t t, byte_p args,
-                                 uintptr_t *out, size_t max);
-void     xlr8_store_float_local(byte d, uint32_t bits);
-void     xlr8_float_binop(unsigned op, byte d, byte s);
-void    *xlr8_runtime_fn(cstring name);
-
-stack_p    xlr8_enter(byte locals);
-stack_p    xlr8_leave();
-void       xlr8_sync_args();
-void       xlr8_get_arg(byte d, byte s);
-void       xlr8_set_arg(byte d, byte s);
-byte_p     xlr8_resolve(tok_t t);
-byte_p     xlr8_resolve_impl(tok_t t, tok_t *impl_tok);
-byte_p     xlr8_bytecode_start(tok_t t);
-byte_p     xlr8_bytecode_end(tok_t t);
-int        xlr8_sys(tok_t t, byte_p args);
-uintptr_t  xlr8_jit_addr(uintptr_t bc_pc);
-uintptr_t  xlr8_after_sys(uintptr_t expected_next_pc);
-uintptr_t  xlr8_dispatch(byte s, uintptr_t table_pc);
-void       xlr8_push_value(uintptr_t v);
-uintptr_t  xlr8_pop_value();
-void       xlr8_push_flags_val(uint64_t flags);
-uint64_t   xlr8_pop_flags_val();
-void       xlr8_save_jit_link(uintptr_t link);
-uintptr_t  xlr8_load_jit_link();
-void       xlr8_store_global(byte g, byte s);
-void       xlr8_load_global(byte d, byte g);
-void       xlr8_set_flags(uint64_t flags);
-uint64_t   xlr8_get_flags();
-stack_p    xlr8_get_frame();
-void       xlr8_store_local(byte n, uintptr_t v);
-uintptr_t  xlr8_load_local(byte n);
+void      xlr8_null_opcode();
+void      xlr8_user_opcode();
+void      xlr8_undef_opcode();
 
 #ifdef __cplusplus
 }

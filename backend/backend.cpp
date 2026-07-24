@@ -318,6 +318,18 @@ uint backend::label(byte_p bytecode, hwcode_t hwcode)
 }
 
 
+hwcode_t backend::translated_address(byte_p pc)
+// ----------------------------------------------------------------------------
+//   Translate bytecode address to native address
+// ----------------------------------------------------------------------------
+{
+    auto label = lower_bound(labels, pc);
+    if (label != labels.end() && label->bytecode != pc)
+        return label->hwcode;
+    return hwcode_t(-1);
+}
+
+
 
 // ============================================================================
 //

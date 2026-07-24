@@ -125,6 +125,10 @@ int main(int argc, char **argv)
         {
             switch (arg[1])
             {
+            case 'B':
+                arg = arg[2] ? arg+2 : a+1 < argc ? argv[++a] : "";
+                runtime::dump_file = arg;
+                break;
             case 'd':
                 arg = arg[2] ? arg+2 : a+1 < argc ? argv[++a] : "";
                 debug_opcode = atoi(arg);
