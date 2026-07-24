@@ -30,34 +30,37 @@
 // ****************************************************************************
 //
 //  ===========================================================================
-//  REGISTER ALLOCATION CONVENTIONS (RISC-V 64)
+//  REGISTER ALLOCATION CONVENTIONS (RISC-V 64 / RV64GC SysV)
 //  ===========================================================================
 //
-//  Bytecode locals are frame[n] slots (uintptr_t).  Locals 0..15 live in
-//  shadow registers x10..x25 (xreg = 10+n) while valid; locals >= 16 use
-//  frame memory only (load/store through frame pointer).  See regmap.h.
+//  Locals use [x8 - (local+1)*8]; x8 is adjusted by op_enter and op_leave.
+//  Args use [x8 + arg*8 + 16] (skip saved FP+RA).
+//  Flags (predicates) live in x9 (HW_FLAGS).
 //
 //  Register map:
-//    Shadow locals     x10 .. x25    frame[0] .. frame[15] (HW_LOC0 = x10)
-//    Frame pointer     x8  (HW_FRAME)   rt.frame, primed at JIT entry
-//    Flags/predicates  x9  (HW_FLAGS)   rt.flags, primed at entry
-//    Scratch value     x28 (HW_SCR_VAL) swap, arithmetic, immediates
-//    Scratch address   x29 (HW_SCR_ADDR)
-//    Scratch offset    x30 (HW_SCR_OFF)
-//    Intra-call IP     x5  (HW_IP)      call_abs target (t0)
-//    Return address    x1  (ra)         saved on stack across call_abs
-//    Stack pointer     sp (x2)
 //
-//  a0-a7 (x10-x17) overlap shadow locals 0-7 by design: generated JIT code is
-//  not a normal RV callee.  Bytecode PC and runtime follow regmap.h.
+//    Frame pointer     x8  (HW_FRAME)   Native FP for locals / args
+//    Return address    x1  (HW_RA)      Saved with FP on enter
+//    Flags/predicates  x9  (HW_FLAGS)   Callee-saved predicate bits
+//    Scratch           x5  (HW_IP)      Temps / call targets (not allocatable)
+//    Allocatable GPRs  x18-x27          Callee-saved only (survive sys calls)
+//                      x0-x17,x28-x31   Call-clobbered / reserved (not alloc)
+//    Stack pointer     x2  (HW_SP)      Native stack
+//
+//  Bytecode PC is the translator cursor, not a fixed HW register.
 //
 //  ===========================================================================
 
 #include "backend.h"
-#include "regmap.h"
 #include "recorder.h"
+#include "regmap.h"
 
-#include <cstring>
+
+RECORDER_DECLARE(riscv64);
+RECORDER_DECLARE(riscv64_ops);
+RECORDER_DECLARE(riscv64_error);
+RECORDER_DECLARE(riscv64_warning);
+
 
 struct riscv64 : backend
 // ----------------------------------------------------------------------------
@@ -67,29 +70,133 @@ struct riscv64 : backend
     riscv64(runtime &rt);
     static backend *make(runtime &rt) { return new riscv64(rt); }
 
-#  include "backend-iface.h"
+#include "backend-iface.h"
 
 protected:
-    void patch_imm64_at(void *mem, size_t at, uint r, uint64_t v);
-
-    enum hwreg_t : uint
+    enum riscv64reg_t : hwreg_t
+    // ------------------------------------------------------------------------
+    //    Hardware register names for RV64 integer registers
+    // ------------------------------------------------------------------------
     {
-        HW_IP       = 5,  // t0, intra-procedure call scratch
-        HW_FRAME    = 8,  // s0, rt.frame base for spill
-        HW_FLAGS    = 9,  // s1, rt.flags (64-bit predicates)
-        HW_LOC0     = 10, // shadow frame[0] .. frame[15]
-        HW_SCR_VAL  = 28, // t3, scratch: values
-        HW_SCR_ADDR = 29, // scratch: addresses
-        HW_SCR_OFF  = 30, // scratch: offsets
+        HW_X0,
+        HW_X1,
+        HW_X2,
+        HW_X3,
+        HW_X4,
+        HW_X5,
+        HW_X6,
+        HW_X7,
+        HW_X8,
+        HW_X9,
+        HW_X10,
+        HW_X11,
+        HW_X12,
+        HW_X13,
+        HW_X14,
+        HW_X15,
+        HW_X16,
+        HW_X17,
+        HW_X18,
+        HW_X19,
+        HW_X20,
+        HW_X21,
+        HW_X22,
+        HW_X23,
+        HW_X24,
+        HW_X25,
+        HW_X26,
+        HW_X27,
+        HW_X28,
+        HW_X29,
+        HW_X30,
+        HW_X31,
+
+        HW_COUNT,
+
+        HW_RA    = HW_X1,
+        HW_SP    = HW_X2,
+        HW_IP    = HW_X5,
+        HW_FRAME = HW_X8,
+        HW_FLAGS = HW_X9,
     };
 
-    static inline uint xreg(byte n)
+    static constexpr byte COND_EQ = 0;
+    static constexpr byte COND_NE = 1;
+    static constexpr byte COND_CS = 2;
+    static constexpr byte COND_CC = 3;
+    static constexpr byte COND_MI = 4;
+    static constexpr byte COND_PL = 5;
+    static constexpr byte COND_VS = 6;
+    static constexpr byte COND_VC = 7;
+    static constexpr byte COND_HI = 8;
+    static constexpr byte COND_LS = 9;
+    static constexpr byte COND_GE = 10;
+    static constexpr byte COND_LT = 11;
+    static constexpr byte COND_GT = 12;
+    static constexpr byte COND_LE = 13;
+    static constexpr byte COND_AL = 14;
+
+    riscv64reg_t hw(hwreg_t r)
     // ------------------------------------------------------------------------
-    //   Map bytecode local n to shadow hardware register (x10+n)
+    //   Convert hwreg_t to riscv64reg_t
     // ------------------------------------------------------------------------
     {
-        return HW_LOC0 + n;
+        if (r >= HW_COUNT)
+        {
+            record(riscv64_error, "Invalid hardware register index %u", r);
+            r = HW_X0;
+        }
+        return riscv64reg_t(r);
     }
+
+    riscv64reg_t hw_local(local_t loc)
+    // ------------------------------------------------------------------------
+    //   Return hardware register associated with a local
+    // ------------------------------------------------------------------------
+    {
+        return hw(local(loc));
+    }
+
+    static inline uint xn(riscv64reg_t r)
+    // ------------------------------------------------------------------------
+    //   Physical RV64 GPR number for encoding (0..31)
+    // ------------------------------------------------------------------------
+    {
+        if (r < HW_COUNT)
+            return uint(r);
+        record(riscv64_error, "xn() on invalid register %u", r);
+        return 0;
+    }
+
+    static inline byte invert_cond(byte cond)
+    {
+        static const byte inv[] =
+            { 1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14 };
+        return inv[cond & 15];
+    }
+
+    int local_disp(int n) const
+    // ------------------------------------------------------------------------
+    //   Return stack displacement for bytecode local n (ularge_t slots)
+    // ------------------------------------------------------------------------
+    {
+        return ~n * int(sizeof(ularge_t));
+    }
+
+    int arg_disp(int n) const
+    // ------------------------------------------------------------------------
+    //   Return stack displacement for argument (skip saved FP+RA)
+    // ------------------------------------------------------------------------
+    {
+        return n * int(sizeof(ularge_t)) + 16;
+    }
+
+
+    // ========================================================================
+    //
+    //    RV64 instruction encoders
+    //
+    // ========================================================================
 
     static inline uint lui(uint rd, uint imm20)
     // ------------------------------------------------------------------------
@@ -112,7 +219,8 @@ protected:
     //   Encode addi rd, rs1, imm
     // ------------------------------------------------------------------------
     {
-        return 0x00000013u | ((uint32_t(imm) & 0xfffu) << 20) | (rs1 << 15) | (rd << 7);
+        return 0x00000013u | ((uint32_t(imm) & 0xfffu) << 20) | (rs1 << 15)
+               | (rd << 7);
     }
 
     static inline uint add_rr(uint rd, uint rs1, uint rs2)
@@ -240,7 +348,8 @@ protected:
     //   Encode slti rd, rs1, imm
     // ------------------------------------------------------------------------
     {
-        return 0x00002013u | ((uint32_t(imm) & 0xfffu) << 20) | (rs1 << 15) | (rd << 7);
+        return 0x00002013u | ((uint32_t(imm) & 0xfffu) << 20) | (rs1 << 15)
+               | (rd << 7);
     }
 
     static inline uint sltiu(uint rd, uint rs1, uint imm)
@@ -248,7 +357,8 @@ protected:
     //   Encode sltiu rd, rs1, imm
     // ------------------------------------------------------------------------
     {
-        return 0x00003013u | ((uint32_t(imm) & 0xfffu) << 20) | (rs1 << 15) | (rd << 7);
+        return 0x00003013u | ((uint32_t(imm) & 0xfffu) << 20) | (rs1 << 15)
+               | (rd << 7);
     }
 
     static inline uint xori(uint rd, uint rs1, uint imm)
@@ -304,7 +414,7 @@ protected:
     //   Encode not rd, rd  (xori rd, rd, -1)
     // ------------------------------------------------------------------------
     {
-        return 0xfff04013u | (rd << 15) | (rd << 7);  // funct3=4 = XORI
+        return 0xfff04013u | (rd << 15) | (rd << 7);
     }
 
     static inline uint ld_off(uint rd, uint rs1, int off)
@@ -365,7 +475,7 @@ protected:
 
     static inline uint lwu_off(uint rd, uint rs1, int off)
     // ------------------------------------------------------------------------
-    //   Encode lwu rd, off(rs1) — zero-extend word on RV64
+    //   Encode lwu rd, off(rs1) - zero-extend word on RV64
     // ------------------------------------------------------------------------
     {
         return 0x00006003u | ((uint32_t(off) & 0xfffu) << 20)
@@ -584,8 +694,6 @@ protected:
     //   Encode jalr x0, rs1, 0
     // ------------------------------------------------------------------------
     {
-        // Must not use 0x00008067 as a base: that hard-codes rs1=x1, and
-        // OR-ing (rs1<<15) sets the low bit of any even rs1 (e.g. x28 -> x29).
         return 0x00000067u | (rs1 << 15);
     }
 
@@ -621,28 +729,6 @@ protected:
         return 0x00000013u;
     }
 
-    static inline uint reload_frame()
-    // ------------------------------------------------------------------------
-    //   Encode mv HW_FRAME, x10  (frame pointer returned in a0)
-    // ------------------------------------------------------------------------
-    {
-        return mv_rr(HW_FRAME, 10);
-    }
-
-    static inline byte cond_from_op(cstring op)
-    // ------------------------------------------------------------------------
-    //   Map comparison name to AArch64-style condition code (for set_pred_cmp)
-    // ------------------------------------------------------------------------
-    {
-        if (!strcmp(op, "eq")) return 0;
-        if (!strcmp(op, "ne")) return 1;
-        if (!strcmp(op, "lt")) return 11;
-        if (!strcmp(op, "le")) return 13;
-        if (!strcmp(op, "ltu")) return 3;
-        if (!strcmp(op, "leu")) return 9;
-        return 0;
-    }
-
     static inline uint fmv_w_x(uint fd, uint rs)
     // ------------------------------------------------------------------------
     //   Encode fmv.w.x fd, rs
@@ -656,12 +742,12 @@ protected:
     //   Encode fmv.x.w rd, fs
     // ------------------------------------------------------------------------
     {
-        return 0xe0000053u | (fs << 15) | (rd << 7);  // funct3=0
+        return 0xe0000053u | (fs << 15) | (rd << 7);
     }
 
     static inline uint fmv_d_x(uint fd, uint rs)
     // ------------------------------------------------------------------------
-    //   Encode fmv.d.x fd, rs  (bitwise int→double, not a conversion)
+    //   Encode fmv.d.x fd, rs  (bitwise int->double, not a conversion)
     // ------------------------------------------------------------------------
     {
         return 0xf2000053u | (rs << 15) | (fd << 7);
@@ -669,7 +755,7 @@ protected:
 
     static inline uint fmv_x_d(uint rd, uint fs)
     // ------------------------------------------------------------------------
-    //   Encode fmv.x.d rd, fs  (bitwise double→int, not a conversion)
+    //   Encode fmv.x.d rd, fs  (bitwise double->int, not a conversion)
     // ------------------------------------------------------------------------
     {
         return 0xe2000053u | (fs << 15) | (rd << 7);
@@ -755,87 +841,79 @@ protected:
         return 0xc2200053u | (fs << 15) | (rd << 7);
     }
 
-    void load_local(byte n, uint r);
-    void store_local(uint r, byte n);
-    void load_uimm32(uint r, uint32_t v);
-    void load_imm64(uint r, uint64_t v);
-    void call_abs(void *fn);
-    void spill_frame();
-    void reload_frame_reg();
-    void reload_flags_reg();
-    void set_pred_cmp(byte p, byte cond);
-    void touch_local(byte d);
-    void mov_local(byte d, byte s);
-    void swap_locals(byte d, byte s);
-    void store_imm(byte d, value_t v);
-    void store_uimm(byte d, uvalue_t v);
-    void store_float(byte d, float v);
-    void store_double(byte d, double v);
-    void binop_local(byte d, byte s, cstring op);
-    void binop_imm(byte d, value_t v, cstring op);
-    void cmp_local(byte p, byte d, byte s, cstring op);
-    void cmp_imm(byte p, byte d, value_t v, cstring op);
-    void cmp_uimm(byte p, byte d, uvalue_t v, cstring op);
-    void set_pred(byte p, bool on);
-    void cond_mov_local(byte p, byte d, byte s);
-    void select_local(byte p, byte d, byte s, byte x);
-    void neg_local(byte d);
-    void not_local(byte d);
-    void incr_local(byte d);
-    void decr_local(byte d);
-    void sext_local(byte d, byte w);
-    void zext_local(byte d, byte w);
-    void sext_reg(uint rd, uint rn, byte w);
-    void load_signext_mem(uint rd, uint addr_rn, byte w);
-    void store_mem(byte d, byte s, uint sz);
-    void load_mem(byte d, byte s, uint sz);
-    void store_mem_off(byte d, byte s, value_t o, uint sz);
-    void load_mem_off(byte d, byte s, value_t o, uint sz);
-    void load_signext(byte d, byte s, byte w);
-    void load_signext_off(byte d, byte s, byte w, value_t o);
-    void frame_addr(byte d, byte s);
-    void bra_offset(broff_t b);
-    void bra_pred(byte p, broff_t b, bool sense);
-    void bra_zero(byte s, broff_t b, bool eq);
-    void bra_signed(byte s, broff_t b, byte cond);
-    void dbra_local(byte d, broff_t b);
-    void jmp_tok(tok_t t);
-    void call_tok(tok_t t);
-    void ijmp_local(byte s);
-    void icall_local(byte s);
-    void push_pc();
-    void load_pc(byte d);
-    void load_pca(byte d, broff_t b);
-    void get_arg(byte d, byte s);
-    void set_arg(byte d, byte s);
-    void push_local(byte s);
-    void pop_local(byte d);
-    void push_flags();
-    void pop_flags();
-    void store_global(byte d, byte s);
-    void load_global(byte d, byte s);
-    void epilogue();
-    void trap(cstring msg);
-    void rtcall(cstring fn);
-    void rtcall(cstring fn, tok_t a);
-    void rtcall(cstring fn, byte a);
-    void br_via_ip();
-    void patch_pc_rel(size_t auipc_at, uint rd, size_t target);
-    size_t emit_return_addr_load(uint rd);
-    void fix_return_addr(size_t imm_at, uint rd, size_t target);
 
-    struct pc_rel_fixup { size_t at; uint rd; size_t target; };
-    std::vector<pc_rel_fixup> pc_rel_fixups;
-    struct return_link_fixup { size_t imm_at; uint rd; size_t target; };
-    std::vector<return_link_fixup> return_link_fixups;
+    // ========================================================================
+    //
+    //    Emit helpers
+    //
+    // ========================================================================
 
-    bool spill_arg_regs = true;
-    bool frame_memory_touched = false;
+    void            emit_load_off(riscv64reg_t rd, riscv64reg_t rn, int offs);
+    void            emit_store_off(riscv64reg_t rn, riscv64reg_t rt, int offs);
+    void            emit_push(riscv64reg_t r);
+    void            emit_pop(riscv64reg_t r);
+
+    void            load_local(local_t loc, riscv64reg_t r);
+    void            store_local(riscv64reg_t r, local_t loc);
+    void            load_uimm32(riscv64reg_t r, uint32_t v);
+    void            load_imm64(riscv64reg_t r, uint64_t v);
+    void            mov_local(local_t d, local_t s);
+    void            swap_locals(local_t d, local_t s);
+    void            store_imm(local_t d, value_t v);
+    void            store_uimm(local_t d, uvalue_t v);
+    void            store_float(local_t d, float v);
+    void            store_double(local_t d, double v);
+    void            binop_local(local_t d, local_t s, op_t op, byte fpsz=0);
+    void            binop_imm(local_t d, value_t v, op_t op);
+    void            cmp_local(byte p, local_t d, local_t s, byte cond);
+    void            cmp_imm(byte p, local_t d, value_t v, byte cond);
+    void            cmp_uimm(byte p, local_t d, uvalue_t v, byte cond);
+    void            set_pred(byte p, bool on);
+    void            set_pred_cmp(byte p, byte cond);
+    void            cond_mov_local(byte p, local_t d, local_t s);
+    void            select_local(byte p, local_t d, local_t s, byte x);
+    void            neg_local(local_t d);
+    void            not_local(local_t d);
+    void            incr_local(local_t d);
+    void            decr_local(local_t d);
+    void            sext_local(local_t d, byte w);
+    void            zext_local(local_t d, byte w);
+    void            sext_reg(riscv64reg_t rd, riscv64reg_t rn, byte w);
+    void            load_signext_mem(riscv64reg_t rd, riscv64reg_t addr, byte w);
+    void            store_mem(local_t d, local_t s, size_t sz, value_t off=0);
+    void            load_mem(local_t d, local_t s, size_t sz, value_t off=0);
+    void            load_sext(local_t d, local_t s, byte w, value_t off=0);
+    void            frame_addr(local_t d, local_t s);
+    void            bra_pred(byte p, byte_p target, bool sense);
+    void            bra_test(local_t s, byte_p target, byte cond);
+    void            dbra_local(local_t d, byte_p target);
+    void            rel_branch(byte_p target, hwcode_t site);
+    void            rel_function(tok_t tok, hwcode_t site);
+    void            ijmp_local(local_t s);
+    void            icall_local(local_t s);
+    void            push_pc();
+    void            load_pc(local_t d);
+    void            load_pca(local_t d, broff_t b);
+    void            get_arg(local_t d, local_t s);
+    void            set_arg(local_t d, local_t s);
+    void            push_local(local_t s);
+    void            pop_local(local_t d);
+    void            push_flags();
+    void            pop_flags();
+    void            store_global(local_t d, local_t s);
+    void            load_global(local_t d, local_t s);
+    virtual void    prologue();
+    virtual void    epilogue();
+    void            call_ptr(void (*fn)());
+    template <typename T, typename ...U>
+    void            call_ptr(T (*fn)(U...)) { return call(((void (*)()) fn)); }
+    void            dispatch(local_t loc, byte_p &pc, byte cond);
+    void            trap(cstring msg);
+
+protected:
+    using relocations_t = std::vector<hwcode_t>;
+    relocations_t relocations;
+    bool          frame_active = false; // true after op_enter allocates locals
 };
-
-RECORDER_DECLARE(riscv64);
-RECORDER_DECLARE(riscv64_ops);
-RECORDER_DECLARE(riscv64_error);
-RECORDER_DECLARE(riscv64_warning);
 
 #endif // RISCV64_H

@@ -27,8 +27,8 @@
 
 SOURCES=backend.cpp		\
 	x86.cpp amd64.cpp	\
-	arm.cpp arm64.cpp
-# riscv64.cpp excluded until that backend gets the same refactor
+	arm.cpp arm64.cpp	\
+	riscv64.cpp
 
 PRODUCTS=backend.lib
 

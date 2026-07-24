@@ -27,14 +27,14 @@
 //   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // ****************************************************************************
 
-#define EMIT(op)        void riscv64::emit_##op(emit_args &e)
-
 EMIT(null)
 // ----------------------------------------------------------------------------
-//   Null opcode in inline data: skip during translation (no native code)
+//   Emit bytecode for the null opcode (inline data padding)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_null()");
+    e.error = "Translating null - Input bytecode is bogus";
+    syscall(xlr8_null_opcode);
 }
 
 
@@ -44,11 +44,7 @@ EMIT(user)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_user(%lld, %p)", e.op, &e.pc);
-    byte_p user_args = e.pc;
-    spill_frame();
-    load_imm64(10, uint64_t(e.op));
-    load_imm64(11, uint64_t(uintptr_t(user_args)));
-    rtcall("xlr8_user_op");
+    syscall(xlr8_user_opcode);
 }
 
 
@@ -58,17 +54,18 @@ EMIT(undef)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_undef(%llu)", e.tok);
-    bind(e.tok);
+    e.error = "Translating undef";
+    syscall(xlr8_undef_opcode);
 }
 
 
 EMIT(end)
 // ----------------------------------------------------------------------------
-//   Emit bytecode for the undef opcode
+//   Emit bytecode for the end opcode (stop translating this range)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_end");
-    translating = false;
+    e.pc = e.end;
 }
 
 
@@ -78,7 +75,7 @@ EMIT(int)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_int(%u, %lld)", e.dst, e.kint);
-    store_imm(e.dst, value_t(e.kint));
+    store_imm(e.dst, e.kint);
 }
 
 
@@ -88,7 +85,7 @@ EMIT(nat)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_nat(%u, %llu)", e.dst, e.knat);
-    store_uimm(e.dst, e.knat);
+    store_imm(e.dst, value_t(e.knat));
 }
 
 
@@ -147,7 +144,7 @@ EMIT(ccopy)
 //   Emit bytecode for the ccopy opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_ccopy(%u, %u, %u)", e.pred, e.dst, e.src);
+    record(riscv64_ops, "emit_ccopy %u? %u=%u)", e.pred, e.dst, e.src);
     cond_mov_local(e.pred, e.dst, e.src);
 }
 
@@ -157,7 +154,8 @@ EMIT(select)
 //   Emit bytecode for the select opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_select(%u, %u, %u, %u)", e.pred, e.dst, e.src, e.xtra);
+    record(riscv64_ops, "emit_select %u = %u ? %u : %u",
+           e.dst, e.pred, e.src, e.xtra);
     select_local(e.pred, e.dst, e.src, e.xtra);
 }
 
@@ -167,8 +165,11 @@ EMIT(jmp)
 //   Emit bytecode for the jmp opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_jmp(%llu)", e.tok);
-    jmp_tok(e.tok);
+    spill_all();
+    hwcode_t site = cursor();
+    emit32le(j_imm(0));
+    rel_function(e.tok, site);
+    record(riscv64_ops, "emit_jmp %llu", e.tok);
 }
 
 
@@ -177,8 +178,18 @@ EMIT(call)
 //   Emit bytecode for the call opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_call(%llu)", e.tok);
-    call_tok(e.tok);
+    spill_all();
+    // Save ra and frame pointer (16-byte aligned)
+    emit32le(addi(xn(HW_SP), xn(HW_SP), -16));
+    emit32le(sd_off(xn(HW_RA),    xn(HW_SP), 8));
+    emit32le(sd_off(xn(HW_FRAME), xn(HW_SP), 0));
+    hwcode_t site = cursor();
+    emit32le(enc_j_imm(0, xn(HW_RA)));
+    rel_function(e.tok, site);
+    emit32le(ld_off(xn(HW_FRAME), xn(HW_SP), 0));
+    emit32le(ld_off(xn(HW_RA),    xn(HW_SP), 8));
+    emit32le(addi(xn(HW_SP), xn(HW_SP), 16));
+    record(riscv64_ops, "emit_call %llu", e.tok);
 }
 
 
@@ -187,8 +198,10 @@ EMIT(ijmp)
 //   Emit bytecode for the ijmp opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_ijmp(%u)", e.src);
-    ijmp_local(e.src);
+    riscv64reg_t r = hw_local(e.src);
+    record(riscv64_ops, "emit_ijmp %u reg %u", e.src, r);
+    spill_all();
+    emit32le(jalr(xn(r)));
 }
 
 
@@ -197,8 +210,10 @@ EMIT(icall)
 //   Emit bytecode for the icall opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_icall(%u)", e.src);
-    icall_local(e.src);
+    riscv64reg_t r = hw_local(e.src);
+    record(riscv64_ops, "emit_icall %u reg %u", e.src, r);
+    spill_all();
+    emit32le(jalr_ra(xn(r)));
 }
 
 
@@ -207,40 +222,41 @@ EMIT(ret)
 //   Emit bytecode for the ret opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_ret()");
-    rtcall("xlr8_pop_value");
-    emit32le(mv_rr(HW_SCR_VAL, 10));
-    emit32le(jalr(HW_SCR_VAL));
+    spill_all();
+    emit32le(ret_insn());
 }
 
 
 EMIT(ppc)
 // ----------------------------------------------------------------------------
-//   Emit bytecode for the ppc opcode
+//   Emit bytecode for the ppc opcode (push the source bytecode pc)
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_ppc()");
-    push_pc();
+    record(riscv64_ops, "emit_ppc");
+    load_imm64(HW_IP, uint64_t(e.pc));
+    emit_push(HW_IP);
 }
 
 
 EMIT(pc)
 // ----------------------------------------------------------------------------
-//   Emit bytecode for the pc opcode
+//   Emit bytecode for the pc opcode (load bytecode pc)
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_pc(%u)", e.dst);
-    load_pc(e.dst);
+    riscv64reg_t r = hw_local(e.dst);
+    record(riscv64_ops, "emit_pc %u reg %u", e.dst, r);
+    load_imm64(r, uint64_t(e.pc));
 }
 
 
 EMIT(pca)
 // ----------------------------------------------------------------------------
-//   Emit bytecode for the pca opcode
+//   Emit bytecode for the pca opcode (PC-relative offset of the bytecode)
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_pca(%u, %lld)", e.dst, e.broff);
-    load_pca(e.dst, e.broff);
+    riscv64reg_t r = hw_local(e.dst);
+    record(riscv64_ops, "emit_pca %u reg %u = %lld)", e.dst, e.broff);
+    load_imm64(r, uint64_t(e.ppc + e.broff));
 }
 
 
@@ -249,12 +265,22 @@ EMIT(enter)
 //   Emit bytecode for the enter opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_enter(%u)", e.dst);
-    spill_frame();
-    emit32le(mv_rr(10, HW_FLAGS));
-    rtcall("xlr8_set_flags");
-    rtcall("xlr8_enter", e.dst);
-    reload_frame_reg();
+    record(riscv64_ops, "emit_enter %u", e.dst);
+    // Save ra and old frame pointer
+    emit32le(addi(xn(HW_SP), xn(HW_SP), -16));
+    emit32le(sd_off(xn(HW_RA),    xn(HW_SP), 8));
+    emit32le(sd_off(xn(HW_FRAME), xn(HW_SP), 0));
+    emit32le(mv_rr(xn(HW_FRAME), xn(HW_SP)));
+    // Allocate locals
+    uint bytes = uint(e.dst) * uint(sizeof(ularge_t));
+    if (bytes > 0 && bytes <= 2047u)
+        emit32le(addi(xn(HW_SP), xn(HW_SP), -int(bytes)));
+    else if (bytes > 2047u)
+    {
+        load_imm64(HW_IP, uint64_t(bytes));
+        emit32le(sub_rr(xn(HW_SP), xn(HW_SP), xn(HW_IP)));
+    }
+    frame_active = true;
 }
 
 
@@ -262,11 +288,23 @@ EMIT(leave)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the leave opcode
 // ----------------------------------------------------------------------------
+//   Restores FP/RA only — does not return.  If the next opcode is ret,
+//   emit return and consume that ret.  Branches that target the ret
+//   bytecode are translated separately when that label is picked up.
+// ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_leave()");
-    rtcall("xlr8_leave");
-    reload_frame_reg();
-    reload_flags_reg();
+    record(riscv64_ops, "emit_leave");
+    emit32le(mv_rr(xn(HW_SP), xn(HW_FRAME)));
+    emit32le(ld_off(xn(HW_FRAME), xn(HW_SP), 0));
+    emit32le(ld_off(xn(HW_RA),    xn(HW_SP), 8));
+    emit32le(addi(xn(HW_SP), xn(HW_SP), 16));
+    frame_active = false;
+    if (e.pc < e.end && op_t(*e.pc) == op_ret)
+    {
+        e.pc++;
+        emit32le(ret_insn());
+        record(riscv64_ops, "emit_leave+ret");
+    }
 }
 
 
@@ -275,8 +313,11 @@ EMIT(get)
 //   Emit bytecode for the get opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_get(%u, %u)", e.dst, e.src);
-    get_arg(e.dst, e.src);
+    riscv64reg_t dr  = hw_local(e.dst);
+    int        off = arg_disp(e.src);
+    record(riscv64_ops, "emit_get [%u] = %u reg %u offs %d",
+           e.dst, e.src, dr, off);
+    emit_load_off(dr, HW_FRAME, off);
 }
 
 
@@ -285,8 +326,11 @@ EMIT(set)
 //   Emit bytecode for the set opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_set(%u, %u)", e.dst, e.src);
-    set_arg(e.dst, e.src);
+    riscv64reg_t sr  = hw_local(e.src);
+    int        off = arg_disp(e.dst);
+    record(riscv64_ops, "emit_set %u = [%u] reg %u offs %d",
+           e.dst, e.src, sr, off);
+    emit_store_off(HW_FRAME, sr, off);
 }
 
 
@@ -295,8 +339,9 @@ EMIT(push)
 //   Emit bytecode for the push opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_push(%u)", e.src);
-    push_local(e.src);
+    riscv64reg_t sr  = hw_local(e.src);
+    record(riscv64_ops, "emit_push %u reg %u", e.src, sr);
+    emit_push(sr);
 }
 
 
@@ -305,8 +350,9 @@ EMIT(pop)
 //   Emit bytecode for the pop opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_pop(%u)", e.dst);
-    pop_local(e.dst);
+    riscv64reg_t dr  = hw_local(e.src);
+    record(riscv64_ops, "emit_pop %u reg %u", e.src, dr);
+    emit_pop(dr);
 }
 
 
@@ -315,37 +361,8 @@ EMIT(sys)
 //   Emit bytecode for the sys opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_sys(%llu, %p, %p)", e.tok, e.pc, e.pc);
-    spill_arg_regs = true;
-    spill_frame();
-    emit32le(mv_rr(10, HW_FLAGS));
-    rtcall("xlr8_set_flags");
-    load_imm64(10, uint64_t(e.tok));
-    load_imm64(11, uint64_t(uintptr_t(e.pc)));
-    call_abs((void *) xlr8_sys);
-    // Linux helpers may move rt.frame (enter/leave/alloca); refresh s0 like
-    // arm64'e.src post-sys xlr8_get_frame path so reload_shadows is not stale.
-    rtcall("xlr8_get_frame");
-    emit32le(reload_frame());
-    // get_flags clobbers a0-a7 (shadow locals 0-7); reload shadows after it.
-    reload_flags_reg();
-    load_imm64(HW_SCR_VAL, uint64_t(uintptr_t(e.pc)));
-    emit32le(mv_rr(10, HW_SCR_VAL));
-    rtcall("xlr8_after_sys");
-    // after_sys returns 0 to continue linearly, else a native continue address.
-    // Match x86: skip the indirect jump entirely when the result is 0.
-    // Do not call_abs between mv HW_IP and jalr — call_abs clobbers HW_IP (t0).
-    uint bne_at = uint(cursor());
-    emit32le(bne_imm(10, 0, 0));
-    spill_arg_regs = false;
-    uint skip_at = uint(cursor());
-    emit32le(j_imm(0));
-    uint br_at = uint(cursor());
-    emit32le(mv_rr(HW_IP, 10));
-    emit32le(jalr(HW_IP));
-    uint end_at = uint(cursor());
-    code().patch32le(bne_at, bne_imm(10, 0, int(br_at) - int(bne_at)));
-    code().patch32le(skip_at, j_imm(int(end_at) - int(skip_at)));
+    record(riscv64_ops, "emit_sys %llu args=%p", e.tok, e.pc);
+    dispatch_sys(e);
 }
 
 
@@ -354,8 +371,12 @@ EMIT(sto)
 //   Emit bytecode for the sto opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_sto(%u, %u)", e.dst, e.src);
-    store_global(e.dst, e.src);
+    riscv64reg_t  r     = hw_local(e.src);
+    uintptr_t gaddr = uintptr_t(&rt.globals[e.dst]);
+    load_imm64(HW_IP, gaddr);
+    emit_store_off(HW_IP, r, 0);
+    record(riscv64_ops, "store_global g[%u]=%u addr %p reg %u",
+           e.dst, e.src, gaddr, r);
 }
 
 
@@ -364,8 +385,12 @@ EMIT(rcl)
 //   Emit bytecode for the rcl opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_rcl(%u, %u)", e.dst, e.src);
-    load_global(e.dst, e.src);
+    riscv64reg_t r = hw_local(e.dst);
+    uintptr_t gaddr = uintptr_t(&rt.globals[e.src]);
+    load_imm64(HW_IP, gaddr);
+    emit_load_off(r, HW_IP, 0);
+    record(riscv64_ops, "load_global g[%u]=%u addr %p reg %u",
+           e.dst, e.src, gaddr, r);
 }
 
 
@@ -374,8 +399,14 @@ EMIT(dbra)
 //   Emit bytecode for the dbra opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_dbra(%u, %lld)", e.dst, e.broff);
-    dbra_local(e.dst, e.broff);
+    riscv64reg_t r = hw_local(e.dst);
+    record(riscv64_ops, "emit_dbra %u, %lld reg %u", e.dst, e.broff, r);
+    emit32le(addi(xn(r), xn(r), -1));
+    // Branch if non-zero: beq r, x0, +8; j target
+    emit32le(beq_imm(xn(r), 0, 8));
+    hwcode_t pos = cursor();
+    emit32le(j_imm(0));
+    rel_branch(e.bpc + e.broff, pos);
 }
 
 
@@ -384,8 +415,11 @@ EMIT(bra)
 //   Emit bytecode for the bra opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_bra(%lld)", e.broff);
-    bra_offset(e.broff);
+    record(riscv64_ops, "emit_bra %lld + %lld -> %lld",
+           e.bpc, e.broff, e.bpc+e.broff);
+    hwcode_t site = cursor();
+    emit32le(j_imm(0));
+    rel_branch(e.bpc + e.broff, site);
 }
 
 
@@ -395,7 +429,7 @@ EMIT(btrue)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_btrue(%u, %lld)", e.pred, e.broff);
-    bra_pred(e.pred, e.broff, true);
+    bra_pred(e.pred, e.bpc + e.broff, true);
 }
 
 
@@ -405,7 +439,7 @@ EMIT(bfalse)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_bfalse(%u, %lld)", e.pred, e.broff);
-    bra_pred(e.pred, e.broff, false);
+    bra_pred(e.pred, e.bpc + e.broff, false);
 }
 
 
@@ -415,7 +449,7 @@ EMIT(beq)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_beq(%u, %lld)", e.src, e.broff);
-    bra_zero(e.src, e.broff, true);
+    bra_test(e.src, e.bpc + e.broff, COND_EQ);
 }
 
 
@@ -425,7 +459,7 @@ EMIT(bne)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_bne(%u, %lld)", e.src, e.broff);
-    bra_zero(e.src, e.broff, false);
+    bra_test(e.src, e.bpc + e.broff, COND_NE);
 }
 
 
@@ -435,7 +469,7 @@ EMIT(blt)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_blt(%u, %lld)", e.src, e.broff);
-    bra_signed(e.src, e.broff, 0xb);
+    bra_test(e.src, e.bpc + e.broff, COND_LT);
 }
 
 
@@ -445,7 +479,7 @@ EMIT(bgt)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_bgt(%u, %lld)", e.src, e.broff);
-    bra_signed(e.src, e.broff, 0xc);
+    bra_test(e.src, e.bpc + e.broff, COND_GT);
 }
 
 
@@ -455,7 +489,7 @@ EMIT(ble)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_ble(%u, %lld)", e.src, e.broff);
-    bra_signed(e.src, e.broff, 0xd);
+    bra_test(e.src, e.bpc + e.broff, COND_LE);
 }
 
 
@@ -465,7 +499,7 @@ EMIT(bge)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_bge(%u, %lld)", e.src, e.broff);
-    bra_signed(e.src, e.broff, 0xa);
+    bra_test(e.src, e.bpc + e.broff, COND_GE);
 }
 
 
@@ -475,7 +509,7 @@ EMIT(switch)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_switch(%u)", e.src);
-    rtcall("xlr8_switch", e.src);
+    dispatch(e.src, e.pc, COND_EQ);
 }
 
 
@@ -484,12 +518,8 @@ EMIT(dispatch)
 //   Emit bytecode for the dispatch opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_dispatch(%u, %p)", e.src, e.pc);
-    spill_frame();
-    load_imm64(10, uint64_t(e.src));
-    load_imm64(11, uint64_t(uintptr_t(e.pc)));
-    rtcall("xlr8_dispatch");
-    br_via_ip();
+    record(riscv64_ops, "emit_dispatch(%u)", e.src);
+    dispatch(e.src, e.pc, COND_GE);
 }
 
 
@@ -519,7 +549,7 @@ EMIT(cmpeq)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_cmpeq(%u, %u, %u)", e.pred, e.dst, e.src);
-    cmp_local(e.pred, e.dst, e.src, "eq");
+    cmp_local(e.pred, e.dst, e.src, COND_EQ);
 }
 
 
@@ -529,7 +559,7 @@ EMIT(cmpne)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_cmpne(%u, %u, %u)", e.pred, e.dst, e.src);
-    cmp_local(e.pred, e.dst, e.src, "ne");
+    cmp_local(e.pred, e.dst, e.src, COND_NE);
 }
 
 
@@ -539,7 +569,7 @@ EMIT(cmplt)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_cmplt(%u, %u, %u)", e.pred, e.dst, e.src);
-    cmp_local(e.pred, e.dst, e.src, "lt");
+    cmp_local(e.pred, e.dst, e.src, COND_LT);
 }
 
 
@@ -549,7 +579,7 @@ EMIT(cmple)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_cmple(%u, %u, %u)", e.pred, e.dst, e.src);
-    cmp_local(e.pred, e.dst, e.src, "le");
+    cmp_local(e.pred, e.dst, e.src, COND_LE);
 }
 
 
@@ -559,7 +589,7 @@ EMIT(cmpult)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_cmpult(%u, %u, %u)", e.pred, e.dst, e.src);
-    cmp_local(e.pred, e.dst, e.src, "ltu");
+    cmp_local(e.pred, e.dst, e.src, COND_CC);
 }
 
 
@@ -569,7 +599,7 @@ EMIT(cmpule)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_cmpule(%u, %u, %u)", e.pred, e.dst, e.src);
-    cmp_local(e.pred, e.dst, e.src, "leu");
+    cmp_local(e.pred, e.dst, e.src, COND_LS);
 }
 
 
@@ -579,7 +609,7 @@ EMIT(cmpeqi)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_cmpeqi(%u, %u, %lld)", e.pred, e.dst, e.kint);
-    cmp_imm(e.pred, e.dst, e.kint, "eq");
+    cmp_imm(e.pred, e.dst, e.kint, COND_EQ);
 }
 
 
@@ -589,7 +619,7 @@ EMIT(cmpnei)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_cmpnei(%u, %u, %lld)", e.pred, e.dst, e.kint);
-    cmp_imm(e.pred, e.dst, e.kint, "ne");
+    cmp_imm(e.pred, e.dst, e.kint, COND_NE);
 }
 
 
@@ -599,7 +629,7 @@ EMIT(cmplti)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_cmplti(%u, %u, %lld)", e.pred, e.dst, e.kint);
-    cmp_imm(e.pred, e.dst, e.kint, "lt");
+    cmp_imm(e.pred, e.dst, e.kint, COND_LT);
 }
 
 
@@ -609,7 +639,7 @@ EMIT(cmplei)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_cmplei(%u, %u, %lld)", e.pred, e.dst, e.kint);
-    cmp_imm(e.pred, e.dst, e.kint, "le");
+    cmp_imm(e.pred, e.dst, e.kint, COND_LE);
 }
 
 
@@ -619,7 +649,7 @@ EMIT(cmpequ)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_cmpequ(%u, %u, %llu)", e.pred, e.dst, e.knat);
-    cmp_uimm(e.pred, e.dst, e.knat, "eq");
+    cmp_uimm(e.pred, e.dst, e.knat, COND_EQ);
 }
 
 
@@ -629,7 +659,7 @@ EMIT(cmpneu)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_cmpneu(%u, %u, %llu)", e.pred, e.dst, e.knat);
-    cmp_uimm(e.pred, e.dst, e.knat, "ne");
+    cmp_uimm(e.pred, e.dst, e.knat, COND_NE);
 }
 
 
@@ -639,7 +669,7 @@ EMIT(cmpltu)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_cmpltu(%u, %u, %llu)", e.pred, e.dst, e.knat);
-    cmp_uimm(e.pred, e.dst, e.knat, "ltu");
+    cmp_uimm(e.pred, e.dst, e.knat, COND_CC);
 }
 
 
@@ -649,7 +679,7 @@ EMIT(cmpleu)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_cmpleu(%u, %u, %llu)", e.pred, e.dst, e.knat);
-    cmp_uimm(e.pred, e.dst, e.knat, "leu");
+    cmp_uimm(e.pred, e.dst, e.knat, COND_LS);
 }
 
 
@@ -659,7 +689,7 @@ EMIT(pushf)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_pushf()");
-    push_flags();
+    emit_push(HW_FLAGS);
 }
 
 
@@ -669,7 +699,7 @@ EMIT(popf)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_popf()");
-    pop_flags();
+    emit_pop(HW_FLAGS);
 }
 
 
@@ -679,7 +709,7 @@ EMIT(add)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_add(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "add");
+    binop_local(e.dst, e.src, op_add);
 }
 
 
@@ -689,7 +719,7 @@ EMIT(sub)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_sub(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "sub");
+    binop_local(e.dst, e.src, op_sub);
 }
 
 
@@ -699,7 +729,7 @@ EMIT(mul)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_mul(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "imul");
+    binop_local(e.dst, e.src, op_mul);
 }
 
 
@@ -709,7 +739,7 @@ EMIT(umul)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_umul(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "imul");
+    binop_local(e.dst, e.src, op_umul);
 }
 
 
@@ -719,7 +749,7 @@ EMIT(div)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_div(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "idiv");
+    binop_local(e.dst, e.src, op_div);
 }
 
 
@@ -729,7 +759,7 @@ EMIT(udiv)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_udiv(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "div");
+    binop_local(e.dst, e.src, op_udiv);
 }
 
 
@@ -739,7 +769,7 @@ EMIT(mod)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_mod(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "idiv_mod");
+    binop_local(e.dst, e.src, op_mod);
 }
 
 
@@ -749,7 +779,7 @@ EMIT(umod)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_umod(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "div_mod");
+    binop_local(e.dst, e.src, op_umod);
 }
 
 
@@ -759,7 +789,7 @@ EMIT(and)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_and(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "and");
+    binop_local(e.dst, e.src, op_and);
 }
 
 
@@ -769,7 +799,7 @@ EMIT(or)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_or(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "or");
+    binop_local(e.dst, e.src, op_or);
 }
 
 
@@ -779,7 +809,7 @@ EMIT(xor)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_xor(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "xor");
+    binop_local(e.dst, e.src, op_xor);
 }
 
 
@@ -789,7 +819,7 @@ EMIT(shl)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_shl(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "shl");
+    binop_local(e.dst, e.src, op_shl);
 }
 
 
@@ -799,7 +829,7 @@ EMIT(shr)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_shr(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "sar");
+    binop_local(e.dst, e.src, op_shr);
 }
 
 
@@ -809,7 +839,7 @@ EMIT(ushr)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_ushr(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "shr");
+    binop_local(e.dst, e.src, op_ushr);
 }
 
 
@@ -859,7 +889,7 @@ EMIT(addi)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_addi(%u, %lld)", e.dst, e.kint);
-    binop_imm(e.dst, e.kint, "add");
+    binop_imm(e.dst, e.kint, op_addi);
 }
 
 
@@ -869,7 +899,7 @@ EMIT(addu)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_addu(%u, %llu)", e.dst, e.knat);
-    binop_imm(e.dst, e.knat, "add");
+    binop_imm(e.dst, e.knat, op_addu);
 }
 
 
@@ -879,7 +909,7 @@ EMIT(subi)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_subi(%u, %lld)", e.dst, e.kint);
-    binop_imm(e.dst, e.kint, "sub");
+    binop_imm(e.dst, e.kint, op_subi);
 }
 
 
@@ -889,7 +919,7 @@ EMIT(subu)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_subu(%u, %llu)", e.dst, e.knat);
-    binop_imm(e.dst, e.knat, "sub");
+    binop_imm(e.dst, e.knat, op_subu);
 }
 
 
@@ -899,7 +929,7 @@ EMIT(muli)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_muli(%u, %lld)", e.dst, e.kint);
-    binop_imm(e.dst, e.kint, "imul");
+    binop_imm(e.dst, e.kint, op_muli);
 }
 
 
@@ -909,7 +939,7 @@ EMIT(mulu)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_mulu(%u, %llu)", e.dst, e.knat);
-    binop_imm(e.dst, e.knat, "imul");
+    binop_imm(e.dst, e.knat, op_mulu);
 }
 
 
@@ -919,7 +949,7 @@ EMIT(divi)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_divi(%u, %lld)", e.dst, e.kint);
-    binop_imm(e.dst, e.kint, "idiv_imm");
+    binop_imm(e.dst, e.kint, op_divi);
 }
 
 
@@ -929,7 +959,7 @@ EMIT(divu)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_divu(%u, %llu)", e.dst, e.knat);
-    binop_imm(e.dst, e.knat, "div_imm");
+    binop_imm(e.dst, e.knat, op_divu);
 }
 
 
@@ -939,7 +969,7 @@ EMIT(modi)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_modi(%u, %lld)", e.dst, e.kint);
-    binop_imm(e.dst, e.kint, "idiv_mod_imm");
+    binop_imm(e.dst, e.kint, op_modi);
 }
 
 
@@ -949,7 +979,7 @@ EMIT(modu)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_modu(%u, %llu)", e.dst, e.knat);
-    binop_imm(e.dst, e.knat, "div_mod_imm");
+    binop_imm(e.dst, e.knat, op_modu);
 }
 
 
@@ -959,7 +989,7 @@ EMIT(andu)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_andu(%u, %llu)", e.dst, e.knat);
-    binop_imm(e.dst, e.knat, "and");
+    binop_imm(e.dst, e.knat, op_andu);
 }
 
 
@@ -969,7 +999,7 @@ EMIT(oru)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_oru(%u, %llu)", e.dst, e.knat);
-    binop_imm(e.dst, e.knat, "or");
+    binop_imm(e.dst, e.knat, op_oru);
 }
 
 
@@ -979,7 +1009,7 @@ EMIT(xoru)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_xoru(%u, %llu)", e.dst, e.knat);
-    binop_imm(e.dst, e.knat, "xor");
+    binop_imm(e.dst, e.knat, op_xoru);
 }
 
 
@@ -989,7 +1019,7 @@ EMIT(shlu)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_shlu(%u, %u)", e.dst, e.kshift);
-    binop_imm(e.dst, e.kshift, "shl_imm");
+    binop_imm(e.dst, e.kshift, op_shlu);
 }
 
 
@@ -999,7 +1029,7 @@ EMIT(shru)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_shru(%u, %u)", e.dst, e.kshift);
-    binop_imm(e.dst, e.kshift, "sar_imm");
+    binop_imm(e.dst, e.kshift, op_shru);
 }
 
 
@@ -1009,7 +1039,7 @@ EMIT(ushru)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_ushru(%u, %u)", e.dst, e.kshift);
-    binop_imm(e.dst, e.kshift, "shr_imm");
+    binop_imm(e.dst, e.kshift, op_ushru);
 }
 
 
@@ -1019,7 +1049,16 @@ EMIT(frame)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_frame(%u, %u)", e.dst, e.src);
-    frame_addr(e.dst, e.src);
+    riscv64reg_t dr = hw_local(e.dst);
+    int        offs = local_disp(e.src);
+    if (offs >= -2048 && offs <= 2047)
+        emit32le(addi(xn(dr), xn(HW_FRAME), offs));
+    else
+    {
+        load_imm64(dr, uint64_t(int64_t(offs)));
+        emit32le(add_rr(xn(dr), xn(HW_FRAME), xn(dr)));
+    }
+    spill_all();
 }
 
 
@@ -1109,7 +1148,7 @@ EMIT(st8o)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_st8o(%u, %u, %lld)", e.dst, e.src, e.kint);
-    store_mem_off(e.dst, e.src, e.kint, 8);
+    store_mem(e.dst, e.src, 8, e.kint);
 }
 
 
@@ -1119,7 +1158,7 @@ EMIT(st4o)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_st4o(%u, %u, %lld)", e.dst, e.src, e.kint);
-    store_mem_off(e.dst, e.src, e.kint, 4);
+    store_mem(e.dst, e.src, 4, e.kint);
 }
 
 
@@ -1129,7 +1168,7 @@ EMIT(st2o)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_st2o(%u, %u, %lld)", e.dst, e.src, e.kint);
-    store_mem_off(e.dst, e.src, e.kint, 2);
+    store_mem(e.dst, e.src, 2, e.kint);
 }
 
 
@@ -1139,7 +1178,7 @@ EMIT(st1o)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_st1o(%u, %u, %lld)", e.dst, e.src, e.kint);
-    store_mem_off(e.dst, e.src, e.kint, 1);
+    store_mem(e.dst, e.src, 1, e.kint);
 }
 
 
@@ -1149,7 +1188,7 @@ EMIT(ld8o)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_ld8o(%u, %u, %lld)", e.dst, e.src, e.kint);
-    load_mem_off(e.dst, e.src, e.kint, 8);
+    load_mem(e.dst, e.src, 8, e.kint);
 }
 
 
@@ -1159,7 +1198,7 @@ EMIT(ld4o)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_ld4o(%u, %u, %lld)", e.dst, e.src, e.kint);
-    load_mem_off(e.dst, e.src, e.kint, 4);
+    load_mem(e.dst, e.src, 4, e.kint);
 }
 
 
@@ -1169,7 +1208,7 @@ EMIT(ld2o)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_ld2o(%u, %u, %lld)", e.dst, e.src, e.kint);
-    load_mem_off(e.dst, e.src, e.kint, 2);
+    load_mem(e.dst, e.src, 2, e.kint);
 }
 
 
@@ -1179,7 +1218,7 @@ EMIT(ld1o)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_ld1o(%u, %u, %lld)", e.dst, e.src, e.kint);
-    load_mem_off(e.dst, e.src, e.kint, 1);
+    load_mem(e.dst, e.src, 1, e.kint);
 }
 
 
@@ -1188,8 +1227,8 @@ EMIT(lds)
 //   Emit bytecode for the lds opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_lds(%u, %u, %u)", e.dst, e.src, e.kshift);
-    load_signext(e.dst, e.src, e.kshift);
+    record(riscv64_ops, "emit_lds%u %u=[%u]", e.kshift, e.dst, e.src);
+    load_sext(e.dst, e.src, e.kshift);
 }
 
 
@@ -1198,8 +1237,8 @@ EMIT(ldos)
 //   Emit bytecode for the ldos opcode
 // ----------------------------------------------------------------------------
 {
-    record(riscv64_ops, "emit_ldos(%u, %u, %u, %lld)", e.dst, e.src, e.kshift, e.kint);
-    load_signext_off(e.dst, e.src, e.kshift, e.kint);
+    record(riscv64_ops, "emit_ldos%u %u=[%u+%lld]", e.kshift, e.dst, e.src, e.kint);
+    load_sext(e.dst, e.src, e.kshift, e.kint);
 }
 
 
@@ -1229,7 +1268,7 @@ EMIT(fadd)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_fadd(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "fadd");
+    binop_local(e.dst, e.src, op_fadd, 32);
 }
 
 
@@ -1239,7 +1278,7 @@ EMIT(fsub)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_fsub(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "fsub");
+    binop_local(e.dst, e.src, op_fsub, 32);
 }
 
 
@@ -1249,7 +1288,7 @@ EMIT(fmul)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_fmul(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "fmul");
+    binop_local(e.dst, e.src, op_fmul, 32);
 }
 
 
@@ -1259,7 +1298,7 @@ EMIT(fdiv)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_fdiv(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "fdiv");
+    binop_local(e.dst, e.src, op_fdiv, 32);
 }
 
 
@@ -1269,7 +1308,7 @@ EMIT(dadd)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_dadd(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "dadd");
+    binop_local(e.dst, e.src, op_dadd, 64);
 }
 
 
@@ -1279,7 +1318,7 @@ EMIT(dsub)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_dsub(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "dsub");
+    binop_local(e.dst, e.src, op_dsub, 64);
 }
 
 
@@ -1289,7 +1328,7 @@ EMIT(dmul)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_dmul(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "dmul");
+    binop_local(e.dst, e.src, op_dmul, 64);
 }
 
 
@@ -1299,7 +1338,7 @@ EMIT(ddiv)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_ddiv(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, "ddiv");
+    binop_local(e.dst, e.src, op_ddiv, 64);
 }
 
 
@@ -1784,9 +1823,13 @@ SYS(write_char)
 
 SYS(write_integer)
 // ----------------------------------------------------------------------------
-//
+//   Emit write_integer stream, local
 // ----------------------------------------------------------------------------
 {
+    riscv64reg_t v = hw_local(e.src);
+    emit32le(mv_rr(xn(HW_X11), xn(v)));
+    load_imm64(HW_X10, e.knat);
+    call_ptr((void (*)()) xlr8_jit_write_integer);
 }
 
 
@@ -1825,17 +1868,22 @@ SYS(write_text)
 
 SYS(write_token)
 // ----------------------------------------------------------------------------
-//
+//   Emit write_token stream, tok
 // ----------------------------------------------------------------------------
 {
+    load_imm64(HW_X10, e.knat);
+    load_imm64(HW_X11, e.tok);
+    call_ptr((void (*)()) xlr8_jit_write_token);
 }
 
 
 SYS(write_newline)
 // ----------------------------------------------------------------------------
-//
+//   Emit write_newline stream
 // ----------------------------------------------------------------------------
 {
+    load_imm64(HW_X10, e.knat);
+    call_ptr((void (*)()) xlr8_jit_write_newline);
 }
 
 

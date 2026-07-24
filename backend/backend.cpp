@@ -726,6 +726,7 @@ size_t backend::frame_size(size_t slots)
 
 #include "arm.h"
 #include "arm64.h"
+#include "riscv64.h"
 #include "x86.h"
 #include "amd64.h"
 // riscv64.h omitted until that backend is refactored like arm64
@@ -742,9 +743,7 @@ backend *backend::make(runtime &rt, arch_t arch)
     case ARCH_AMD64_WIN:        return amd64::make(rt, arch);
     case ARCH_ARM:              return arm::make(rt);
     case ARCH_ARM64:            return arm64::make(rt);
-    case ARCH_RISCV64:
-        record(backend_error, "riscv64 backend not yet refactored");
-        return nullptr;
+    case ARCH_RISCV64:            return riscv64::make(rt);
     default:
         record(backend_error, "Unknown arch %u, defaulting to AMD64", arch);
     }
