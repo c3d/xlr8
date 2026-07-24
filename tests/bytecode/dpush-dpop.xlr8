@@ -1,4 +1,4 @@
-// Push double on the runtime stack
+// Round-trip double through the runtime stack (dpush then dpop)
 
 dbl 0 2.5
 sys dpush 0
