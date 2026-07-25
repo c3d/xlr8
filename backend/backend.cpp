@@ -504,40 +504,6 @@ bool backend::dispatch_sys(emit_args &args)
     tok_t  sys = args.tok;
 
     // Parsing macros for native.tbl argument lists (must match interpreter)
-#undef DST
-#undef SRC
-#undef XTRA
-#undef PRED
-#undef LEN
-#undef IVAL
-#undef UVAL
-#undef TOK
-#undef KSHIFT
-#undef KINT
-#undef KNAT
-#undef KLEN
-#undef KFLT
-#undef KDBL
-#undef BRA
-#undef ISTREAM
-#undef OSTREAM
-#define DST     args.dst  = *pc++;
-#define SRC     args.src  = *pc++;
-#define XTRA    args.xtra = *pc++;
-#define PRED    args.pred = *pc++;
-#define LEN     args.len  = *pc++;
-#define IVAL    args.ival = *pc++;
-#define UVAL    args.uval = *pc++;
-#define TOK     args.tok  = leb128<tok_t>(pc);
-#define KSHIFT  args.kshift = *pc++;
-#define KINT    args.kint = leb128<value_t>(pc);
-#define KNAT    args.knat = leb128<uvalue_t>(pc);
-#define KLEN    args.klen = leb128<size_t>(pc);
-#define KFLT    memcpy(&args.kflt, pc, sizeof(args.kflt)); pc += sizeof(args.kflt);
-#define KDBL    memcpy(&args.kdbl, pc, sizeof(args.kdbl)); pc += sizeof(args.kdbl);
-#define BRA     args.bpc = pc; args.broff = leb128<broff_t>(pc);
-#define ISTREAM KNAT
-#define OSTREAM KNAT
 
 #define NATIVE(op, decl, code)                  \
     if (sys == runtime::sys_##op)               \

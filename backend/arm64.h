@@ -199,7 +199,7 @@ protected:
     //   Return hardware register associated with a local
     // ------------------------------------------------------------------------
     {
-        return hw(local(loc, RSPEC_INT, false));
+        return hw(local(loc, RSPEC_INT, true));
     }
 
     arm64reg_t hw_dst_local(local_t loc)
@@ -207,7 +207,7 @@ protected:
     //   Return hardware register associated with a local
     // ------------------------------------------------------------------------
     {
-        return hw(local(loc, RSPEC_INT, true));
+        return hw(local(loc, RSPEC_INT, false));
     }
 
     static inline uint xn(arm64reg_t r)

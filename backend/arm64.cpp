@@ -1308,7 +1308,6 @@ void arm64::prologue()
 //   Epilogue then pops this prologue save area from SP.
 {
     record(arm64, "prologue");
-    emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
 }
 
 
@@ -1320,7 +1319,6 @@ void arm64::epilogue()
 //   after alloca). Does not use FP — after leave, FP is the outer frame.
 {
     record(arm64, "epilogue()");
-    emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
     emit32le(ret_insn());
 }
 
