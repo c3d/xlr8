@@ -177,7 +177,15 @@ protected:
     //   Return hardware x86 register associated with a local
     // ------------------------------------------------------------------------
     {
-        return hw(local(loc));
+        return hw(local(loc, RSPEC_INT, true));
+    }
+
+    x86reg_t hw_dst_local(local_t loc)
+    // ------------------------------------------------------------------------
+    //   Return hardware x86 register associated with a local
+    // ------------------------------------------------------------------------
+    {
+        return hw(local(loc, RSPEC_INT, false));
     }
 
     x86reg_t hw_flags() const

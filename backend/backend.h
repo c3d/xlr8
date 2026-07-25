@@ -99,28 +99,19 @@ struct backend
     // ------------------------------------------------------------------------
     {
         RSPEC_TEMP = 0,       // Temporary register, no persistent alloc
-        RSPEC_I8   = 1 << 0,  // Can store   signed  8-bit value
-        RSPEC_I16  = 1 << 1,  // Can store   signed 16-bit value
-        RSPEC_I32  = 1 << 2,  // Can store   signed 32-bit value
-        RSPEC_I64  = 1 << 3,  // Can store   signed 64-bit value
-        RSPEC_U8   = 1 << 4,  // Can store unsigned  8-bit value
-        RSPEC_U16  = 1 << 5,  // Can store unsigned 16-bit value
-        RSPEC_U32  = 1 << 6,  // Can store unsigned 32-bit value
-        RSPEC_U64  = 1 << 7,  // Can store unsigned 64-bit value
-        RSPEC_PTR  = 1 << 8,  // Can store addresses
-        RSPEC_FLT  = 1 << 9,  // Can store 32-bit FP
-        RSPEC_DBL  = 1 << 10, // Can store 64-bit FP
-        RSPEC_BRA  = 1 << 11, // Can store a branch target
-        RSPEC_CMP  = 1 << 12, // Can store a comparision / predicate
-        RSPEC_CALL = 1 << 13, // Safe across calls
-
-        RSPEC_NEG  = RSPEC_I8  | RSPEC_I16 | RSPEC_I32 | RSPEC_I64,
-        RSPEC_POS  = RSPEC_U8  | RSPEC_U16 | RSPEC_U32 | RSPEC_U64,
-        RSPEC_INT  = RSPEC_NEG | RSPEC_POS,
+        RSPEC_S8   = 1 << 0,  // Can store   8-bit value
+        RSPEC_S16  = 1 << 1,  // Can store  16-bit value
+        RSPEC_S32  = 1 << 2,  // Can store  32-bit value
+        RSPEC_S64  = 1 << 3,  // Can store  64-bit value
+        RSPEC_INT  = 1 << 4,  // Can store integers
+        RSPEC_PTR  = 1 << 5,  // Can store 0addresses
+        RSPEC_FLT  = 1 << 6,  // Can store 32-bit FP
+        RSPEC_DBL  = 1 << 7,  // Can store 64-bit FP
+        RSPEC_BRA  = 1 << 8,  // Can store a branch target
+        RSPEC_CMP  = 1 << 9,  // Can store a comparision / predicate
+        RSPEC_CALL = 1 << 10, // Callee-saved
         RSPEC_FP   = RSPEC_FLT | RSPEC_DBL,
     };
-
-
 
     // Creation / factory
     virtual         ~backend()   = default;
@@ -164,16 +155,7 @@ struct backend
 
     virtual void     begin_translation();
     virtual void     finish_translation();
-    // Commit live regs to the frame and drop maps (e.g. at opcode/BB entry).
-    virtual void     sync_registers() {}
-    virtual hwreg_t  local(local_t  loc, bool load,
-                           hwspec_t spec   = RSPEC_INT,
-                           hwspec_t needed = 0);
-    hwreg_t local(local_t loc, hwspec_t spec = RSPEC_INT, hwspec_t needed = 0)
-    {
-        return local(loc, true, spec, needed);
-    }
-
+    virtual hwreg_t  local(local_t loc, hwspec_t spec, bool ld);
     virtual void     saved(local_t loc, hwreg_t reg);
 
     virtual bool     spill(hwreg_t r);
@@ -205,6 +187,7 @@ struct backend
     virtual void     invoke(runtime &rt, void *code)                   = 0;
 
 
+
     // ========================================================================
     //
     //   Hardware register allocation
@@ -217,13 +200,26 @@ struct backend
 
     struct reginfo { cstring  name; hwspec_t spec; };
     virtual reginfo  register_definition(hwreg_t) const         = 0;
-    hwspec_t         register_specification(hwreg_t r) const
+    virtual bool     register_matches(hwreg_t reg, hwspec_t spec)
+    {
+        hwspec_t rspec = register_specification(reg);
+        return rspec & (spec & ~RSPEC_CALL);
+    }
+    virtual hwreg_t  register_order(uint i)
+    {
+        return hwreg_t(i);
+    }
+    hwspec_t register_specification(hwreg_t r) const
     {
         return register_definition(r).spec;
     }
     cstring register_name(hwreg_t r) const
     {
         return register_definition(r).name;
+    }
+    bool register_callee_save(hwreg_t r) const
+    {
+        return register_specification(r) & RSPEC_CALL;
     }
 
     const hwreg_t    NO_REGISTER        = hwreg_t(-1);
@@ -291,10 +287,10 @@ protected:
     output_t current_output;
     section  text_section;
 
-    using reg_local_t = std::vector<local_t>;
-    using local_reg_t = std::vector<hwreg_t>;
-    reg_local_t reg_local;
-    local_reg_t local_reg;
+    using locals_t = std::vector<local_t>;
+    using regs_t   = std::vector<hwreg_t>;
+    locals_t reg_local;
+    regs_t   local_reg;
 
     struct translation { byte_p   bytecode; hwcode_t hwcode; };
     using translations = std::vector<translation>;
@@ -317,5 +313,6 @@ protected:
 RECORDER_DECLARE(backend);
 RECORDER_DECLARE(backend_error);
 RECORDER_DECLARE(backend_warning);
+
 
 #endif // BACKEND_H

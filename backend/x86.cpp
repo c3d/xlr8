@@ -425,7 +425,7 @@ x86::x86reg_t x86::load_fp(local_t loc, byte sz)
         sz = 64;
     }
 
-    x86reg_t r = hw(local(loc, sz == 32 ? RSPEC_FLT : RSPEC_DBL));
+    x86reg_t r = hw(local(loc, sz == 32 ? RSPEC_FLT : RSPEC_DBL, true));
     record(x86, "load_%+s %u=[%u]", sz == 64 ? "dbl" : "flt", r, loc);
     return r;
 }
@@ -469,9 +469,9 @@ void x86::mov_local(local_t dst, local_t src)
 // ----------------------------------------------------------------------------
 {
     record(x86, "mov_local [%u]=[%u]", dst, src);
-    hwreg_t sreg = local(src);
-    hwreg_t dreg = local(dst, false);
-    emit_mov_rr(hw(dreg), hw(sreg));
+    x86reg_t sreg = hw_local(src);
+    x86reg_t dreg = hw_dst_local(dst);
+    emit_mov_rr(dreg, sreg);
 }
 
 
@@ -481,9 +481,9 @@ void x86::swap_locals(local_t d, local_t s)
 // ----------------------------------------------------------------------------
 {
     record(x86, "swap_locals %u and %u", d, s);
-    hwreg_t sreg = local(s);
-    hwreg_t dreg = local(d);
-    emit_xchg_rr(hw(dreg), hw(sreg));
+    x86reg_t sreg = hw_local(s);
+    x86reg_t dreg = hw_local(d); // WARNING: Not dst
+    emit_xchg_rr(dreg, sreg);
 }
 
 
@@ -493,8 +493,8 @@ void x86::store_imm(local_t d, value_t v)
 // ----------------------------------------------------------------------------
 {
     record(x86, "store_imm [%u]=%llu %lld 0x%llX", d, v, v, v);
-    hwreg_t dreg = local(d, false);
-    set_imm(hw(dreg), uint64_t(v));
+    x86reg_t dreg = hw_dst_local(d);
+    set_imm(dreg, uint64_t(v));
 }
 
 
@@ -528,8 +528,8 @@ void x86::binop_local(local_t dloc, local_t sloc, op_t op, byte fp)
 // ----------------------------------------------------------------------------
 {
     hwspec_t spec = fp == 64 ? RSPEC_DBL : fp == 32 ? RSPEC_FLT : RSPEC_INT;
-    x86reg_t d = hw(local(dloc, spec));
-    x86reg_t s = hw(local(sloc, spec));
+    x86reg_t d = hw(local(dloc, spec, false));
+    x86reg_t s = hw(local(sloc, spec, true));
     record(x86, "binop_local%+s [%u]=[%u] reg %u=%u",
            opcode_name(op), dloc, sloc, d, s);
     switch (op)

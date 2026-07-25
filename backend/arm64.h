@@ -78,8 +78,11 @@ struct arm64 : backend
     static backend *make(runtime &rt) { return new arm64(rt); }
 
 #include "backend-iface.h"
+    hwreg_t    register_order(uint i)                           override;
 
 protected:
+    static const hwreg_t regs[];
+
     enum arm64reg_t : hwreg_t
     // ------------------------------------------------------------------------
     //    Hardware register names for AArch64
@@ -196,7 +199,15 @@ protected:
     //   Return hardware register associated with a local
     // ------------------------------------------------------------------------
     {
-        return hw(local(loc));
+        return hw(local(loc, RSPEC_INT, false));
+    }
+
+    arm64reg_t hw_dst_local(local_t loc)
+    // ------------------------------------------------------------------------
+    //   Return hardware register associated with a local
+    // ------------------------------------------------------------------------
+    {
+        return hw(local(loc, RSPEC_INT, true));
     }
 
     static inline uint xn(arm64reg_t r)
@@ -204,10 +215,9 @@ protected:
     //   Physical X/SP register number for encoding (0..31)
     // ------------------------------------------------------------------------
     {
-        if (r <= HW_SP)
-            return uint(r);
-        record(arm64_error, "xn() on non-GPR %u", r);
-        return 0;
+        if (r > HW_SP)
+            record(arm64_error, "xn() on non-GPR register %u", r);
+        return uint(r & 31);
     }
 
     static inline uint vn(arm64reg_t r)
@@ -215,20 +225,9 @@ protected:
     //   Physical V register number for FP encoding
     // ------------------------------------------------------------------------
     {
-        if (r >= HW_V0F && r <= HW_V15F)
-        {
-            if (r >= HW_V8F)
-                return 8u + uint(r - HW_V8F);
-            return uint(r - HW_V0F);
-        }
-        if (r >= HW_V0D && r <= HW_V15D)
-        {
-            if (r >= HW_V8D)
-                return 8u + uint(r - HW_V8D);
-            return uint(r - HW_V0D);
-        }
-        record(arm64_error, "vn() on non-V register %u", r);
-        return 0;
+        if (r < HW_V0D)
+            record(arm64_error, "X%u is Not a V register", r);
+        return uint(r & 15);
     }
 
     static inline bool is_fp(arm64reg_t r)
@@ -236,7 +235,7 @@ protected:
     //   True when r is a V-register bank entry
     // ------------------------------------------------------------------------
     {
-        return (r >= HW_V0D && r <= HW_V15D) || (r >= HW_V0F && r <= HW_V15F);
+        return r >= HW_V0D;
     }
 
     static inline bool is_flt(arm64reg_t r)
@@ -255,19 +254,12 @@ protected:
         return ~n * int(sizeof(ularge_t));
     }
 
-    // Prologue pushes x19–x28 (5×16) then FP+LR (16), without moving FP.
-    // After enter (stp FP,LR; mov FP,SP), those bytes sit above the enter
-    // record, so get/set must skip them as well as the enter's FP+LR pair.
-    static constexpr uint PROLOGUE_SAVE_BYTES = 96;
-
     int arg_disp(int n) const
     // ------------------------------------------------------------------------
     //   Displacement from FP to argument n (above enter record + prologue)
     // ------------------------------------------------------------------------
     {
-        return n * int(sizeof(ularge_t))
-             + 2 * int(sizeof(ularge_t))   // enter's saved FP+LR
-             + int(PROLOGUE_SAVE_BYTES);
+        return n * int(sizeof(ularge_t)) + 2 * int(sizeof(ularge_t));
     }
 
 
@@ -481,6 +473,17 @@ protected:
     static inline uint sub_imm(uint rd, uint rn, uint imm)
     {
         return 0xd1000000u | ((imm & 0xfffu) << 10) | (rn << 5) | rd;
+    }
+
+    static inline uint sub_ext(uint rd, uint rn, uint rm,
+                               uint option = 7 /* UXTX */, uint imm3 = 0)
+    // ------------------------------------------------------------------------
+    //   Encode sub rd, rn, rm{, extend #imm3}
+    // ------------------------------------------------------------------------
+    //   Rn/Rd = 31 means SP (unlike sub_rrr, where 31 is XZR).
+    //   option: UXTB=0 … UXTX=7, SXTB=4 … SXTX=7; imm3 is 0..4.
+    {
+        return 0xcb200000u | rm<<16 | option<<13 | imm3<<10 | rn<<5 | rd;
     }
 
     static inline uint lsr_imm64(uint rd, uint rn, uint amt)
@@ -787,16 +790,15 @@ protected:
     void         rel_function(tok_t tok, hwcode_t site);
     virtual void prologue();
     virtual void epilogue();
+    void         dispatch(local_t loc, byte_p &pc, byte cond);
     void         call_ptr(void (*fn)());
-    void         sync_registers() override;
     template <typename T, typename... U>
-    void call_ptr(T (*fn)(U...))
+    void         call_ptr(T (*fn)(U...))
     {
         return call(((void (*)()) fn));
     }
-    void dispatch(local_t loc, byte_p &pc, byte cond);
 
-protected:
+  protected:
     // False for nested callees until op_enter (avoids spilling through caller FP).
     bool          have_frame = true;
     using relocations_t = std::vector<hwcode_t>;

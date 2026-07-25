@@ -73,12 +73,94 @@ cstring arm64::machine_defs() const
 }
 
 
+const hwreg_t arm64::regs[] =
+// ----------------------------------------------------------------------------
+//   Registers that can be allocated
+// ----------------------------------------------------------------------------
+{
+        HW_X9,
+        HW_X10,
+        HW_X11,
+        HW_X12,
+        HW_X13,
+        HW_X14,
+        HW_X15,
+        HW_X16,
+        HW_X17,
+
+        HW_X0,
+        HW_X1,
+        HW_X2,
+        HW_X3,
+        HW_X4,
+        HW_X5,
+        HW_X6,
+        HW_X7,
+        HW_X8,
+
+        HW_X19,
+        HW_X20,
+        HW_X21,
+        HW_X22,
+        HW_X23,
+        HW_X24,
+        HW_X25,
+        HW_X26,
+        HW_X27,
+        HW_X28,
+
+        HW_V0D,
+        HW_V1D,
+        HW_V2D,
+        HW_V3D,
+        HW_V4D,
+        HW_V5D,
+        HW_V6D,
+        HW_V7D,
+        HW_V8D,
+        HW_V9D,
+        HW_V10D,
+        HW_V11D,
+        HW_V12D,
+        HW_V13D,
+        HW_V14D,
+        HW_V15D,
+
+        HW_V0F,
+        HW_V1F,
+        HW_V2F,
+        HW_V3F,
+        HW_V4F,
+        HW_V5F,
+        HW_V6F,
+        HW_V7F,
+        HW_V8F,
+        HW_V9F,
+        HW_V10F,
+        HW_V11F,
+        HW_V12F,
+        HW_V13F,
+        HW_V14F,
+        HW_V15F,
+};
+
+
 uint arm64::registers() const
 // ----------------------------------------------------------------------------
 //   Return the number of hardware registers on this platform
 // ----------------------------------------------------------------------------
 {
-    return HW_COUNT;
+    return sizeof(regs) / sizeof(regs[0]);
+}
+
+
+hwreg_t arm64::register_order(uint i)
+// ----------------------------------------------------------------------------
+//   Return registers in the order we want to use them
+// ----------------------------------------------------------------------------
+{
+    assert (i < sizeof(regs) / sizeof(regs[0]));
+    return regs[i];
 }
 
 
@@ -108,19 +190,6 @@ void arm64::begin_translation()
         local_reg[0] = HW_X0;
         reg_local[HW_X0] = 0;
     }
-}
-
-
-void arm64::sync_registers()
-// ----------------------------------------------------------------------------
-//   Spill and drop maps at opcode boundaries once a frame is active
-// ----------------------------------------------------------------------------
-//   Makes backward branches safe: the loop head always reloads from the frame.
-{
-    if (!have_frame)
-        return;
-    spill_all();
-    forget_registers();
 }
 
 
@@ -254,6 +323,9 @@ bool arm64::move(hwreg_t to, hwreg_t from)
 {
     arm64reg_t d = hw(to);
     arm64reg_t s = hw(from);
+    if (d == s)
+        return true;
+
     if (is_fp(d) && is_fp(s))
     {
         if (is_flt(d) || is_flt(s))
@@ -355,16 +427,16 @@ arm64::reginfo arm64::register_definition(hwreg_t reg) const
         {  "x5",                       0 },
         {  "x6",                       0 },
         {  "x7",                       0 },
-        {  "x8",                       0 },
-        {  "x9",                       0 },
-        { "x10",                       0 },
-        { "x11",                       0 },
-        { "x12",                       0 },
-        { "x13",                       0 },
-        { "x14",                       0 },
-        { "x15",                       0 },
+        {  "x8",               RSPEC_INT },
+        {  "x9",               RSPEC_INT },
+        { "x10",               RSPEC_INT },
+        { "x11",               RSPEC_INT },
+        { "x12",               RSPEC_INT },
+        { "x13",               RSPEC_INT },
+        { "x14",               RSPEC_INT },
+        { "x15",               RSPEC_INT },
         { "x16",                       0 }, // HW_SCRATCH
-        { "x17",                       0 },
+        { "x17",               RSPEC_INT },
         { "x18",                       0 },
         { "x19", RSPEC_CALL |  RSPEC_INT },
         { "x20", RSPEC_CALL |  RSPEC_INT },
@@ -608,7 +680,7 @@ arm64::arm64reg_t arm64::load_fp(local_t loc, byte sz)
 // ----------------------------------------------------------------------------
 {
     hwspec_t spec = sz == 64 ? RSPEC_DBL : RSPEC_FLT;
-    arm64reg_t r = hw(local(loc, spec));
+    arm64reg_t r = hw(local(loc, spec, true));
     record(arm64, "load_fp%u [%u]=%u", sz, loc, r);
     return r;
 }
@@ -650,8 +722,8 @@ void arm64::mov_local(local_t dst, local_t src)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "mov_local [%u]=[%u]", dst, src);
-    hwreg_t sreg = local(src);
-    hwreg_t dreg = local(dst, false);
+    arm64reg_t sreg = hw_local(src);
+    arm64reg_t dreg = hw_dst_local(dst);
     move(dreg, sreg);
 }
 
@@ -663,7 +735,7 @@ void arm64::swap_locals(local_t d, local_t s)
 {
     record(arm64, "swap_locals %u and %u", d, s);
     arm64reg_t sr = hw_local(s);
-    arm64reg_t dr = hw_local(d);
+    arm64reg_t dr = hw_local(d); // WARNING: No dst_local, we read it
     emit32le(mov_rr(xn(HW_SCRATCH), xn(dr)));
     emit32le(mov_rr(xn(dr), xn(sr)));
     emit32le(mov_rr(xn(sr), xn(HW_SCRATCH)));
@@ -676,7 +748,7 @@ void arm64::store_imm(local_t d, value_t v)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "store_imm [%u]=%lld", d, v);
-    arm64reg_t dreg = hw(local(d, false));
+    arm64reg_t dreg = hw_dst_local(d);
     set_imm(dreg, uint64_t(v));
 }
 
@@ -687,7 +759,7 @@ void arm64::store_float(local_t d, float v)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "store_flt [%u] = %g", d, v);
-    arm64reg_t dreg = hw(local(d, false, RSPEC_FLT, RSPEC_CALL));
+    arm64reg_t dreg = hw(local(d, RSPEC_FLT, false));
     uint32_t bits = 0;
     memcpy(&bits, &v, sizeof(bits));
     set_imm(HW_SCRATCH, bits);
@@ -701,7 +773,7 @@ void arm64::store_double(local_t d, double v)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "store_dbl [%u] = %g", d, v);
-    arm64reg_t dreg = hw(local(d, false, RSPEC_DBL, RSPEC_CALL));
+    arm64reg_t dreg = hw(local(d, RSPEC_DBL, false));
     uint64_t bits = 0;
     memcpy(&bits, &v, sizeof(bits));
     set_imm(HW_SCRATCH, bits);
@@ -714,22 +786,10 @@ void arm64::binop_local(local_t dloc, local_t sloc, op_t op, byte fp)
 //   Apply binary operator to two bytecode locals
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t d, s;
-    if (fp == 64)
-    {
-        d = hw(local(dloc, RSPEC_DBL, RSPEC_CALL));
-        s = hw(local(sloc, RSPEC_DBL, RSPEC_CALL));
-    }
-    else if (fp == 32)
-    {
-        d = hw(local(dloc, RSPEC_FLT, RSPEC_CALL));
-        s = hw(local(sloc, RSPEC_FLT, RSPEC_CALL));
-    }
-    else
-    {
-        d = hw(local(dloc, RSPEC_INT));
-        s = hw(local(sloc, RSPEC_INT));
-    }
+    hwspec_t   spec = fp == 64 ? RSPEC_DBL : fp == 32 ? RSPEC_FLT : RSPEC_INT;
+    arm64reg_t s    = hw(local(sloc, spec, true));
+    arm64reg_t d    = hw(local(dloc, spec, false));
+
     record(arm64, "binop_local%+s [%u]=[%u] reg %u=%u",
            opcode_name(op), dloc, sloc, d, s);
 
@@ -1177,9 +1237,13 @@ void arm64::bra_pred(byte p, byte_p target, bool sense)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "bra_%+s %u, %p", sense ? "true" : "false", p, target);
+    if (have_frame)
+        spill_all();
     hwcode_t pos = sense ? emit_tbnz_rel(HW_FLAGS, p)
                          : emit_tbz_rel(HW_FLAGS, p);
     rel_branch(target, pos);
+    if (have_frame)
+        forget_registers();
 }
 
 
@@ -1206,6 +1270,8 @@ void arm64::bra_test(local_t s, byte_p target, byte cond)
         hwcode_t pos = emit_bcond_rel(cond);
         rel_branch(target, pos);
     }
+    if (have_frame)
+        forget_registers();
 }
 
 
@@ -1242,12 +1308,6 @@ void arm64::prologue()
 //   Epilogue then pops this prologue save area from SP.
 {
     record(arm64, "prologue");
-    emit32le(stp_pre(HW_X19, HW_X20, HW_SP, -16));
-    emit32le(stp_pre(HW_X21, HW_X22, HW_SP, -16));
-    emit32le(stp_pre(HW_X23, HW_X24, HW_SP, -16));
-    emit32le(stp_pre(HW_X25, HW_X26, HW_SP, -16));
-    emit32le(stp_pre(HW_X27, HW_X28, HW_SP, -16));
-    // Preserve FP value and LR for return; do not mov FP, SP.
     emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
 }
 
@@ -1261,11 +1321,6 @@ void arm64::epilogue()
 {
     record(arm64, "epilogue()");
     emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
-    emit32le(ldp_post(HW_X27,   HW_X28, HW_SP, 16));
-    emit32le(ldp_post(HW_X25,   HW_X26, HW_SP, 16));
-    emit32le(ldp_post(HW_X23,   HW_X24, HW_SP, 16));
-    emit32le(ldp_post(HW_X21,   HW_X22, HW_SP, 16));
-    emit32le(ldp_post(HW_X19,   HW_X20, HW_SP, 16));
     emit32le(ret_insn());
 }
 
@@ -1328,7 +1383,6 @@ void arm64::dispatch(local_t loc, byte_p &pc, byte cond)
         rel_branch(tgt, pos);
     }
 }
-
 
 
 #define EMIT(op)        void arm64::emit_##op(emit_args &e)

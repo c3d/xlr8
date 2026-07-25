@@ -155,7 +155,15 @@ protected:
     //   Return hardware register associated with a local
     // ------------------------------------------------------------------------
     {
-        return hw(local(loc));
+        return hw(local(loc, RSPEC_INT, true));
+    }
+
+    riscv64reg_t hw_dst_local(local_t loc)
+    // ------------------------------------------------------------------------
+    //   Return hardware register associated with a local
+    // ------------------------------------------------------------------------
+    {
+        return hw(local(loc, RSPEC_INT, false));
     }
 
     static inline uint xn(riscv64reg_t r)

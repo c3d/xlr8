@@ -400,7 +400,6 @@ bool backend::translate(byte_p pc, byte_p end)
     {
         // Insert translation in address map
         byte_p insn = pc;
-        sync_registers();
         label(pc, cursor());
 
         // Run that opcode
@@ -602,7 +601,7 @@ void backend::emit_user(backend::emit_args &args)
 //
 // ============================================================================
 
-hwreg_t backend::local(local_t loc, bool ld, hwspec_t spec, hwspec_t needed)
+hwreg_t backend::local(local_t loc, hwspec_t spec, bool ld)
 // ----------------------------------------------------------------------------
 //  The default register allocator when loading locals
 // ----------------------------------------------------------------------------
@@ -624,9 +623,8 @@ hwreg_t backend::local(local_t loc, bool ld, hwspec_t spec, hwspec_t needed)
         local_t rloc = reg_local[reg];
         assert(rloc == loc && "Inconsistent register <-> local mapping");
 
-        // Check if this matches the new spec
-        hwspec_t rspec = register_specification(reg);
-        if ((rspec & spec) && (rspec & needed) == needed)
+        // Check if this matches the required spec
+        if (register_matches(reg, spec))
             return reg;
     }
 
@@ -634,17 +632,17 @@ hwreg_t backend::local(local_t loc, bool ld, hwspec_t spec, hwspec_t needed)
     hwreg_t nregs = registers();
     for (uint used = 0; used < 2; used++)
     {
-        for (hwreg_t r = 0; r < nregs; r++)
+        for (uint ri = 0; ri < nregs; ri++)
         {
-            hwspec_t rspec = register_specification(r);
-            if ((rspec & spec) && (rspec & needed) == needed)
+            hwreg_t r = register_order(ri);
+            if (register_matches(r, spec))
             {
                 local_t rloc = reg_local[r];
 
                 // Check if we can move from a register that did not match
                 if (reg != NO_REGISTER && reg != r)
                 {
-                    if (move(r, reg))
+                    if (!ld || move(r, reg))
                     {
                         local_reg[loc] = r;
                         reg_local[reg] = NO_LOCAL;
@@ -751,10 +749,7 @@ void backend::forget_registers()
 //   Drop register↔local mappings without storing (e.g. after op_leave)
 // ----------------------------------------------------------------------------
 //   Call after FP is restored (or when the current frame is being discarded)
-//   so the next local() reloads from the caller-provided / outer frame.
-//   Preserve local_reg.size() — it is the enter/frame slot count; shrinking
-//   it back to DEFAULT_FRAME_SIZE would make spill/local_disp write past the
-//   allocated stack window and corrupt saved FP/LR.
+//   so the next local() reloads if necessary, e.g. from the outer frame.
 {
     std::fill(reg_local.begin(), reg_local.end(), NO_LOCAL);
     std::fill(local_reg.begin(), local_reg.end(), NO_REGISTER);

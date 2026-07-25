@@ -571,9 +571,9 @@ void riscv64::mov_local(local_t dst, local_t src)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "mov_local [%u]=[%u]", dst, src);
-    hwreg_t sreg = local(src);
-    hwreg_t dreg = local(dst, false);
-    move(dreg, sreg);
+    riscv64reg_t sr = hw_local(src);
+    riscv64reg_t dr = hw_dst_local(dst);
+    move(dr, sr);
 }
 
 
@@ -597,7 +597,7 @@ void riscv64::store_imm(local_t d, value_t v)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "store_imm [%u]=%lld", d, v);
-    riscv64reg_t dreg = hw(local(d, false));
+    riscv64reg_t dreg = hw_dst_local(d);
     load_imm64(dreg, uint64_t(v));
 }
 
@@ -608,7 +608,7 @@ void riscv64::store_uimm(local_t d, uvalue_t v)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "store_uimm [%u]=%llu", d, v);
-    riscv64reg_t dreg = hw(local(d, false));
+    riscv64reg_t dreg = hw_dst_local(d);
     load_imm64(dreg, uint64_t(v));
 }
 
@@ -619,7 +619,7 @@ void riscv64::store_float(local_t d, float v)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "store_flt [%u]=%g", d, v);
-    riscv64reg_t dreg = hw(local(d, false));
+    riscv64reg_t dreg = hw_dst_local(d);
     uint32_t bits = 0;
     memcpy(&bits, &v, sizeof(bits));
     load_imm64(dreg, uint64_t(bits));
@@ -632,7 +632,7 @@ void riscv64::store_double(local_t d, double v)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "store_dbl [%u]=%g", d, v);
-    riscv64reg_t dreg = hw(local(d, false));
+    riscv64reg_t dreg = hw_dst_local(d);
     uint64_t bits = 0;
     memcpy(&bits, &v, sizeof(bits));
     load_imm64(dreg, bits);

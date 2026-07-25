@@ -177,39 +177,28 @@ EMIT(call)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the call opcode (AAPCS64 / host ABI)
 // ----------------------------------------------------------------------------
-//   Locals 0–7 → x0–x7; same eight words stored in an outgoing home area so
-//   the callee's get/set can use fixed FP offsets above enter+prologue.
-//   Return value arrives in x0 and becomes local 0.
+//   Place live locals 0..7 in x0–x7, and preserve local size across call
 {
+    record(arm64_ops, "emit_call %llu", e.tok);
     spill_all();
-    // Materialize bytecode args into the AAPCS64 argument registers.
-    size_t nslots = frame_size();
-    for (int i = 0; i < 8; i++)
-    {
-        if (size_t(i) < nslots)
-            emit_load_off(arm64reg_t(i), HW_FRAME, local_disp(i));
-        else
-            set_imm(arm64reg_t(i), 0);
-    }
 
-    // Outgoing register-arg homes (8×8, 16-byte aligned).
-    emit32le(sub_imm(xn(HW_SP), xn(HW_SP), 64));
-    for (int i = 0; i < 8; i++)
-        emit32le(str_off(uint(i), xn(HW_SP), uint(i)));
+    local_t nslots = frame_size();
+    hwreg_t nregs  = nslots > 8 ? 8 : nslots;
+    for (hwreg_t r = 0; r < nregs; r++)
+    {
+        hwreg_t locr = local_reg[r];
+        if (locr == NO_REGISTER)
+            emit_load_off(arm64reg_t(HW_X0 + r), HW_FRAME, local_disp(r));
+        else if (locr != HW_X0 + r)
+            move(hwreg_t(HW_X0 + r), locr);
+    }
 
     hwcode_t site = emit_bl_rel();
     rel_function(e.tok, site);
 
-    emit32le(add_imm(xn(HW_SP), xn(HW_SP), 64));
-    // AAPCS64 return value → bytecode local 0 (frame, not x0: x0 is
-    // call-clobbered by later SYS helpers).
-    emit_store_off(HW_FRAME, HW_X0, local_disp(0));
-    if (local_reg.size() <= 0)
-        local_reg.resize(1, NO_REGISTER);
-    local_reg[0] = NO_REGISTER;
-    if (HW_X0 < reg_local.size() && reg_local[HW_X0] == 0)
-        reg_local[HW_X0] = NO_LOCAL;
-    record(arm64_ops, "emit_call %llu", e.tok);
+    // Record that the resturn value is in reg X0
+    frame_size(nslots ? nslots : 1);
+    saved(0, HW_X0);
 }
 
 
@@ -244,12 +233,15 @@ EMIT(ret)
 //   Emit bytecode for the ret opcode
 // ----------------------------------------------------------------------------
 {
-    // AAPCS64 return in x0: prefer live local 0, else leave x0 as set by set/arg0.
-    if (local_reg.size() > 0 && local_reg[0] != NO_REGISTER &&
-        local_reg[0] != HW_X0)
-        emit32le(mov_rr(xn(HW_X0), xn(arm64reg_t(local_reg[0]))));
-    // Do not spill_all — that would write through the caller's FP before enter.
-    // Epilogue pops prologue saves and returns; do not emit a second ret.
+    // AAPCS64 return in x0: prefer live local 0
+    if (local_reg.size() > 0)
+    {
+        hwreg_t loc0 = local_reg[0];
+        if (loc0 != NO_REGISTER && loc0 != HW_X0)
+            move(HW_X0, loc0);
+        else
+            emit_load_off(HW_X0, HW_FRAME, local_disp(0));
+    }
     epilogue();
 }
 
@@ -270,7 +262,7 @@ EMIT(pc)
 //   Emit bytecode for the pc opcode (load bytecode pc)
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t r = hw_local(e.dst);
+    arm64reg_t r = hw_dst_local(e.dst);
     record(arm64_ops, "emit_pc %u reg %u", e.dst, r);
     set_imm(r, uint64_t(e.pc));
 }
@@ -281,7 +273,7 @@ EMIT(pca)
 //   Emit bytecode for the pca opcode (PC-relative offset of the bytecode
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t r = hw_local(e.dst);
+    arm64reg_t r = hw_dst_local(e.dst);
     record(arm64_ops, "emit_pca %u reg %u = %lld)", e.dst, e.broff);
     set_imm(r, uint64_t(e.ppc + e.broff));
 }
@@ -293,43 +285,26 @@ EMIT(enter)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_enter %u", e.dst);
-    // Interpreter semantics: pre-enter ops mutate the caller/arg window, then
-    // enter snapshots that window as args[].  Flush locals 0–7 into x0–x7 and
-    // the outgoing home area above the prologue so get/set see those updates.
-    for (int i = 0; i < 8; i++)
-    {
-        if (size_t(i) < local_reg.size() && local_reg[i] != NO_REGISTER)
-        {
-            arm64reg_t r = arm64reg_t(local_reg[i]);
-            if (r != arm64reg_t(i))
-                emit32le(mov_rr(xn(arm64reg_t(i)), xn(r)));
-        }
-        else if (i > 0)
-            set_imm(arm64reg_t(i), 0);
-        // else leave x0 as-is when local 0 was never touched
-    }
-    for (int i = 0; i < 8; i++)
-        emit32le(str_off(uint(i), xn(HW_SP),
-                          uint(PROLOGUE_SAVE_BYTES / sizeof(ularge_t) + i)));
 
+    // Args 0-7 are in X0-X7. They also were spilled in the caller's frame
     forget_registers();
     frame_size(e.dst);
     emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
     emit32le(mov_rr(HW_FRAME, HW_SP));
+
     // Keep SP 16-byte aligned (AAPCS64).
     uint bytes = uint(e.dst) * uint(sizeof(ularge_t));
     bytes = (bytes + 15u) & ~15u;
     if (bytes <= 0xfffu)
+    {
         emit32le(sub_imm(HW_SP, HW_SP, bytes));
+    }
     else
     {
-        // sub (shifted reg) treats Rn/Rd=31 as XZR; go via X17 for SP.
+        // sub (shifted reg) treats Rn/Rd=31 as XZR; go with sub_ext
         set_imm(HW_SCRATCH, bytes);
-        emit32le(mov_rr(HW_X17, HW_SP));
-        emit32le(sub_rrr(xn(HW_X17), xn(HW_X17), xn(HW_SCRATCH)));
-        emit32le(mov_rr(HW_SP, HW_X17));
+        emit32le(sub_ext(HW_SP, HW_SP, HW_SCRATCH));
     }
-    have_frame = true;
 }
 
 
@@ -351,11 +326,14 @@ EMIT(get)
 //   Emit bytecode for the get opcode
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t dr  = hw_local(e.dst);
-    int      off = arg_disp(e.src);
+    arm64reg_t dr  = hw_dst_local(e.dst);
+    int        off = arg_disp(e.src);
     record(arm64_ops, "emit_get [%u] = %u reg %u offs %d",
            e.dst, e.src, dr, off);
-    emit_load_off(dr, HW_FRAME, off);
+    if (e.dst < 8)
+        move(dr, arm64reg_t(HW_X0 + e.dst));
+    else
+        emit_load_off(dr, HW_FRAME, off);
 }
 
 
@@ -391,7 +369,7 @@ EMIT(pop)
 //   Emit bytecode for the pop opcode
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t dr  = hw_local(e.dst);
+    arm64reg_t dr  = hw_dst_local(e.dst);
     record(arm64_ops, "emit_pop %u reg %u", e.dst, dr);
     emit_pop(dr);
 }
@@ -426,7 +404,7 @@ EMIT(rcl)
 //   Emit bytecode for the rcl opcode
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t r = hw_local(e.dst);
+    arm64reg_t r = hw_dst_local(e.dst);
     uintptr_t gaddr = uintptr_t(&rt.globals[e.src]);
     set_imm(HW_SCRATCH, gaddr);
     emit_load_off(r, HW_SCRATCH, 0);
@@ -440,7 +418,7 @@ EMIT(dbra)
 //   Emit bytecode for the dbra opcode
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t r = hw_local(e.dst);
+    arm64reg_t r = hw_dst_local(e.dst);
     record(arm64_ops, "emit_dbra %u, %lld reg %u", e.dst, e.broff, r);
     emit32le(sub_imm(r, r, 1));
     hwcode_t pos = emit_cbnz_rel(r);
@@ -1087,7 +1065,7 @@ EMIT(frame)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_frame(%u, %u)", e.dst, e.src);
-    arm64reg_t dr = hw_local(e.dst);
+    arm64reg_t dr = hw_dst_local(e.dst);
     int      offs = local_disp(e.src);
     // lea dr, [x29 + offs]
     if (offs >= 0 && offs <= 0xfff)
@@ -1391,9 +1369,9 @@ EMIT(ddiv)
 
 // Arm64 SYS emitters covering native.tbl
 #define SYS(op) void arm64::emit_sys_##op(emit_args &e)
-#define XI(loc)  hw(local((loc), RSPEC_INT, RSPEC_CALL))
-#define XF(loc)  hw(local((loc), RSPEC_FLT, RSPEC_CALL))
-#define XD(loc)  hw(local((loc), RSPEC_DBL, RSPEC_CALL))
+#define XI(loc)  hw(local((loc), RSPEC_INT, true))
+#define XF(loc)  hw(local((loc), RSPEC_FLT, true))
+#define XD(loc)  hw(local((loc), RSPEC_DBL, true))
 // Cast through uintptr_t so overloaded C++ libc/math symbols resolve
 #define CALL(fn) call_ptr(reinterpret_cast<void (*)()>(fn))
 #define MOVX(d,s) emit32le(mov_rr((d), (s)))
