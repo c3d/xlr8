@@ -1394,9 +1394,8 @@ SYS(alloca)
 //
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, uint64_t(e.kint));
-    CALL(xlr8_jit_alloca);
-    MOVX(XI(e.dst), HW_X0);
+    emit32be(sub_imm(xn(HW_SP), xn(HW_SP), e.kint));
+    MOVX(XI(e.dst), HW_SP);
 }
 
 SYS(valloca)
@@ -1405,8 +1404,8 @@ SYS(valloca)
 // ----------------------------------------------------------------------------
 {
     MOVX(HW_X0, XI(e.src));
-    CALL(xlr8_jit_alloca);
-    MOVX(XI(e.dst), HW_X0);
+    emit32be(sub_rrr(xn(HW_SP), xn(HW_SP), xn(HW_X0)));
+    MOVX(XI(e.dst), HW_SP);
 }
 
 SYS(memcpy)
