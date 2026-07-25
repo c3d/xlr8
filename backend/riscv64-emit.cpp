@@ -292,7 +292,6 @@ EMIT(leave)
 //   Restores FP/RA only — does not return.  If the next opcode is ret,
 //   emit return and consume that ret.  Branches that target the ret
 //   bytecode are translated separately when that label is picked up.
-// ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_leave");
     int link = 2 * int(pointer_size());
@@ -422,6 +421,7 @@ EMIT(bra)
     hwcode_t site = cursor();
     emit32le(j_imm(0));
     rel_branch(e.bpc + e.broff, site);
+    e.pc = e.end;               // Pick up next translation spot
 }
 
 

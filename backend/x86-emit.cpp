@@ -397,6 +397,7 @@ EMIT(bra)
            e.bpc, e.broff, e.bpc+e.broff);
     hwcode_t site = emit_near_jmp_rel32();
     rel32_branch(e.bpc + e.broff, site);
+    e.pc = e.end;               // Pick up next translation spot
 }
 
 
