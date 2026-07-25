@@ -294,6 +294,7 @@ void riscv64::prologue()
 // ----------------------------------------------------------------------------
 //   Saves s0 (HW_FRAME) for ABI restore but does not reassign it — invoke_*
 //   already points s0 at the caller-provided 8-slot initial frame.
+//   Do not mov fp, sp — enter owns FP.
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "prologue");
@@ -315,7 +316,7 @@ void riscv64::prologue()
 
 void riscv64::epilogue()
 // ----------------------------------------------------------------------------
-//   Restore callee-saved registers, FP/RA, and return
+//   Pop prologue callee-saves and return (SP must already be at that block)
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "epilogue");

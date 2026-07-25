@@ -218,7 +218,7 @@ EMIT(ret)
 // ----------------------------------------------------------------------------
 {
     spill_all();
-    emit32le(bx_lr());
+    epilogue();
 }
 
 
@@ -265,7 +265,9 @@ EMIT(enter)
     uint mask = (1u << rn(HW_FRAME)) | (1u << rn(HW_LR));
     emit32le(push_regs(mask));
     emit32le(mov_rr(rn(HW_FRAME), rn(HW_SP)));
+    // Keep SP 8-byte aligned (AAPCS).
     uint bytes = uint(e.dst) * uint(sizeof(ularge_t));
+    bytes = (bytes + 7u) & ~7u;
     if (bytes <= 255)
         emit32le(sub_imm(rn(HW_SP), rn(HW_SP), bytes));
     else
@@ -280,26 +282,22 @@ EMIT(leave)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the leave opcode
 // ----------------------------------------------------------------------------
-//   Restores FP/LR only — does not return.  If the next opcode is ret,
-//   fold into pop {fp, pc} and consume that ret.  A branch that targets
-//   the ret bytecode is translated separately when that label is picked up.
+//   Restores FP/LR and SP (drops locals/alloca).  If the next opcode is ret,
+//   fold into epilogue (pop prologue + return).  A branch that targets the
+//   ret bytecode is translated separately when that label is picked up.
 // ----------------------------------------------------------------------------
 {
     record(arm_ops, "emit_leave");
     emit32le(mov_rr(rn(HW_SP), rn(HW_FRAME)));
-    uint mask = (1u << rn(HW_FRAME));
+    uint mask = (1u << rn(HW_FRAME)) | (1u << rn(HW_LR));
+    emit32le(pop_regs(mask));
+    forget_registers();
     if (e.pc < e.end && op_t(*e.pc) == op_ret)
     {
         e.pc++;
-        mask |= (1u << rn(HW_PC));
-        record(arm_ops, "emit_leave+ret -> pop {fp,pc}");
+        record(arm_ops, "emit_leave+ret -> epilogue");
+        epilogue();
     }
-    else
-    {
-        mask |= (1u << rn(HW_LR));
-    }
-    emit32le(pop_regs(mask));
-    forget_registers();
 }
 
 
@@ -1387,17 +1385,43 @@ SYS(free)
 
 SYS(alloca)
 // ----------------------------------------------------------------------------
-//
+//   Bump SP for a constant size (8-byte aligned); return new SP in dst
 // ----------------------------------------------------------------------------
 {
-}
+    int64_t bytes = int64_t(e.kint);
+    if (bytes > 0)
+        bytes = (bytes + 7) & ~int64_t(7);
+    else
+        bytes = bytes & ~int64_t(7);
 
+    if (bytes > 0 && uint64_t(bytes) <= 255u)
+        emit32le(sub_imm(rn(HW_SP), rn(HW_SP), uint(bytes)));
+    else if (bytes < 0 && uint64_t(-bytes) <= 255u)
+        emit32le(add_imm(rn(HW_SP), rn(HW_SP), uint(-bytes)));
+    else if (bytes != 0)
+    {
+        load_imm32(HW_IP, uint32_t(bytes));
+        emit32le(sub_rrr(rn(HW_SP), rn(HW_SP), rn(HW_IP)));
+    }
+    emit32le(mov_rr(rn(hw_local(e.dst)), rn(HW_SP)));
+}
 
 SYS(valloca)
 // ----------------------------------------------------------------------------
-//
+//   Bump SP by signed size in src (8-byte aligned); return new SP in dst
 // ----------------------------------------------------------------------------
 {
+    armreg_t sz = hw_local(e.src);
+    emit32le(mov_rr(rn(HW_R0), rn(sz)));
+    // size = (size > 0 ? size + 7 : size) & ~7
+    emit32le(add_imm(rn(HW_R1), rn(HW_R0), 7));
+    emit32le(cmp_r_imm(rn(HW_R0), 0));
+    hwcode_t jle = emit_bcond_rel(COND_LE);
+    emit32le(mov_rr(rn(HW_R0), rn(HW_R1)));
+    patch(jle, cursor(), true);
+    emit32le(bic_imm(rn(HW_R0), rn(HW_R0), 7));
+    emit32le(sub_rrr(rn(HW_SP), rn(HW_SP), rn(HW_R0)));
+    emit32le(mov_rr(rn(hw_local(e.dst)), rn(HW_SP)));
 }
 
 

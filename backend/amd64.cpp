@@ -130,13 +130,13 @@ amd64::reginfo amd64::register_definition(hwreg_t reg) const
 
 void amd64::prologue()
 // ----------------------------------------------------------------------------
-//   Emit standard function prologue
+//   Push callee-saved registers only; do not move the frame pointer
 // ----------------------------------------------------------------------------
 {
     record(amd64, "prologue");
 
     // SysV and Win64: rbx,rbp,r12,r15 are callee-saved.  r12/r15 hold
-    // frame/flags for the whole translation
+    // frame/flags for the whole translation.  rbp is owned by enter/leave.
     emit_push_reg(HW_RBX);
     emit_push_reg(HW_R12);
     emit_push_reg(HW_R15);
@@ -145,7 +145,7 @@ void amd64::prologue()
 
 void amd64::epilogue()
 // ----------------------------------------------------------------------------
-//   Emit epilogue (restore callee-saved) and return
+//   Pop prologue callee-saves and return (SP must already be at that block)
 // ----------------------------------------------------------------------------
 {
     record(amd64, "epilogue()");

@@ -171,11 +171,16 @@ protected:
 
     int arg_disp(int n) const
     // ------------------------------------------------------------------------
-    //   Return stack displacement for argument (skip saved FP+LR)
+    //   Displacement from FP to argument n (enter FP+LR + prologue)
     // ------------------------------------------------------------------------
     {
-        return n * int(sizeof(ularge_t)) + 2 * int(pointer_size());
+        return n * int(sizeof(ularge_t))
+             + 2 * int(pointer_size())
+             + int(PROLOGUE_SAVE_BYTES);
     }
+
+    // push {r4-r8, r10, fp, lr} — 8 registers × 4 bytes
+    static constexpr uint PROLOGUE_SAVE_BYTES = 32;
 
 
     // ========================================================================

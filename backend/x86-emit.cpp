@@ -219,7 +219,8 @@ EMIT(ret)
 // ----------------------------------------------------------------------------
 {
     spill_all();
-    emit_insn_ret();
+    // Epilogue pops prologue saves and returns.
+    epilogue();
 }
 
 
@@ -271,7 +272,11 @@ EMIT(enter)
     }
     emit_push_reg(HW_FRAME);
     emit_mov_rr(HW_FRAME, HW_RSP);
-    emit_sub_rsp_imm(e.dst * sizeof(ularge_t));
+    // Keep SP 16-byte aligned on x86-64.
+    int32_t bytes = int32_t(e.dst * sizeof(ularge_t));
+    if (ptr64())
+        bytes = (bytes + 15) & ~15;
+    emit_sub_rsp_imm(bytes);
 }
 
 
@@ -1376,17 +1381,44 @@ SYS(free)
 
 SYS(alloca)
 // ----------------------------------------------------------------------------
-//
+//   Bump SP for a constant size; return new SP in dst
 // ----------------------------------------------------------------------------
 {
-}
+    int align = ptr64() ? 16 : 8;
+    int64_t bytes = int64_t(e.kint);
+    if (bytes > 0)
+        bytes = (bytes + align - 1) & ~int64_t(align - 1);
+    else
+        bytes = bytes & ~int64_t(align - 1);
 
+    if (bytes > 0)
+        emit_sub_rsp_imm(int32_t(bytes));
+    else if (bytes < 0)
+        emit_add_rsp_imm(int32_t(-bytes));
+    emit_mov_rr(hw_local(e.dst), HW_RSP);
+}
 
 SYS(valloca)
 // ----------------------------------------------------------------------------
-//
+//   Bump SP by signed size in src; return new SP in dst
 // ----------------------------------------------------------------------------
 {
+    x86reg_t sz = hw_local(e.src);
+    x86reg_t t  = HW_RAX;
+    emit_mov_rr(t, sz);
+    // size = (size > 0 ? size + (align-1) : size) & ~(align-1)
+    int align = ptr64() ? 16 : 8;
+    set_imm(HW_RCX, uint64_t(align - 1));
+    emit_mov_rr(HW_RDX, t);
+    emit_add_rr(HW_RDX, HW_RCX);          // size + (align-1)
+    emit_test_rr(t, t);
+    hwcode_t jle = emit_jcc_rel8(JCC_JLE); // size <= 0 → keep t
+    emit_mov_rr(t, HW_RDX);
+    patch(jle, cursor(), true);
+    set_imm(HW_RCX, ~uint64_t(align - 1));
+    emit_and_rr(t, HW_RCX);
+    emit_sub_rr(HW_RSP, t);
+    emit_mov_rr(hw_local(e.dst), HW_RSP);
 }
 
 

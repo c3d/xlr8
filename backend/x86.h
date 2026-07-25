@@ -215,12 +215,20 @@ protected:
 
     int arg_disp(int n) const
     // ------------------------------------------------------------------------
-    //   Return stack displacement for argument
+    //   Displacement from FP to argument n (enter pad + RA + prologue)
     // ------------------------------------------------------------------------
     {
-        // Base is after FP, optional flag in 32-bit mode, and PC
-        const int base = pointer_size() * (2 + !ptr64());
-        return n * sizeof(ularge_t) + base;
+        // Enter pushes FP (+ flags high half on i386); return address sits
+        // above the prologue callee-saves.  Skip enter pad + RA + prologue.
+        const int enter_and_ra = pointer_size() * (2 + !ptr64());
+        const int prologue     = int(PROLOGUE_SAVE_BYTES());
+        return n * int(sizeof(ularge_t)) + enter_and_ra + prologue;
+    }
+
+    // ebx/esi/edi (i386) or rbx/r12/r15 (amd64): 3 pointer-sized pushes.
+    uint PROLOGUE_SAVE_BYTES() const
+    {
+        return 3u * pointer_size();
     }
 
 

@@ -223,7 +223,7 @@ EMIT(ret)
 // ----------------------------------------------------------------------------
 {
     spill_all();
-    emit32le(ret_insn());
+    epilogue();
 }
 
 
@@ -273,8 +273,9 @@ EMIT(enter)
     emit_store_abi_word(HW_RA,    HW_SP, pointer_size());
     emit_store_abi_word(HW_FRAME, HW_SP, 0);
     emit32le(mv_rr(xn(HW_FRAME), xn(HW_SP)));
-    // Allocate locals
+    // Allocate locals; keep SP 16-byte aligned.
     uint bytes = uint(e.dst) * uint(sizeof(ularge_t));
+    bytes = (bytes + 15u) & ~15u;
     if (bytes > 0 && bytes <= 2047u)
         emit32le(addi(xn(HW_SP), xn(HW_SP), -int(bytes)));
     else if (bytes > 2047u)
@@ -289,9 +290,9 @@ EMIT(leave)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the leave opcode
 // ----------------------------------------------------------------------------
-//   Restores FP/RA only — does not return.  If the next opcode is ret,
-//   emit return and consume that ret.  Branches that target the ret
-//   bytecode are translated separately when that label is picked up.
+//   Restores FP/RA and SP (drops locals/alloca).  If the next opcode is ret,
+//   fold into epilogue.  Branches that target the ret bytecode are
+//   translated separately when that label is picked up.
 {
     record(riscv64_ops, "emit_leave");
     int link = 2 * int(pointer_size());
@@ -303,8 +304,8 @@ EMIT(leave)
     if (e.pc < e.end && op_t(*e.pc) == op_ret)
     {
         e.pc++;
-        emit32le(ret_insn());
-        record(riscv64_ops, "emit_leave+ret");
+        record(riscv64_ops, "emit_leave+ret -> epilogue");
+        epilogue();
     }
 }
 
@@ -1394,17 +1395,42 @@ SYS(free)
 
 SYS(alloca)
 // ----------------------------------------------------------------------------
-//
+//   Bump SP for a constant size (16-byte aligned); return new SP in dst
 // ----------------------------------------------------------------------------
 {
-}
+    int64_t bytes = int64_t(e.kint);
+    if (bytes > 0)
+        bytes = (bytes + 15) & ~int64_t(15);
+    else
+        bytes = bytes & ~int64_t(15);
 
+    if (bytes > 0 && bytes <= 2047)
+        emit32le(addi(xn(HW_SP), xn(HW_SP), -int(bytes)));
+    else if (bytes < 0 && -bytes <= 2047)
+        emit32le(addi(xn(HW_SP), xn(HW_SP), int(-bytes)));
+    else if (bytes != 0)
+    {
+        load_imm64(HW_IP, uint64_t(bytes));
+        emit32le(sub_rr(xn(HW_SP), xn(HW_SP), xn(HW_IP)));
+    }
+    emit32le(mv_rr(xn(hw_local(e.dst)), xn(HW_SP)));
+}
 
 SYS(valloca)
 // ----------------------------------------------------------------------------
-//
+//   Bump SP by signed size in src (16-byte aligned); return new SP in dst
 // ----------------------------------------------------------------------------
 {
+    riscv64reg_t sz = hw_local(e.src);
+    emit32le(mv_rr(xn(HW_X10), xn(sz)));
+    // size = (size > 0 ? size + 15 : size) & ~15
+    emit32le(addi(xn(HW_X11), xn(HW_X10), 15));
+    emit32le(bge_imm(0, xn(HW_X10), 8)); // size <= 0 → skip mv
+    emit32le(mv_rr(xn(HW_X10), xn(HW_X11)));
+    load_imm64(HW_IP, ~uint64_t(15));
+    emit32le(and_rr(xn(HW_X10), xn(HW_X10), xn(HW_IP)));
+    emit32le(sub_rr(xn(HW_SP), xn(HW_SP), xn(HW_X10)));
+    emit32le(mv_rr(xn(hw_local(e.dst)), xn(HW_SP)));
 }
 
 

@@ -219,8 +219,8 @@ EMIT(ret)
 // ----------------------------------------------------------------------------
 {
     spill_all();
+    // Epilogue pops prologue saves and returns; do not emit a second ret.
     epilogue();
-    emit32le(ret_insn());
 }
 
 
@@ -267,13 +267,18 @@ EMIT(enter)
     frame_size(e.dst);
     emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
     emit32le(mov_rr(HW_FRAME, HW_SP));
+    // Keep SP 16-byte aligned (AAPCS64).
     uint bytes = uint(e.dst) * uint(sizeof(ularge_t));
+    bytes = (bytes + 15u) & ~15u;
     if (bytes <= 0xfffu)
         emit32le(sub_imm(HW_SP, HW_SP, bytes));
     else
     {
+        // sub (shifted reg) treats Rn/Rd=31 as XZR; go via X17 for SP.
         set_imm(HW_SCRATCH, bytes);
-        emit32le(sub_rrr(HW_SP, HW_SP, HW_SCRATCH));
+        emit32le(mov_rr(HW_X17, HW_SP));
+        emit32le(sub_rrr(xn(HW_X17), xn(HW_X17), xn(HW_SCRATCH)));
+        emit32le(mov_rr(HW_SP, HW_X17));
     }
 }
 
@@ -1391,20 +1396,44 @@ SYS(free)
 
 SYS(alloca)
 // ----------------------------------------------------------------------------
-//
+//   Bump SP for a constant size (16-byte aligned); return new SP in dst
 // ----------------------------------------------------------------------------
 {
-    emit32be(sub_imm(xn(HW_SP), xn(HW_SP), e.kint));
+    int64_t bytes = int64_t(e.kint);
+    if (bytes > 0)
+        bytes = (bytes + 15) & ~int64_t(15);
+    else
+        bytes = bytes & ~int64_t(15);
+
+    if (bytes > 0 && uint64_t(bytes) <= 0xfffu)
+        emit32le(sub_imm(HW_SP, HW_SP, uint(bytes)));
+    else if (bytes < 0 && uint64_t(-bytes) <= 0xfffu)
+        emit32le(add_imm(HW_SP, HW_SP, uint(-bytes)));
+    else if (bytes != 0)
+    {
+        set_imm(HW_SCRATCH, uint64_t(bytes));
+        emit32le(mov_rr(HW_X17, HW_SP));
+        emit32le(sub_rrr(xn(HW_X17), xn(HW_X17), xn(HW_SCRATCH)));
+        emit32le(mov_rr(HW_SP, HW_X17));
+    }
     MOVX(XI(e.dst), HW_SP);
 }
 
 SYS(valloca)
 // ----------------------------------------------------------------------------
-//
+//   Bump SP by signed size in src (16-byte aligned); return new SP in dst
 // ----------------------------------------------------------------------------
 {
+    // size = (size > 0 ? size + 15 : size) & ~15
     MOVX(HW_X0, XI(e.src));
-    emit32be(sub_rrr(xn(HW_SP), xn(HW_SP), xn(HW_X0)));
+    emit32le(add_imm(xn(HW_X1), xn(HW_X0), 15));
+    emit32le(cmp_r_imm(xn(HW_X0), 0));
+    emit32le(csel_rrr(xn(HW_X0), xn(HW_X1), xn(HW_X0), COND_GT));
+    set_imm(HW_SCRATCH, ~uint64_t(15));
+    emit32le(and_rrr(xn(HW_X0), xn(HW_X0), xn(HW_SCRATCH)));
+    emit32le(mov_rr(HW_X17, HW_SP));
+    emit32le(sub_rrr(xn(HW_X17), xn(HW_X17), xn(HW_X0)));
+    emit32le(mov_rr(HW_SP, HW_X17));
     MOVX(XI(e.dst), HW_SP);
 }
 

@@ -253,12 +253,19 @@ protected:
         return ~n * int(sizeof(ularge_t));
     }
 
+    // Prologue pushes x19–x28 (5×16) then FP+LR (16), without moving FP.
+    // After enter (stp FP,LR; mov FP,SP), those bytes sit above the enter
+    // record, so get/set must skip them as well as the enter's FP+LR pair.
+    static constexpr uint PROLOGUE_SAVE_BYTES = 96;
+
     int arg_disp(int n) const
     // ------------------------------------------------------------------------
-    //   Return stack displacement for argument (skip saved FP+LR)
+    //   Displacement from FP to argument n (above enter record + prologue)
     // ------------------------------------------------------------------------
     {
-        return n * int(sizeof(ularge_t)) + 16;
+        return n * int(sizeof(ularge_t))
+             + 2 * int(sizeof(ularge_t))   // enter's saved FP+LR
+             + int(PROLOGUE_SAVE_BYTES);
     }
 
 

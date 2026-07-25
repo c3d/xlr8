@@ -913,8 +913,9 @@ void x86::rel32_function(tok_t tok, hwcode_t site)
 
 void x86::prologue()
 // ----------------------------------------------------------------------------
-//   Emit standard function prologues
+//   Push callee-saved registers only; do not move the frame pointer
 // ----------------------------------------------------------------------------
+//   enter/leave own FP.  After leave, SP points here for epilogue to pop.
 {
     record(x86, "prologue");
 
@@ -928,7 +929,7 @@ void x86::prologue()
 
 void x86::epilogue()
 // ----------------------------------------------------------------------------
-//   Emit epilogue (restore callee-saved) and return
+//   Pop prologue callee-saves and return (SP must already be at that block)
 // ----------------------------------------------------------------------------
 {
     record(x86, "epilogue()");

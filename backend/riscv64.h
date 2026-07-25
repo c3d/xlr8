@@ -186,11 +186,16 @@ protected:
 
     int arg_disp(int n) const
     // ------------------------------------------------------------------------
-    //   Return stack displacement for argument (skip saved FP+RA)
+    //   Displacement from FP to argument n (enter FP+RA + prologue)
     // ------------------------------------------------------------------------
     {
-        return n * int(sizeof(ularge_t)) + 2 * int(pointer_size());
+        return n * int(sizeof(ularge_t))
+             + 2 * int(pointer_size())
+             + int(PROLOGUE_SAVE_BYTES);
     }
+
+    // 13 callee-saved words (ra,s0,s1,s2–s11), padded to 16-byte alignment.
+    static constexpr uint PROLOGUE_SAVE_BYTES = 112;
 
 
     // ========================================================================

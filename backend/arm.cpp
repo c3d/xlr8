@@ -1034,7 +1034,7 @@ void arm::prologue()
 // ----------------------------------------------------------------------------
 //   Leave r11 (HW_FRAME) alone: invoke_* points it at the caller-provided
 //   8-slot initial frame.  Save/restore r11 so a nested enter/leave mismatch
-//   cannot leak back to C.
+//   cannot leak back to C.  Do not mov fp, sp — enter owns FP.
 {
     record(arm, "prologue");
     // push {r4-r8, r10, fp, lr} — do not mov fp, sp
@@ -1052,7 +1052,7 @@ void arm::prologue()
 
 void arm::epilogue()
 // ----------------------------------------------------------------------------
-//   Restore callee-saved registers, FP/LR, and return via bx lr
+//   Pop prologue callee-saves and return (SP must already be at that block)
 // ----------------------------------------------------------------------------
 {
     record(arm, "epilogue");
