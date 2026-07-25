@@ -574,7 +574,7 @@ void backend::emit_user(backend::emit_args &args)
 //
 // ============================================================================
 
-hwreg_t backend::local(local_t loc, hwspec_t spec, hwspec_t needed)
+hwreg_t backend::local(local_t loc, bool ld, hwspec_t spec, hwspec_t needed)
 // ----------------------------------------------------------------------------
 //  The default register allocator when loading locals
 // ----------------------------------------------------------------------------
@@ -585,7 +585,7 @@ hwreg_t backend::local(local_t loc, hwspec_t spec, hwspec_t needed)
     {
         record(backend_warning,
                "Local %u is out of frame size %u", loc, local_reg.size());
-        local_reg.resize(loc + 1);
+        local_reg.resize(loc + 1, NO_REGISTER);
     }
 
     // Check if we have a register currently holding this local
@@ -634,7 +634,7 @@ hwreg_t backend::local(local_t loc, hwspec_t spec, hwspec_t needed)
                         local_reg[rloc] = NO_REGISTER;
                         reg_local[r] = NO_LOCAL;
                     }
-                    if (load(r, loc))
+                    if (!ld || load(r, loc))
                     {
                         local_reg[loc] = r;
                         reg_local[r] = loc;

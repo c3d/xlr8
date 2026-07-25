@@ -659,7 +659,7 @@ void arm64::mov_local(local_t dst, local_t src)
 {
     record(arm64, "mov_local [%u]=[%u]", dst, src);
     hwreg_t sreg = local(src);
-    hwreg_t dreg = local(dst);
+    hwreg_t dreg = local(dst, false);
     move(dreg, sreg);
 }
 
@@ -684,7 +684,7 @@ void arm64::store_imm(local_t d, value_t v)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "store_imm [%u]=%lld", d, v);
-    arm64reg_t dreg = hw_local(d);
+    arm64reg_t dreg = hw(local(d, false));
     set_imm(dreg, uint64_t(v));
 }
 
@@ -695,7 +695,7 @@ void arm64::store_float(local_t d, float v)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "store_flt [%u] = %g", d, v);
-    arm64reg_t dreg = hw(local(d, RSPEC_FLT, RSPEC_CALL));
+    arm64reg_t dreg = hw(local(d, false, RSPEC_FLT, RSPEC_CALL));
     uint32_t bits = 0;
     memcpy(&bits, &v, sizeof(bits));
     set_imm(HW_SCRATCH, bits);
@@ -709,7 +709,7 @@ void arm64::store_double(local_t d, double v)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "store_dbl [%u] = %g", d, v);
-    arm64reg_t dreg = hw(local(d, RSPEC_DBL, RSPEC_CALL));
+    arm64reg_t dreg = hw(local(d, false, RSPEC_DBL, RSPEC_CALL));
     uint64_t bits = 0;
     memcpy(&bits, &v, sizeof(bits));
     set_imm(HW_SCRATCH, bits);

@@ -418,7 +418,7 @@ void arm::mov_local(local_t dst, local_t src)
 {
     record(arm, "mov_local [%u]=[%u]", dst, src);
     hwreg_t sreg = local(src);
-    hwreg_t dreg = local(dst);
+    hwreg_t dreg = local(dst, false);
     move(dreg, sreg);
 }
 
@@ -443,7 +443,7 @@ void arm::store_imm(local_t d, value_t v)
 // ----------------------------------------------------------------------------
 {
     record(arm, "store_imm [%u]=%lld", d, v);
-    armreg_t dreg = hw_local(d);
+    armreg_t dreg = hw(local(d, false));
     load_imm32(dreg, uint32_t(v));
 }
 
@@ -456,7 +456,7 @@ void arm::store_float(local_t d, float v)
     record(arm, "store_float [%u]=%g", d, v);
     uint32_t bits = 0;
     memcpy(&bits, &v, sizeof(bits));
-    armreg_t dreg = hw_local(d);
+    armreg_t dreg = hw(local(d, false));
     load_imm32(dreg, bits);
 }
 
@@ -473,7 +473,7 @@ void arm::store_double(local_t d, double v)
     uint32_t hi = uint32_t(bits >> 32);
     if (!frame_active)
     {
-        armreg_t dreg = hw_local(d);
+        armreg_t dreg = hw(local(d, false));
         load_imm32(dreg, lo);
         return;
     }
