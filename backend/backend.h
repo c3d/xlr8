@@ -164,6 +164,8 @@ struct backend
 
     virtual void     begin_translation();
     virtual void     finish_translation();
+    // Commit live regs to the frame and drop maps (e.g. at opcode/BB entry).
+    virtual void     sync_registers() {}
     virtual hwreg_t  local(local_t  loc, bool load,
                            hwspec_t spec   = RSPEC_INT,
                            hwspec_t needed = 0);
@@ -302,6 +304,10 @@ protected:
 
     using tokens = std::vector<tok_t>;
     tokens       functions;     // Functions remaining to translate
+
+    // True while translating a callee body (after the entry unit).
+    // Targets use this to seed host-ABI register args (e.g. x0–x7).
+    bool         callee_entry = false;
 
     friend struct translation_compare;
     template<typename T> static auto lower_bound(const translations &, T);

@@ -96,9 +96,31 @@ void arm64::begin_translation()
 //   Save callee-saved regs used by the JIT
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "begin_translation");
+    record(arm64, "begin_translation callee=%u", callee_entry);
     backend::begin_translation();
     prologue();
+    // Nested functions: seed local 0 from AAPCS64 x0.  No frame yet — do not
+    // spill through the caller's FP until enter().
+    // Entry/unit code uses the invoke-provided frame immediately.
+    have_frame = !callee_entry;
+    if (callee_entry)
+    {
+        local_reg[0] = HW_X0;
+        reg_local[HW_X0] = 0;
+    }
+}
+
+
+void arm64::sync_registers()
+// ----------------------------------------------------------------------------
+//   Spill and drop maps at opcode boundaries once a frame is active
+// ----------------------------------------------------------------------------
+//   Makes backward branches safe: the loop head always reloads from the frame.
+{
+    if (!have_frame)
+        return;
+    spill_all();
+    forget_registers();
 }
 
 
@@ -319,10 +341,12 @@ arm64::reginfo arm64::register_definition(hwreg_t reg) const
 // ----------------------------------------------------------------------------
 {
     // Prefer callee-saved allocatable GPRs so values survive sys/helper calls.
-    // x0-x18 are call-clobbered — keep them non-allocatable for now.
+    // x0-x7 hold AAPCS64 args/return at call boundaries but are not allocatable.
     // x16 SCRATCH, x22 FLAGS, x29 FRAME, x30 LR, sp: not allocatable.
     static const reginfo arm64_registers[arm64::HW_COUNT] =
     {
+        // x0–x7: AAPCS64 args/return — not generally allocatable so locals
+        // are evacuated to callee-saved regs before helper/SYS calls.
         {  "x0",                       0 },
         {  "x1",                       0 },
         {  "x2",                       0 },

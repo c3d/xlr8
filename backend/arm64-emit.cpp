@@ -175,12 +175,40 @@ EMIT(jmp)
 
 EMIT(call)
 // ----------------------------------------------------------------------------
-//   Emit bytecode for the call opcode
+//   Emit bytecode for the call opcode (AAPCS64 / host ABI)
 // ----------------------------------------------------------------------------
+//   Locals 0–7 → x0–x7; same eight words stored in an outgoing home area so
+//   the callee's get/set can use fixed FP offsets above enter+prologue.
+//   Return value arrives in x0 and becomes local 0.
 {
     spill_all();
+    // Materialize bytecode args into the AAPCS64 argument registers.
+    size_t nslots = frame_size();
+    for (int i = 0; i < 8; i++)
+    {
+        if (size_t(i) < nslots)
+            emit_load_off(arm64reg_t(i), HW_FRAME, local_disp(i));
+        else
+            set_imm(arm64reg_t(i), 0);
+    }
+
+    // Outgoing register-arg homes (8×8, 16-byte aligned).
+    emit32le(sub_imm(xn(HW_SP), xn(HW_SP), 64));
+    for (int i = 0; i < 8; i++)
+        emit32le(str_off(uint(i), xn(HW_SP), uint(i)));
+
     hwcode_t site = emit_bl_rel();
     rel_function(e.tok, site);
+
+    emit32le(add_imm(xn(HW_SP), xn(HW_SP), 64));
+    // AAPCS64 return value → bytecode local 0 (frame, not x0: x0 is
+    // call-clobbered by later SYS helpers).
+    emit_store_off(HW_FRAME, HW_X0, local_disp(0));
+    if (local_reg.size() <= 0)
+        local_reg.resize(1, NO_REGISTER);
+    local_reg[0] = NO_REGISTER;
+    if (HW_X0 < reg_local.size() && reg_local[HW_X0] == 0)
+        reg_local[HW_X0] = NO_LOCAL;
     record(arm64_ops, "emit_call %llu", e.tok);
 }
 
@@ -216,7 +244,11 @@ EMIT(ret)
 //   Emit bytecode for the ret opcode
 // ----------------------------------------------------------------------------
 {
-    spill_all();
+    // AAPCS64 return in x0: prefer live local 0, else leave x0 as set by set/arg0.
+    if (local_reg.size() > 0 && local_reg[0] != NO_REGISTER &&
+        local_reg[0] != HW_X0)
+        emit32le(mov_rr(xn(HW_X0), xn(arm64reg_t(local_reg[0]))));
+    // Do not spill_all — that would write through the caller's FP before enter.
     // Epilogue pops prologue saves and returns; do not emit a second ret.
     epilogue();
 }
@@ -261,7 +293,26 @@ EMIT(enter)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_enter %u", e.dst);
-    // Spill outer locals into the caller frame, then size the new window.
+    // Interpreter semantics: pre-enter ops mutate the caller/arg window, then
+    // enter snapshots that window as args[].  Flush locals 0–7 into x0–x7 and
+    // the outgoing home area above the prologue so get/set see those updates.
+    for (int i = 0; i < 8; i++)
+    {
+        if (size_t(i) < local_reg.size() && local_reg[i] != NO_REGISTER)
+        {
+            arm64reg_t r = arm64reg_t(local_reg[i]);
+            if (r != arm64reg_t(i))
+                emit32le(mov_rr(xn(arm64reg_t(i)), xn(r)));
+        }
+        else if (i > 0)
+            set_imm(arm64reg_t(i), 0);
+        // else leave x0 as-is when local 0 was never touched
+    }
+    for (int i = 0; i < 8; i++)
+        emit32le(str_off(uint(i), xn(HW_SP),
+                          uint(PROLOGUE_SAVE_BYTES / sizeof(ularge_t) + i)));
+
+    forget_registers();
     frame_size(e.dst);
     emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
     emit32le(mov_rr(HW_FRAME, HW_SP));
@@ -278,6 +329,7 @@ EMIT(enter)
         emit32le(sub_rrr(xn(HW_X17), xn(HW_X17), xn(HW_SCRATCH)));
         emit32le(mov_rr(HW_SP, HW_X17));
     }
+    have_frame = true;
 }
 
 
@@ -317,6 +369,9 @@ EMIT(set)
     record(arm64_ops, "emit_set %u = [%u] reg %u offs %d",
            e.dst, e.src, sr, off);
     emit_store_off(HW_FRAME, sr, off);
+    // Arg 0 is also the AAPCS64 return register.
+    if (e.dst == 0 && sr != HW_X0)
+        emit32le(mov_rr(xn(HW_X0), xn(sr)));
 }
 
 
@@ -1336,7 +1391,7 @@ EMIT(ddiv)
 
 // Arm64 SYS emitters covering native.tbl
 #define SYS(op) void arm64::emit_sys_##op(emit_args &e)
-#define XI(loc)  hw_local(loc)
+#define XI(loc)  hw(local((loc), RSPEC_INT, RSPEC_CALL))
 #define XF(loc)  hw(local((loc), RSPEC_FLT, RSPEC_CALL))
 #define XD(loc)  hw(local((loc), RSPEC_DBL, RSPEC_CALL))
 // Cast through uintptr_t so overloaded C++ libc/math symbols resolve

@@ -400,6 +400,7 @@ bool backend::translate(byte_p pc, byte_p end)
     {
         // Insert translation in address map
         byte_p insn = pc;
+        sync_registers();
         label(pc, cursor());
 
         // Run that opcode
@@ -481,6 +482,7 @@ bool backend::translate(byte_p pc, byte_p end)
                        "Picking up function %p..%p", pc, end);
                 label(pc, cursor());
                 functions.erase(fn);
+                callee_entry = true;
                 begin_translation();
                 continue;
             }
@@ -750,9 +752,12 @@ void backend::forget_registers()
 // ----------------------------------------------------------------------------
 //   Call after FP is restored (or when the current frame is being discarded)
 //   so the next local() reloads from the caller-provided / outer frame.
+//   Preserve local_reg.size() — it is the enter/frame slot count; shrinking
+//   it back to DEFAULT_FRAME_SIZE would make spill/local_disp write past the
+//   allocated stack window and corrupt saved FP/LR.
 {
     std::fill(reg_local.begin(), reg_local.end(), NO_LOCAL);
-    local_reg.assign(DEFAULT_FRAME_SIZE, NO_REGISTER);
+    std::fill(local_reg.begin(), local_reg.end(), NO_REGISTER);
 }
 
 

@@ -34,7 +34,9 @@
 //  ===========================================================================
 //
 //  Locals use [x29 - (local+1)*8]; x29 is adjusted by op_enter and op_leave.
-//  Args use [x29 + arg*8 + 16] (skip saved FP+LR).
+//  JIT calls use the host AAPCS64 ABI: args 0–7 in x0–x7, return in x0.
+//  Callers also store those eight words in an outgoing home area so get/set
+//  can use fixed FP offsets: [x29 + 16 + prologue + arg*8].
 //  Flags (predicates) live in x22 (HW_FLAGS).
 //
 //  Register map:
@@ -786,6 +788,7 @@ protected:
     virtual void prologue();
     virtual void epilogue();
     void         call_ptr(void (*fn)());
+    void         sync_registers() override;
     template <typename T, typename... U>
     void call_ptr(T (*fn)(U...))
     {
@@ -794,6 +797,8 @@ protected:
     void dispatch(local_t loc, byte_p &pc, byte cond);
 
 protected:
+    // False for nested callees until op_enter (avoids spilling through caller FP).
+    bool          have_frame = true;
     using relocations_t = std::vector<hwcode_t>;
     relocations_t relocations;
 };
