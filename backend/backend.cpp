@@ -453,6 +453,8 @@ bool backend::translate(byte_p pc, byte_p end)
             }
 
             // No branch left in this function, pick up the next function
+            finish_translation();
+
             auto fn = functions.begin();
             if (fn != functions.end())
             {
@@ -465,12 +467,11 @@ bool backend::translate(byte_p pc, byte_p end)
                 record(backend,
                        "Picking up function %p..%p", args.pc, args.end);
                 functions.erase(fn);
+                begin_translation();
                 continue;
             }
         }
     }
-
-    finish_translation();
 
     if (args.error)
         record(backend_error, "Error during translation: %+s", args.error);
@@ -549,10 +550,6 @@ void backend::begin_translation()
 
     reg_local.clear();
     local_reg.clear();
-    labels.clear();
-    branches.clear();
-    jumps.clear();
-    functions.clear();
 
     // Default assignment for registers and locals
     reg_local.resize(registers(), NO_LOCAL);
