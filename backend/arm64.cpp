@@ -113,21 +113,15 @@ void arm64::finish_translation()
 }
 
 
-void arm64::patch(hwcode_t pos, hwcode_t pvalue, bool rel)
+void arm64::patch(hwcode_t pos, hwcode_t pvalue, uint flags)
 // ----------------------------------------------------------------------------
 //   Patch a recorded branch (B / B.cond / CBZ / TBZ) to jump to target
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "patch %+s pos=%llu target=%llu",
-           rel ? "relative" : "absolute", pos, pvalue);
+    record(arm64, "patch pos=%llu target=%llu flags=0x%X",
+           pos, pvalue, flags);
 
     section &sec = code();
-    if (!rel)
-    {
-        record(arm64_error, "Absolute patch not supported at %llu", pos);
-        return;
-    }
-
     int64_t  byte_off = int64_t(pvalue) - int64_t(pos);
     if (byte_off & 3)
     {
@@ -907,7 +901,7 @@ void arm64::set_pred_cmp(byte p, byte cond)
     hwcode_t cbz_pos = emit_cbz_rel(HW_SCRATCH);
     set_imm(HW_X17, 1ULL << p);
     emit32le(orr_rrr(xn(HW_FLAGS), xn(HW_FLAGS), xn(HW_X17)));
-    patch(cbz_pos, cursor(), true);
+    patch(cbz_pos, cursor());
 }
 
 
@@ -960,7 +954,7 @@ void arm64::cond_mov_local(byte p, local_t d, local_t s)
     record(arm64, "cond_mov_local(%u, %u, %u)", p, d, s);
     hwcode_t skip = emit_tbz_rel(HW_FLAGS, p);
     mov_local(d, s);
-    patch(skip, cursor(), true);
+    patch(skip, cursor());
 }
 
 
@@ -973,9 +967,9 @@ void arm64::select_local(byte p, local_t d, local_t s, byte x)
     hwcode_t jclear = emit_tbz_rel(HW_FLAGS, p);
     mov_local(d, s);
     hwcode_t jend = emit_b_rel();
-    patch(jclear, cursor(), true);
+    patch(jclear, cursor());
     mov_local(d, x);
-    patch(jend, cursor(), true);
+    patch(jend, cursor());
 }
 
 
@@ -1198,7 +1192,7 @@ void arm64::rel_branch(byte_p target, hwcode_t site)
 {
     intptr_t off = branch(target, site);
     if (off)
-        patch(site, site + off, true);
+        patch(site, site + off);
 }
 
 
@@ -1209,7 +1203,7 @@ void arm64::rel_function(tok_t tok, hwcode_t site)
 {
     intptr_t off = function(tok, site);
     if (off)
-        patch(site, site + off, true);
+        patch(site, site + off);
 }
 
 

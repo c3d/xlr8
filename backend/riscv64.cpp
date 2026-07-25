@@ -107,21 +107,15 @@ void riscv64::finish_translation()
 }
 
 
-void riscv64::patch(hwcode_t pos, hwcode_t pvalue, bool rel)
+void riscv64::patch(hwcode_t pos, hwcode_t pvalue, uint flags)
 // ----------------------------------------------------------------------------
 //   Patch a recorded branch (J-type / B-type) to jump to target
 // ----------------------------------------------------------------------------
 {
-    record(riscv64, "patch %+s pos=%llu target=%llu",
-           rel ? "relative" : "absolute", pos, pvalue);
+    record(riscv64, "patch pos=%llu target=%llu flags=0x%X",
+           pos, pvalue, flags);
 
     section &sec = code();
-    if (!rel)
-    {
-        record(riscv64_error, "Absolute patch not supported at %llu", pos);
-        return;
-    }
-
     int32_t off = int32_t(int64_t(pvalue) - int64_t(pos));
     if (off & 1)
     {
@@ -1004,7 +998,7 @@ void riscv64::cond_mov_local(byte p, local_t d, local_t s)
     hwcode_t skip = cursor();
     emit32le(beq_imm(xn(HW_IP), 0, 0));
     mov_local(d, s);
-    patch(skip, cursor(), true);
+    patch(skip, cursor());
 }
 
 
@@ -1021,9 +1015,9 @@ void riscv64::select_local(byte p, local_t d, local_t s, byte x)
     mov_local(d, s);
     hwcode_t jend = cursor();
     emit32le(j_imm(0));
-    patch(jclear, cursor(), true);
+    patch(jclear, cursor());
     mov_local(d, x);
-    patch(jend, cursor(), true);
+    patch(jend, cursor());
 }
 
 
@@ -1364,7 +1358,7 @@ void riscv64::rel_branch(byte_p target, hwcode_t site)
 {
     intptr_t off = branch(target, site);
     if (off)
-        patch(site, site + off, true);
+        patch(site, site + off);
 }
 
 
@@ -1375,7 +1369,7 @@ void riscv64::rel_function(tok_t tok, hwcode_t site)
 {
     intptr_t off = function(tok, site);
     if (off)
-        patch(site, site + off, true);
+        patch(site, site + off);
 }
 
 

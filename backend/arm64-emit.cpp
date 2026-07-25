@@ -179,10 +179,8 @@ EMIT(call)
 // ----------------------------------------------------------------------------
 {
     spill_all();
-    emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
     hwcode_t site = emit_bl_rel();
     rel_function(e.tok, site);
-    emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
     record(arm64_ops, "emit_call %llu", e.tok);
 }
 

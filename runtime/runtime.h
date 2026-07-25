@@ -413,7 +413,8 @@ struct runtime
     }
 
 
-    bool resolve(tok_t id, tok_t called, byte_p &pc, bool err);
+    bool  resolve(tok_t id, tok_t called, byte_p &pc, bool err);
+    tok_t resolve(tok_t id);
     // ------------------------------------------------------------------------
     //   Check if we have resolved an external symbol
     // ------------------------------------------------------------------------

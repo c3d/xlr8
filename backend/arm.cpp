@@ -107,21 +107,15 @@ void arm::finish_translation()
 }
 
 
-void arm::patch(hwcode_t pos, hwcode_t pvalue, bool rel)
+void arm::patch(hwcode_t pos, hwcode_t pvalue, uint flags)
 // ----------------------------------------------------------------------------
 //   Patch a recorded branch (B / BL / B.cond) to jump to target
 // ----------------------------------------------------------------------------
 {
-    record(arm, "patch %+s pos=%llu target=%llu",
-           rel ? "relative" : "absolute", pos, pvalue);
+    record(arm, "patch pos=%llu target=%llu flags=0x%X",
+           pos, pvalue, flags);
 
     section &sec = code();
-    if (!rel)
-    {
-        record(arm_error, "Absolute patch not supported at %llu", pos);
-        return;
-    }
-
     int64_t byte_off = int64_t(pvalue) - int64_t(pos);
     // ARM PC reads as insn_addr + 8 in ARM mode
     int64_t pc_rel = byte_off - 8;
@@ -712,7 +706,7 @@ void arm::cond_mov_local(byte p, local_t d, local_t s)
     emit32le(tst_rr(rn(HW_FLAGS), rn(HW_IP)));
     hwcode_t skip = emit_bcond_rel(COND_EQ);
     mov_local(d, s);
-    patch(skip, cursor(), true);
+    patch(skip, cursor());
 }
 
 
@@ -727,9 +721,9 @@ void arm::select_local(byte p, local_t d, local_t s, byte x)
     hwcode_t jclear = emit_bcond_rel(COND_EQ);
     mov_local(d, s);
     hwcode_t jend = emit_b_rel();
-    patch(jclear, cursor(), true);
+    patch(jclear, cursor());
     mov_local(d, x);
-    patch(jend, cursor(), true);
+    patch(jend, cursor());
 }
 
 
@@ -979,7 +973,7 @@ void arm::rel_branch(byte_p target, hwcode_t site)
 {
     intptr_t off = branch(target, site);
     if (off)
-        patch(site, site + off, true);
+        patch(site, site + off);
 }
 
 
@@ -990,7 +984,7 @@ void arm::rel_function(tok_t tok, hwcode_t site)
 {
     intptr_t off = function(tok, site);
     if (off)
-        patch(site, site + off, true);
+        patch(site, site + off);
 }
 
 

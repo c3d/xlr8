@@ -283,18 +283,28 @@ intptr_t backend::function(tok_t tok, hwcode_t hwcode)
 //  Record that we have a call to a function offset
 // ----------------------------------------------------------------------------
 {
-    // Check if the function was already compiled, if so return its offset
+    // If we are pointing to some undefined function, use definition instead
+    tok = rt.resolve(tok);
     byte_p start = byte_p(rt.tok(tok));
-    auto   fn    = lower_bound(labels, start);
+    while (*start == op_undef)
+    {
+        start++;
+        tok = leb128<tok_t>(start);
+        tok = rt.resolve(tok);
+        start = byte_p(rt.tok(tok));
+    }
+
+    // Check if the function was already compiled, if so return its offset
+    auto fn = lower_bound(labels, start);
     if (fn != labels.end() && fn->bytecode == start)
         return fn->hwcode - hwcode;
 
-    // Otherwise, add it to the list of branches to patch
-    translation bt = { start, hwcode };
-    auto branch = lower_bound(branches, bt);
-    if (branch == branches.end() ||
-        branch->bytecode != start || branch->hwcode != hwcode)
-        branches.insert(branch, bt);
+    // Otherwise, add it to the list of calls to patch
+    translation ct = { start, hwcode };
+    auto call = lower_bound(calls, ct);
+    if (call == calls.end() ||
+        call->bytecode != start || call->hwcode != hwcode)
+        calls.insert(call, ct);
 
     // And add it to the list of functions to translate
     functions.push_back(tok);
@@ -313,22 +323,24 @@ uint backend::label(byte_p bytecode, hwcode_t hwcode)
     auto brange = equal_range(branches, bytecode);
     for (auto b = brange.first; b != brange.second; ++b)
     {
-        patch(b->hwcode, hwcode, true);
+        patch(b->hwcode, hwcode);
         count++;
     }
     branches.erase(brange.first, brange.second);
 
-    // Absolute jumps / calls waiting on this bytecode address
-    auto jrange = equal_range(jumps, bytecode);
-    for (auto j = jrange.first; j != jrange.second; ++j)
+    // Pending calls
+    auto crange = equal_range(calls, bytecode);
+    for (auto c = crange.first; c != crange.second; ++c)
     {
-        patch(j->hwcode, hwcode, false);
+        patch(c->hwcode, hwcode, 0x1);
         count++;
     }
-    jumps.erase(jrange.first, jrange.second);
+    calls.erase(crange.first, crange.second);
 
     // Record the mapping from bytecode to machine code for future branches
-    labels.emplace_back(translation{bytecode, hwcode});
+    auto insert = lower_bound(labels, bytecode);
+    if (insert == labels.end() || insert->bytecode != bytecode)
+        labels.emplace(insert, translation{bytecode, hwcode});
 
     return count;
 }
@@ -396,7 +408,8 @@ bool backend::translate(byte_p pc, byte_p end)
         args.op            = op;
         args.pc            = pc;
 
-        record(backend_ops, "%p: op %+s (%u)", insn, opcode_name(op), op);
+        record(backend_ops, "%p..%p: op %8+s (%u)",
+               insn, end, opcode_name(op), op);
         switch (op)
         {
 #define TRC(n)  record(backend_args, #n "=", args.n);
@@ -461,12 +474,12 @@ bool backend::translate(byte_p pc, byte_p end)
             {
                 tok_t  tok   = *fn;
                 size_t sz    = 0;
-                byte_p fndef = byte_p(rt.tok(tok, &sz));
-                byte_p fnend = fndef + sz;
-                args.pc      = fndef;
-                args.end     = fnend;
+                pc           = byte_p(rt.tok(tok, &sz));
+                end          = pc + sz;
+                args.end     = end;
                 record(backend,
-                       "Picking up function %p..%p", args.pc, args.end);
+                       "Picking up function %p..%p", pc, end);
+                label(pc, cursor());
                 functions.erase(fn);
                 begin_translation();
                 continue;

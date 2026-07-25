@@ -1414,7 +1414,7 @@ SYS(valloca)
     emit_test_rr(t, t);
     hwcode_t jle = emit_jcc_rel8(JCC_JLE); // size <= 0 → keep t
     emit_mov_rr(t, HW_RDX);
-    patch(jle, cursor(), true);
+    patch(jle, cursor());
     set_imm(HW_RCX, ~uint64_t(align - 1));
     emit_and_rr(t, HW_RCX);
     emit_sub_rr(HW_RSP, t);

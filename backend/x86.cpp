@@ -108,56 +108,44 @@ void x86::finish_translation()
 }
 
 
-void x86::patch(hwcode_t pos, hwcode_t pvalue, bool rel)
+void x86::patch(hwcode_t pos, hwcode_t pvalue, uint flags)
 // ----------------------------------------------------------------------------
 //   Patch a recorded branch (rel8 or rel32) to jump to target_native
 // ----------------------------------------------------------------------------
 {
-    record(x86, "patch %+s pos=%llu target=%llu",
-           rel ? "relative" : "absolute", pos, pvalue);
+    record(x86, "patch pos=%llu target=%llu flags=0x%X",
+           pos, pvalue, flags);
 
-    section &sec = code();
-    uint32_t value;
-    if (rel)
+    section  &sec    = code();
+    ptrdiff_t diff   = pvalue - pos;
+    int32_t   diff32 = int32_t(diff);
+    if (diff != diff32)
     {
-        ptrdiff_t diff   = pvalue - pos;
-        int32_t   diff32 = int32_t(diff);
-        if (diff != diff32)
-        {
-            record(x86_error,
-                   "Patching %lu with overflow offset 0x%llX-0x%llX=%lld",
-                   pos, pvalue, pos, diff);
-        }
+        record(x86_error,
+               "Patching %lu with overflow offset 0x%llX-0x%llX=%lld",
+               pos, pvalue, pos, diff);
+    }
 
-        // Short forms return the disp8 site; opcode is the preceding byte.
-        if (pos)
+    // Short forms return the disp8 site; opcode is the preceding byte.
+    if (pos)
+    {
+        byte op = sec[pos - 1];
+        if (op == 0xeb || (op & 0xf0) == 0x70)
         {
-            byte op = sec[pos - 1];
-            if (op == 0xeb || (op & 0xf0) == 0x70)
+            diff32 -= 1;
+            if (diff32 < -128 || diff32 > 127)
             {
-                diff32 -= 1;
-                if (diff32 < -128 || diff32 > 127)
-                {
-                    record(x86_error,
-                           "rel8 branch out of range off=%d",
-                           diff32);
-                    return;
-                }
-                sec.patch8(pos, byte(int8_t(diff32)));
+                record(x86_error,
+                       "rel8 branch out of range off=%d",
+                       diff32);
                 return;
             }
+            sec.patch8(pos, byte(int8_t(diff32)));
+            return;
         }
-        diff32 -= 4;
-        value = uint32_t(diff32);
     }
-    else
-    {
-        value = pvalue;
-        if (value != pvalue)
-            record(x86_error, "Patching %lu with overflow 0x%llX", pos, pvalue);
-    }
-
-    sec.patch32le(pos, value);
+    diff32 -= 4;
+    sec.patch32le(pos, uint32_t(diff32));
 }
 
 
@@ -663,7 +651,7 @@ void x86::cond_mov_local(byte p, local_t d, local_t s)
     emit_pred_test_bit(p);      // BT -> CF
     hwcode_t off = emit_jcc_rel8(JCC_JNC);     // skip if bit clear
     mov_local(d, s);
-    patch(off, cursor(), true);
+    patch(off, cursor());
 }
 
 
@@ -677,9 +665,9 @@ void x86::select_local(byte p, local_t d, local_t s, byte x)
     hwcode_t jnc_pos = emit_jcc_rel8(JCC_JNC); // bit clear -> pick x
     mov_local(d, s);
     hwcode_t jmp_pos = emit_jmp_rel8();
-    patch(jnc_pos, cursor(), true);
+    patch(jnc_pos, cursor());
     mov_local(d, x);
-    patch(jmp_pos, cursor(), true);
+    patch(jmp_pos, cursor());
 }
 
 
@@ -896,7 +884,7 @@ void x86::rel32_branch(byte_p target, hwcode_t site)
 {
     intptr_t off = branch(target, site);
     if (off)
-        patch(site, site + off, true);
+        patch(site, site + off);
 }
 
 
@@ -907,7 +895,7 @@ void x86::rel32_function(tok_t tok, hwcode_t site)
 {
     intptr_t off = function(tok, site);
     if (off)
-        patch(site, site + off, true);
+        patch(site, site + off);
 }
 
 

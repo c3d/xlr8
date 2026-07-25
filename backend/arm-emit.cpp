@@ -1418,7 +1418,7 @@ SYS(valloca)
     emit32le(cmp_r_imm(rn(HW_R0), 0));
     hwcode_t jle = emit_bcond_rel(COND_LE);
     emit32le(mov_rr(rn(HW_R0), rn(HW_R1)));
-    patch(jle, cursor(), true);
+    patch(jle, cursor());
     emit32le(bic_imm(rn(HW_R0), rn(HW_R0), 7));
     emit32le(sub_rrr(rn(HW_SP), rn(HW_SP), rn(HW_R0)));
     emit32le(mov_rr(rn(hw_local(e.dst)), rn(HW_SP)));

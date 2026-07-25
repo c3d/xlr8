@@ -119,7 +119,7 @@ mov  fp, sp
 void arm::rel_branch(byte_p target, hwcode_t site) {
     intptr_t off = branch(target, site);
     if (off)
-        patch(site, site + off, true);
+        patch(site, site + off);
 }
 ```
 

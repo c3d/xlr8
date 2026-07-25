@@ -515,6 +515,18 @@ bool runtime::resolve(tok_t id, tok_t called, byte_p &pc, bool err)
 }
 
 
+tok_t runtime::resolve(tok_t id)
+// ----------------------------------------------------------------------------
+//   Return defined token if any
+// ----------------------------------------------------------------------------
+{
+    auto it = defined.find(id);
+    if (it != defined.end())
+        return it->second;
+    return id;
+}
+
+
 
 // ============================================================================
 //

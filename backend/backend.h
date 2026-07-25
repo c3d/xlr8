@@ -189,18 +189,18 @@ struct backend
     // ========================================================================
 
     // Target definition
-    virtual cstring  machine_defs() const                       = 0;
-    virtual uint     registers() const                          = 0;
-    virtual uint     pointer_size() const                       = 0;
+    virtual cstring  machine_defs() const                              = 0;
+    virtual uint     registers() const                                 = 0;
+    virtual uint     pointer_size() const                              = 0;
 
     // Control flow with deferred fixup
-    virtual void     patch(hwcode_t pos, hwcode_t val, bool rel)= 0;
-    virtual void     call(void (*target)())                     = 0;
-    virtual void     syscall(void (*target)())                  = 0;
-    virtual uint     relocate(void *base)                       = 0;
+    virtual void     patch(hwcode_t pos, hwcode_t val, uint flags = 0) = 0;
+    virtual void     call(void (*target)())                            = 0;
+    virtual void     syscall(void (*target)())                         = 0;
+    virtual uint     relocate(void *base)                              = 0;
 
     // Enter generated code with a caller-provided 8-slot frame (FP) and flags.
-    virtual void     invoke(runtime &rt, void *code)            = 0;
+    virtual void     invoke(runtime &rt, void *code)                   = 0;
 
 
     // ========================================================================
@@ -297,8 +297,8 @@ protected:
     struct translation { byte_p   bytecode; hwcode_t hwcode; };
     using translations = std::vector<translation>;
     translations labels;        // Map bytecode to machine code
-    translations branches;      // Relative branches/calls to patch
-    translations jumps;         // Absolute branches/calls to patch
+    translations branches;      // Relative branches to patch
+    translations calls;         // Calls to patch
 
     using tokens = std::vector<tok_t>;
     tokens       functions;     // Functions remaining to translate

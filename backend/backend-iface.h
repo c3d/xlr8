@@ -38,7 +38,7 @@ void            begin_translation()                             override;
 void            finish_translation()                            override;
 
 // Jumps and syscalls
-void            patch(hwcode_t pos, hwcode_t val, bool rel)     override;
+void            patch(hwcode_t pos, hwcode_t val, uint flags=0) override;
 void            call(void (*target)())                          override;
 void            syscall(void (*target)())                       override;
 
