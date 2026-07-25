@@ -36,8 +36,8 @@
 #include <cmath>
 #include <cstring>
 
-#if !defined(__APPLE__)
-extern "C" char *strcasestr(const char *, const char *);
+#if defined(__APPLE__)
+#include <strings.h>            // strcasestr
 #endif
 
 

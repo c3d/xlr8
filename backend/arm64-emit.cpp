@@ -1734,6 +1734,9 @@ SYS(kstrncmp)
     MOVX(XI(e.dst), HW_X0);
 }
 
+// glibc/libcpp overload strchr/strrchr/strstr as char*(char*,…) /
+// const char*(const char*,…). Pick the non-const overload so CALL gets a
+// concrete function pointer (char*(const char*,…) is not a valid overload).
 SYS(strchr)
 // ----------------------------------------------------------------------------
 //   Find character in C string
@@ -1741,7 +1744,7 @@ SYS(strchr)
 {
     MOVX(HW_X0, XI(e.src));
     MOVX(HW_X1, XI(e.ival));
-    CALL(static_cast<char *(*)(const char *, int)>(::strchr));
+    CALL(static_cast<char *(*)(char *, int)>(::strchr));
     MOVX(XI(e.dst), HW_X0);
 }
 
@@ -1752,7 +1755,7 @@ SYS(kstrchr)
 {
     MOVX(HW_X0, XI(e.src));
     set_imm(HW_X1, uint64_t(e.kint));
-    CALL(static_cast<char *(*)(const char *, int)>(::strchr));
+    CALL(static_cast<char *(*)(char *, int)>(::strchr));
     MOVX(XI(e.dst), HW_X0);
 }
 
@@ -1763,7 +1766,7 @@ SYS(strrchr)
 {
     MOVX(HW_X0, XI(e.src));
     MOVX(HW_X1, XI(e.ival));
-    CALL(static_cast<char *(*)(const char *, int)>(::strrchr));
+    CALL(static_cast<char *(*)(char *, int)>(::strrchr));
     MOVX(XI(e.dst), HW_X0);
 }
 
@@ -1774,7 +1777,7 @@ SYS(kstrrchr)
 {
     MOVX(HW_X0, XI(e.src));
     set_imm(HW_X1, uint64_t(e.kint));
-    CALL(static_cast<char *(*)(const char *, int)>(::strrchr));
+    CALL(static_cast<char *(*)(char *, int)>(::strrchr));
     MOVX(XI(e.dst), HW_X0);
 }
 
@@ -1785,7 +1788,7 @@ SYS(strstr)
 {
     MOVX(HW_X0, XI(e.src));
     MOVX(HW_X1, XI(e.xtra));
-    CALL(static_cast<char *(*)(const char *, const char *)>(::strstr));
+    CALL(static_cast<char *(*)(char *, const char *)>(::strstr));
     MOVX(XI(e.dst), HW_X0);
 }
 
@@ -1797,7 +1800,7 @@ SYS(strnstr)
 {
     MOVX(HW_X0, XI(e.src));
     MOVX(HW_X1, XI(e.xtra));
-    CALL(static_cast<char *(*)(const char *, const char *)>(::strstr));
+    CALL(static_cast<char *(*)(char *, const char *)>(::strstr));
     MOVX(XI(e.dst), HW_X0);
 }
 
@@ -1808,7 +1811,7 @@ SYS(kstrnstr)
 {
     MOVX(HW_X0, XI(e.src));
     MOVX(HW_X1, XI(e.xtra));
-    CALL(static_cast<char *(*)(const char *, const char *)>(::strstr));
+    CALL(static_cast<char *(*)(char *, const char *)>(::strstr));
     MOVX(XI(e.dst), HW_X0);
 }
 
@@ -1821,7 +1824,12 @@ SYS(strcasestr)
 {
     MOVX(HW_X0, XI(e.src));
     MOVX(HW_X1, XI(e.xtra));
-    CALL(::strcasestr);
+    // glibc: C++ overloads like strchr; Apple: single C declaration
+#if defined(__GLIBC__)
+    CALL(static_cast<char *(*)(char *, const char *)>(::strcasestr));
+#else
+    CALL(static_cast<char *(*)(const char *, const char *)>(::strcasestr));
+#endif
     MOVX(XI(e.dst), HW_X0);
 }
 
