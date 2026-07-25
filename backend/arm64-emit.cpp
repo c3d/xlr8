@@ -1336,7 +1336,7 @@ EMIT(ddiv)
 #define XF(loc)  hw(local((loc), RSPEC_FLT, RSPEC_CALL))
 #define XD(loc)  hw(local((loc), RSPEC_DBL, RSPEC_CALL))
 // Cast through uintptr_t so overloaded C++ libc/math symbols resolve
-#define CALL(fn) call_ptr(reinterpret_cast<void (*)()>(reinterpret_cast<uintptr_t>(fn)))
+#define CALL(fn) call_ptr(reinterpret_cast<void (*)()>(fn))
 #define MOVX(d,s) emit32le(mov_rr((d), (s)))
 
 SYS(globals)
