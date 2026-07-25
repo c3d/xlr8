@@ -1,0 +1,21 @@
+Before enter:
+ R0=42
+ R1=13
+ R2=2
+ R3=1979
+ R4=5
+ R5=12
+ R6=0
+ R7=1968
+VAlloca Delta=144
+Alloca(7) Delta=16
+Valloca Delta after Free=0
+After leave:
+ R0=42
+ R1=13
+ R2=2
+ R3=1979
+ R4=5
+ R5=12
+ R6=0
+ R7=1968
