@@ -1220,7 +1220,6 @@ void arm64::prologue()
 //   Leave x29 (HW_FRAME) alone: invoke_* points it at the caller-provided
 //   8-slot initial frame (same contract as x86 rbp).  Save/restore x29 only
 //   so a mismatched enter/leave cannot leak a nested FP back to C.
-// ----------------------------------------------------------------------------
 {
     record(arm64, "prologue");
     // Save FP+LR (BLR in call_ptr overwrites x30). Do not mov fp,sp.
@@ -1240,11 +1239,11 @@ void arm64::epilogue()
 // ----------------------------------------------------------------------------
 {
     record(arm64, "epilogue()");
-    emit32le(ldp_post(HW_X27, HW_X28, HW_SP, 16));
-    emit32le(ldp_post(HW_X25, HW_X26, HW_SP, 16));
-    emit32le(ldp_post(HW_X23, HW_X24, HW_SP, 16));
-    emit32le(ldp_post(HW_X21, HW_X22, HW_SP, 16));
-    emit32le(ldp_post(HW_X19, HW_X20, HW_SP, 16));
+    emit32le(ldp_post(HW_X27,   HW_X28, HW_SP, 16));
+    emit32le(ldp_post(HW_X25,   HW_X26, HW_SP, 16));
+    emit32le(ldp_post(HW_X23,   HW_X24, HW_SP, 16));
+    emit32le(ldp_post(HW_X21,   HW_X22, HW_SP, 16));
+    emit32le(ldp_post(HW_X19,   HW_X20, HW_SP, 16));
     emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
     emit32le(ret_insn());
 }

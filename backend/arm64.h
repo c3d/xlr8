@@ -731,57 +731,60 @@ protected:
     //
     // ========================================================================
 
-    void emit_load_off(arm64reg_t rd, arm64reg_t rn, int offs);
-    void emit_store_off(arm64reg_t rn, arm64reg_t rt, int offs);
-    void emit_push(arm64reg_t r);
-    void emit_pop(arm64reg_t r);
-    hwcode_t emit_b_rel();
-    hwcode_t emit_bl_rel();
-    hwcode_t emit_bcond_rel(byte cond);
-    hwcode_t emit_cbz_rel(arm64reg_t rt);
-    hwcode_t emit_cbnz_rel(arm64reg_t rt);
-    hwcode_t emit_tbz_rel(arm64reg_t rt, uint bit);
-    hwcode_t emit_tbnz_rel(arm64reg_t rt, uint bit);
+    void         emit_load_off(arm64reg_t rd, arm64reg_t rn, int offs);
+    void         emit_store_off(arm64reg_t rn, arm64reg_t rt, int offs);
+    void         emit_push(arm64reg_t r);
+    void         emit_pop(arm64reg_t r);
+    hwcode_t     emit_b_rel();
+    hwcode_t     emit_bl_rel();
+    hwcode_t     emit_bcond_rel(byte cond);
+    hwcode_t     emit_cbz_rel(arm64reg_t rt);
+    hwcode_t     emit_cbnz_rel(arm64reg_t rt);
+    hwcode_t     emit_tbz_rel(arm64reg_t rt, uint bit);
+    hwcode_t     emit_tbnz_rel(arm64reg_t rt, uint bit);
 
-    void            set_imm(arm64reg_t r, uint64_t imm);
-    void            load_local(local_t loc, arm64reg_t r);
-    void            store_local(arm64reg_t r, local_t loc);
-    arm64reg_t      load_fp(local_t loc, byte sz);
-    void            store_fp(local_t loc, arm64reg_t reg);
-    void            mov_local(local_t d, local_t s);
-    void            swap_locals(local_t d, local_t s);
-    void            store_imm(local_t d, value_t v);
-    void            store_float(local_t d, float v);
-    void            store_double(local_t d, double v);
-    void            binop_local(local_t d, local_t s, op_t op, byte fpsz=0);
-    void            binop_imm(local_t d, value_t v, op_t op);
-    void            cmp_local(byte p, local_t d, local_t s, byte cond);
-    void            cmp_imm(byte p, local_t d, value_t v, byte cond);
-    void            cmp_uimm(byte p, local_t d, uvalue_t v, byte cond);
-    void            set_pred(byte p, bool on);
-    void            set_pred_cmp(byte p, byte cond);
-    void            cond_mov_local(byte p, local_t d, local_t s);
-    void            select_local(byte p, local_t d, local_t s, byte x);
-    void            neg_local(local_t d);
-    void            not_local(local_t d);
-    void            incr_local(local_t d);
-    void            decr_local(local_t d);
-    void            sext_local(local_t d, byte w);
-    void            zext_local(local_t d, byte w);
-    void            sext_reg(arm64reg_t r, byte w);
-    void            store_mem(local_t d, local_t s, size_t sz, value_t off=0);
-    void            load_mem(local_t d, local_t s, size_t sz, value_t off=0);
-    void            load_sext(local_t d, local_t s, byte w, value_t off=0);
-    void            bra_pred(byte p, byte_p target, bool sense);
-    void            bra_test(local_t s, byte_p target, byte cond);
-    void            rel_branch(byte_p target, hwcode_t site);
-    void            rel_function(tok_t tok, hwcode_t site);
-    virtual void    prologue();
-    virtual void    epilogue();
-    void            call_ptr(void (*fn)());
-    template <typename T, typename ...U>
-    void            call_ptr(T (*fn)(U...)) { return call(((void (*)()) fn)); }
-    void            dispatch(local_t loc, byte_p &pc, byte cond);
+    void         set_imm(arm64reg_t r, uint64_t imm);
+    void         load_local(local_t loc, arm64reg_t r);
+    void         store_local(arm64reg_t r, local_t loc);
+    arm64reg_t   load_fp(local_t loc, byte sz);
+    void         store_fp(local_t loc, arm64reg_t reg);
+    void         mov_local(local_t d, local_t s);
+    void         swap_locals(local_t d, local_t s);
+    void         store_imm(local_t d, value_t v);
+    void         store_float(local_t d, float v);
+    void         store_double(local_t d, double v);
+    void         binop_local(local_t d, local_t s, op_t op, byte fpsz = 0);
+    void         binop_imm(local_t d, value_t v, op_t op);
+    void         cmp_local(byte p, local_t d, local_t s, byte cond);
+    void         cmp_imm(byte p, local_t d, value_t v, byte cond);
+    void         cmp_uimm(byte p, local_t d, uvalue_t v, byte cond);
+    void         set_pred(byte p, bool on);
+    void         set_pred_cmp(byte p, byte cond);
+    void         cond_mov_local(byte p, local_t d, local_t s);
+    void         select_local(byte p, local_t d, local_t s, byte x);
+    void         neg_local(local_t d);
+    void         not_local(local_t d);
+    void         incr_local(local_t d);
+    void         decr_local(local_t d);
+    void         sext_local(local_t d, byte w);
+    void         zext_local(local_t d, byte w);
+    void         sext_reg(arm64reg_t r, byte w);
+    void         store_mem(local_t d, local_t s, size_t sz, value_t off = 0);
+    void         load_mem(local_t d, local_t s, size_t sz, value_t off = 0);
+    void         load_sext(local_t d, local_t s, byte w, value_t off = 0);
+    void         bra_pred(byte p, byte_p target, bool sense);
+    void         bra_test(local_t s, byte_p target, byte cond);
+    void         rel_branch(byte_p target, hwcode_t site);
+    void         rel_function(tok_t tok, hwcode_t site);
+    virtual void prologue();
+    virtual void epilogue();
+    void         call_ptr(void (*fn)());
+    template <typename T, typename... U>
+    void call_ptr(T (*fn)(U...))
+    {
+        return call(((void (*)()) fn));
+    }
+    void dispatch(local_t loc, byte_p &pc, byte cond);
 
 protected:
     using relocations_t = std::vector<hwcode_t>;
