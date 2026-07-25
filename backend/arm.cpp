@@ -91,7 +91,6 @@ void arm::begin_translation()
 // ----------------------------------------------------------------------------
 {
     record(arm, "begin_translation");
-    frame_active = false;
     backend::begin_translation();
     prologue();
 }
@@ -219,12 +218,6 @@ bool arm::load(hwreg_t h, local_t n)
     armreg_t r = hw(h);
     record(arm, "load %u=[%u]", r, n);
 
-    if (!frame_active)
-    {
-        emit32le(movw(rn(r), 0));
-        return true;
-    }
-
     int disp = local_disp(n);
     emit_load_off(r, HW_FRAME, disp);
     return true;
@@ -238,11 +231,6 @@ bool arm::store(local_t n, hwreg_t h)
 {
     armreg_t r = hw(h);
     record(arm, "store [%u]=%u", n, r);
-    if (!frame_active)
-    {
-        saved(n, h);
-        return true;
-    }
     int disp = local_disp(n);
     emit_store_off(HW_FRAME, r, disp);
     saved(n, h);
@@ -471,12 +459,6 @@ void arm::store_double(local_t d, double v)
     memcpy(&bits, &v, 8);
     uint32_t lo = uint32_t(bits);
     uint32_t hi = uint32_t(bits >> 32);
-    if (!frame_active)
-    {
-        armreg_t dreg = hw(local(d, false));
-        load_imm32(dreg, lo);
-        return;
-    }
     int disp = local_disp(d);
     load_imm32(HW_IP, lo);
     emit32le(str_off(rn(HW_IP), rn(HW_FRAME), disp));
@@ -1048,11 +1030,14 @@ void arm::load_pca(local_t d, broff_t b)
 
 void arm::prologue()
 // ----------------------------------------------------------------------------
-//   Save FP/LR and callee-saved registers used by the JIT
+//   Save LR and callee-saved registers used by the JIT
 // ----------------------------------------------------------------------------
+//   Leave r11 (HW_FRAME) alone: invoke_* points it at the caller-provided
+//   8-slot initial frame.  Save/restore r11 so a nested enter/leave mismatch
+//   cannot leak back to C.
 {
     record(arm, "prologue");
-    // push {r4-r8, r10, fp, lr}
+    // push {r4-r8, r10, fp, lr} — do not mov fp, sp
     uint reg_mask = (1u << rn(HW_R4))
                   | (1u << rn(HW_R5))
                   | (1u << rn(HW_R6))
@@ -1062,8 +1047,6 @@ void arm::prologue()
                   | (1u << rn(HW_FRAME))
                   | (1u << rn(HW_LR));
     emit32le(push_regs(reg_mask));
-    // mov fp, sp
-    emit32le(mov_rr(rn(HW_FRAME), rn(HW_SP)));
 }
 
 

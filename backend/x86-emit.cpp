@@ -262,6 +262,7 @@ EMIT(enter)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_enter %u", e.dst);
+    frame_size(e.dst);
     if (!ptr64())
     {
         // Emit space for high 32-bits of falgs
@@ -284,6 +285,7 @@ EMIT(leave)
     emit_pop_reg(HW_FRAME);
     if (!ptr64())
         emit_pop_reg(HW_RAX);
+    forget_registers();
 }
 
 

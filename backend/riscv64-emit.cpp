@@ -266,6 +266,7 @@ EMIT(enter)
 // ----------------------------------------------------------------------------
 {
     record(riscv64_ops, "emit_enter %u", e.dst);
+    frame_size(e.dst);
     // Save ra and old frame pointer (2 ABI words)
     int link = 2 * int(pointer_size());
     emit32le(addi(xn(HW_SP), xn(HW_SP), -link));
@@ -281,7 +282,6 @@ EMIT(enter)
         load_imm64(HW_IP, uint64_t(bytes));
         emit32le(sub_rr(xn(HW_SP), xn(HW_SP), xn(HW_IP)));
     }
-    frame_active = true;
 }
 
 
@@ -300,7 +300,7 @@ EMIT(leave)
     emit_load_abi_word(HW_FRAME, HW_SP, 0);
     emit_load_abi_word(HW_RA,    HW_SP, pointer_size());
     emit32le(addi(xn(HW_SP), xn(HW_SP), link));
-    frame_active = false;
+    forget_registers();
     if (e.pc < e.end && op_t(*e.pc) == op_ret)
     {
         e.pc++;

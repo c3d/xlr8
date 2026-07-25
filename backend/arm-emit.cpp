@@ -261,6 +261,7 @@ EMIT(enter)
 // ----------------------------------------------------------------------------
 {
     record(arm_ops, "emit_enter %u", e.dst);
+    frame_size(e.dst);
     uint mask = (1u << rn(HW_FRAME)) | (1u << rn(HW_LR));
     emit32le(push_regs(mask));
     emit32le(mov_rr(rn(HW_FRAME), rn(HW_SP)));
@@ -272,7 +273,6 @@ EMIT(enter)
         load_imm32(HW_IP, bytes);
         emit32le(sub_rrr(rn(HW_SP), rn(HW_SP), rn(HW_IP)));
     }
-    frame_active = true;
 }
 
 
@@ -299,7 +299,7 @@ EMIT(leave)
         mask |= (1u << rn(HW_LR));
     }
     emit32le(pop_regs(mask));
-    frame_active = false;
+    forget_registers();
 }
 
 

@@ -97,7 +97,6 @@ void arm64::begin_translation()
 // ----------------------------------------------------------------------------
 {
     record(arm64, "begin_translation");
-    frame_active = false;
     backend::begin_translation();
     prologue();
 }
@@ -276,25 +275,6 @@ bool arm64::load(hwreg_t h, local_t n)
     arm64reg_t r = hw(h);
     record(arm64, "load %u=[%u]", r, n);
 
-    // Without op_enter, locals live only in registers; materialize as zero.
-    // (Accessing [x29, #-N] below SP would fault on AArch64.)
-    if (!frame_active)
-    {
-        if (is_fp(r))
-        {
-            emit32le(movz(xn(HW_SCRATCH), 0));
-            if (is_flt(r))
-                emit32le(fmov_s_w(vn(r), xn(HW_SCRATCH)));
-            else
-                emit32le(fmov_d_x(vn(r), xn(HW_SCRATCH)));
-        }
-        else
-        {
-            emit32le(movz(xn(r), 0));
-        }
-        return true;
-    }
-
     int disp = local_disp(n);
     if (is_fp(r))
     {
@@ -320,12 +300,6 @@ bool arm64::store(local_t n, hwreg_t h)
 {
     arm64reg_t r = hw(h);
     record(arm64, "store [%u]=%u", n, r);
-    if (!frame_active)
-    {
-        // No native frame slots yet — keep the value in the register only.
-        saved(n, h);
-        return true;
-    }
     int disp = local_disp(n);
 
     if (is_fp(r))
@@ -1241,13 +1215,16 @@ void arm64::rel_function(tok_t tok, hwcode_t site)
 
 void arm64::prologue()
 // ----------------------------------------------------------------------------
-//   Save FP/LR and callee-saved registers used by the JIT
+//   Save LR and callee-saved registers used by the JIT
+// ----------------------------------------------------------------------------
+//   Leave x29 (HW_FRAME) alone: invoke_* points it at the caller-provided
+//   8-slot initial frame (same contract as x86 rbp).  Save/restore x29 only
+//   so a mismatched enter/leave cannot leak a nested FP back to C.
 // ----------------------------------------------------------------------------
 {
     record(arm64, "prologue");
-    // Save return address: BLR in call_ptr overwrites x30.
+    // Save FP+LR (BLR in call_ptr overwrites x30). Do not mov fp,sp.
     emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
-    emit32le(mov_rr(HW_FRAME, HW_SP));
     // Save x19-x28 (includes HW_FLAGS=x22).
     emit32le(stp_pre(HW_X19, HW_X20, HW_SP, -16));
     emit32le(stp_pre(HW_X21, HW_X22, HW_SP, -16));

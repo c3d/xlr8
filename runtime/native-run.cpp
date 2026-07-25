@@ -259,16 +259,33 @@ static void unmap_executable(void *mem, size_t sz)
 }
 
 
+static inline stack_p initial_jit_fp(ularge_t slots[8 + 2])
+// ----------------------------------------------------------------------------
+//   Caller-provided JIT frame (all targets)
+// ----------------------------------------------------------------------------
+//   Backends load/store locals at [FP + local_disp(n)] with
+//   local_disp(n) = ~(n) * sizeof(ularge_t) (local 0 at [FP, #-8], …).
+//   The C caller therefore supplies at least 8 slots below FP.  Two extra
+//   words sit at/above FP so the layout matches the saved FP+LR pad that
+//   arg_disp skips after a real op_enter.  FP = &slots[8].
+{
+    memset(slots, 0, sizeof(ularge_t) * (8 + 2));
+    return stack_p(slots + 8);
+}
+
+
 #if defined(__x86_64__) || defined(__amd64__)
 static void invoke_amd64(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
-//   Jump to generated x86-64 code with frame and flags registers primed
+//   Jump to generated x86-64 code with rbp = initial frame, r15 = flags
 // ----------------------------------------------------------------------------
 {
     typedef void (*entry_fn)(void);
     entry_fn entry = (entry_fn) code;
-    stack_p  frame = rt.frame;
+    alignas(16) ularge_t initial_frame[8 + 2];
+    stack_p  frame = initial_jit_fp(initial_frame);
     uint64_t flags = rt.flags;
+    (void) rt;
     asm volatile(
         "mov %1, %%rbp\n\t"
         "mov %2, %%r15\n\t"
@@ -283,17 +300,21 @@ static void invoke_amd64(runtime &rt, void *code)
 #if defined(__i386__) || defined(__i386)
 static void invoke_i386(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
-//   Jump to generated i386 code with edi = rt.frame, esi = rt.flags
+//   Jump to generated i386 code with ebp = initial frame, esi = flags
 // ----------------------------------------------------------------------------
 {
     typedef void (*entry_fn)(void);
     entry_fn  entry  = (entry_fn) code;
-    uintptr_t framep = uintptr_t(rt.frame);
+    alignas(16) ularge_t initial_frame[8 + 2];
+    uintptr_t framep = uintptr_t(initial_jit_fp(initial_frame));
     uint32_t  flags  = uint32_t(rt.flags);
-    asm volatile("call *%0"
-                 :
-                 : "r"(entry), "D"(framep), "S"(flags)
-                 : "eax", "ecx", "edx", "memory", "cc");
+    (void) rt;
+    asm volatile(
+        "mov %1, %%ebp\n\t"
+        "call *%0"
+        :
+        : "r"(entry), "r"(framep), "S"(flags)
+        : "eax", "ecx", "edx", "ebp", "memory", "cc");
 }
 #endif
 
@@ -301,20 +322,25 @@ static void invoke_i386(runtime &rt, void *code)
 #if defined(__aarch64__)
 static void invoke_arm64(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
-//   Jump to generated AArch64 code; x19 = rt.frame, x22 = rt.flags
+//   Jump to generated AArch64 code; x29 = initial frame, x22 = flags
 // ----------------------------------------------------------------------------
 {
-    stack_p frame = rt.frame;
+    alignas(16) ularge_t initial_frame[8 + 2];
+    stack_p  frame = initial_jit_fp(initial_frame);
     uint64_t flags = rt.flags;
+    (void) rt;
+    // x29 is a reserved register on Darwin — save/restore it in the asm
+    // rather than listing it as a clobber.
     asm volatile(
-        "mov x19, %0\n\t"
+        "str x29, [sp, #-16]!\n\t"
+        "mov x29, %0\n\t"
         "mov x22, %1\n\t"
-        "mov x27, %0\n\t"
         "mov x16, %2\n\t"
-        "blr x16"
+        "blr x16\n\t"
+        "ldr x29, [sp], #16"
         :
         : "r"(frame), "r"(flags), "r"(code)
-        : "x16", "x19", "x22", "x27", "x30", "memory", "cc");
+        : "x16", "x22", "x30", "memory", "cc");
 }
 #endif
 
@@ -322,19 +348,21 @@ static void invoke_arm64(runtime &rt, void *code)
 #if defined(__arm__) && !defined(__aarch64__)
 static void invoke_arm(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
-//   Jump to generated 32-bit ARM code; r9 = rt.frame, r10 = rt.flags
+//   Jump to generated 32-bit ARM code; r11 = initial frame, r10 = flags
 // ----------------------------------------------------------------------------
 {
     typedef void (*entry_fn)(void);
     entry_fn entry = (entry_fn) code;
-    stack_p frame = rt.frame;
+    alignas(16) ularge_t initial_frame[8 + 2];
+    stack_p  frame = initial_jit_fp(initial_frame);
     uint64_t flags = rt.flags;
+    (void) rt;
     asm volatile(
-        "mov r9, %0\n\t"
+        "mov r11, %0\n\t"
         "mov r10, %1"
         :
         : "r"(frame), "r"(flags)
-        : "r9", "r10", "memory");
+        : "r10", "r11", "memory");
     entry();
 }
 #endif
@@ -343,14 +371,16 @@ static void invoke_arm(runtime &rt, void *code)
 #if defined(__riscv)
 static void invoke_riscv64(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
-//   Jump to generated RISC-V code; s0 = rt.frame, s1 = rt.flags.
+//   Jump to generated RISC-V code; s0/fp = initial frame, s1 = flags.
 // ----------------------------------------------------------------------------
-//   Save ra and s2-s11 around the call: JIT uses x18-x25 as shadow locals
-//   (callee-saved under the ABI).  Do not list s2-s11 as clobbers — that
-//   starves GCC of registers for the three "r" inputs.
+//   Save ra and s2-s11 around the call: JIT uses s2–s11 as callee-saved
+//   allocatable regs.  Do not list s2-s11 as clobbers — that starves GCC of
+//   registers for the three "r" inputs.
 {
-    stack_p frame = rt.frame;
+    alignas(16) ularge_t initial_frame[8 + 2];
+    stack_p  frame = initial_jit_fp(initial_frame);
     uint64_t flags = rt.flags;
+    (void) rt;
     asm volatile(
         "mv s0, %[frame]\n\t"
         "mv s1, %[flags]\n\t"

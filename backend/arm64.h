@@ -786,7 +786,6 @@ protected:
 protected:
     using relocations_t = std::vector<hwcode_t>;
     relocations_t relocations;
-    bool          frame_active = false; // true after op_enter allocates locals
 };
 
 #endif // ARM64_H

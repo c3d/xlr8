@@ -178,6 +178,7 @@ struct backend
     virtual size_t   spill_all();
     virtual size_t   frame_size();
     virtual size_t   frame_size(size_t slots);
+    virtual void     forget_registers();
 
 
 

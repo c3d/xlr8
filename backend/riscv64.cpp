@@ -91,7 +91,6 @@ void riscv64::begin_translation()
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "begin_translation");
-    frame_active = false;
     backend::begin_translation();
     prologue();
 }
@@ -218,12 +217,6 @@ bool riscv64::load(hwreg_t h, local_t n)
     riscv64reg_t r = hw(h);
     record(riscv64, "load %u=[%u]", r, n);
 
-    if (!frame_active)
-    {
-        emit32le(addi(xn(r), 0, 0));
-        return true;
-    }
-
     int disp = local_disp(n);
     emit_load_off(r, HW_FRAME, disp);
     return true;
@@ -237,11 +230,6 @@ bool riscv64::store(local_t n, hwreg_t h)
 {
     riscv64reg_t r = hw(h);
     record(riscv64, "store [%u]=%u", n, r);
-    if (!frame_active)
-    {
-        saved(n, h);
-        return true;
-    }
     int disp = local_disp(n);
     emit_store_off(HW_FRAME, r, disp);
     saved(n, h);
@@ -303,6 +291,9 @@ riscv64::reginfo riscv64::register_definition(hwreg_t reg) const
 void riscv64::prologue()
 // ----------------------------------------------------------------------------
 //   Save FP/RA and callee-saved registers used by the JIT
+// ----------------------------------------------------------------------------
+//   Saves s0 (HW_FRAME) for ABI restore but does not reassign it — invoke_*
+//   already points s0 at the caller-provided 8-slot initial frame.
 // ----------------------------------------------------------------------------
 {
     record(riscv64, "prologue");

@@ -262,6 +262,8 @@ EMIT(enter)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_enter %u", e.dst);
+    // Spill outer locals into the caller frame, then size the new window.
+    frame_size(e.dst);
     emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
     emit32le(mov_rr(HW_FRAME, HW_SP));
     uint bytes = uint(e.dst) * uint(sizeof(ularge_t));
@@ -272,7 +274,6 @@ EMIT(enter)
         set_imm(HW_SCRATCH, bytes);
         emit32le(sub_rrr(HW_SP, HW_SP, HW_SCRATCH));
     }
-    frame_active = true;
 }
 
 
@@ -284,7 +285,8 @@ EMIT(leave)
     record(arm64_ops, "emit_leave");
     emit32le(mov_rr(HW_SP, HW_FRAME));
     emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
-    frame_active = false;
+    // Outer frame is restored; drop stale inner mappings so loads refill.
+    forget_registers();
 }
 
 

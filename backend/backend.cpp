@@ -712,10 +712,21 @@ size_t backend::frame_size(size_t slots)
 {
     size_t before = local_reg.size();
     if (size_t spilled = spill_all())
-        record(backend_warning, "Frame resizing with %zu live registers",
-               spilled);
+        record(backend, "Frame resizing spilled %zu live registers", spilled);
     local_reg.resize(slots, NO_REGISTER);
     return before;
+}
+
+
+void backend::forget_registers()
+// ----------------------------------------------------------------------------
+//   Drop register↔local mappings without storing (e.g. after op_leave)
+// ----------------------------------------------------------------------------
+//   Call after FP is restored (or when the current frame is being discarded)
+//   so the next local() reloads from the caller-provided / outer frame.
+{
+    std::fill(reg_local.begin(), reg_local.end(), NO_LOCAL);
+    local_reg.assign(DEFAULT_FRAME_SIZE, NO_REGISTER);
 }
 
 
