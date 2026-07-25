@@ -1860,6 +1860,20 @@ SYS(write_integer)
 //   Write integer to output stream
 // ----------------------------------------------------------------------------
 {
+    x86reg_t v = hw_local(e.src);
+    if (ptr64())
+    {
+        emit_mov_rr(hw_arg1(), v);
+        set_imm(hw_arg0(), e.knat);
+    }
+    else
+    {
+        emit_push_reg(v);
+        set_imm(HW_RAX, e.knat);
+        emit_push_reg(HW_RAX);
+    }
+    call_ptr((void (*)()) xlr8_jit_write_integer);
+    emit_cleanup_call_args(2);
 }
 
 
@@ -1868,6 +1882,20 @@ SYS(write_natural)
 //   Write natural number to output stream
 // ----------------------------------------------------------------------------
 {
+    x86reg_t v = hw_local(e.src);
+    if (ptr64())
+    {
+        emit_mov_rr(hw_arg1(), v);
+        set_imm(hw_arg0(), e.knat);
+    }
+    else
+    {
+        emit_push_reg(v);
+        set_imm(HW_RAX, e.knat);
+        emit_push_reg(HW_RAX);
+    }
+    call_ptr((void (*)()) xlr8_jit_write_natural);
+    emit_cleanup_call_args(2);
 }
 
 
@@ -1901,6 +1929,20 @@ SYS(write_token)
 //   Write token text to output stream
 // ----------------------------------------------------------------------------
 {
+    if (ptr64())
+    {
+        set_imm(hw_arg1(), e.tok);
+        set_imm(hw_arg0(), e.knat);
+    }
+    else
+    {
+        set_imm(HW_RAX, e.tok);
+        emit_push_reg(HW_RAX);
+        set_imm(HW_RAX, e.knat);
+        emit_push_reg(HW_RAX);
+    }
+    call_ptr((void (*)()) xlr8_jit_write_token);
+    emit_cleanup_call_args(2);
 }
 
 
@@ -1909,6 +1951,15 @@ SYS(write_newline)
 //   Write newline to output stream
 // ----------------------------------------------------------------------------
 {
+    if (ptr64())
+        set_imm(hw_arg0(), e.knat);
+    else
+    {
+        set_imm(HW_RAX, e.knat);
+        emit_push_reg(HW_RAX);
+    }
+    call_ptr((void (*)()) xlr8_jit_write_newline);
+    emit_cleanup_call_args(1);
 }
 
 
