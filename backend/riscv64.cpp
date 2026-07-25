@@ -346,6 +346,59 @@ void riscv64::call_ptr(void (*fn)())
 }
 
 
+void riscv64::invoke(runtime &rt, void *code)
+// ----------------------------------------------------------------------------
+//   Jump to generated RISC-V code; s0/fp = initial frame, s1 = flags
+// ----------------------------------------------------------------------------
+//   Save ra and s2-s11 around the call: JIT uses s2–s11 as callee-saved
+//   allocatable regs.  Do not list s2-s11 as clobbers — that starves GCC of
+//   registers for the three "r" inputs.
+{
+#if defined(__riscv)
+    alignas(16) ularge_t initial_frame[DEFAULT_FRAME_SIZE + 2];
+    stack_p  frame = initial_jit_fp(initial_frame);
+    uint64_t flags = rt.flags;
+    asm volatile(
+        "mv s0, %[frame]\n\t"
+        "mv s1, %[flags]\n\t"
+        "mv t0, %[code]\n\t"
+        "addi sp, sp, -96\n\t"
+        "sd s2, 0(sp)\n\t"
+        "sd s3, 8(sp)\n\t"
+        "sd s4, 16(sp)\n\t"
+        "sd s5, 24(sp)\n\t"
+        "sd s6, 32(sp)\n\t"
+        "sd s7, 40(sp)\n\t"
+        "sd s8, 48(sp)\n\t"
+        "sd s9, 56(sp)\n\t"
+        "sd s10, 64(sp)\n\t"
+        "sd s11, 72(sp)\n\t"
+        "sd ra, 80(sp)\n\t"
+        "jalr ra, t0, 0\n\t"
+        "ld s2, 0(sp)\n\t"
+        "ld s3, 8(sp)\n\t"
+        "ld s4, 16(sp)\n\t"
+        "ld s5, 24(sp)\n\t"
+        "ld s6, 32(sp)\n\t"
+        "ld s7, 40(sp)\n\t"
+        "ld s8, 48(sp)\n\t"
+        "ld s9, 56(sp)\n\t"
+        "ld s10, 64(sp)\n\t"
+        "ld s11, 72(sp)\n\t"
+        "ld ra, 80(sp)\n\t"
+        "addi sp, sp, 96"
+        :
+        : [frame] "r"(frame), [flags] "r"(flags), [code] "r"(code)
+        : "s0", "s1", "t0", "t1", "t2", "t3", "t4", "t5", "t6",
+          "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7",
+          "ra", "memory", "cc");
+#else
+    (void) code;
+    rt.error("Cannot invoke RISC-V JIT on this host");
+#endif
+}
+
+
 
 // ============================================================================
 //

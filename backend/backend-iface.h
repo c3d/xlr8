@@ -45,6 +45,9 @@ void            syscall(void (*target)())                       override;
 // Relocations
 uint            relocate(void *base)                            override;
 
+// Enter generated code (caller frame + flags ABI)
+void            invoke(runtime &rt, void *code)                 override;
+
 // Hardware registers
 bool            move(hwreg_t to, hwreg_t from)                  override;
 bool            load(hwreg_t hw, local_t loc)                   override;

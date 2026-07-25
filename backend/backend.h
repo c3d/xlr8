@@ -199,6 +199,9 @@ struct backend
     virtual void     syscall(void (*target)())                  = 0;
     virtual uint     relocate(void *base)                       = 0;
 
+    // Enter generated code with a caller-provided 8-slot frame (FP) and flags.
+    virtual void     invoke(runtime &rt, void *code)            = 0;
+
 
     // ========================================================================
     //
@@ -223,7 +226,7 @@ struct backend
 
     const hwreg_t    NO_REGISTER        = hwreg_t(-1);
     const local_t    NO_LOCAL           = local_t(-1);
-    const uint       DEFAULT_FRAME_SIZE = 8;
+    static constexpr uint DEFAULT_FRAME_SIZE = 8;
 
 
 
@@ -275,6 +278,10 @@ struct backend
 
 protected:
     backend(runtime &r, arch_t arch);       // Only create backends through the factory
+
+    // Caller-provided JIT frame: locals 0..7 at [FP+local_disp]; FP = &slots[8].
+    // Two words at/above FP match the saved FP+LR pad that arg_disp skips.
+    static stack_p initial_jit_fp(ularge_t slots[DEFAULT_FRAME_SIZE + 2]);
 
     runtime &rt;
     arch_t   current_arch;

@@ -1261,6 +1261,34 @@ void arm64::call_ptr(void (*fn)())
 }
 
 
+void arm64::invoke(runtime &rt, void *code)
+// ----------------------------------------------------------------------------
+//   Jump to generated AArch64 code; x29 = initial frame, x22 = flags
+// ----------------------------------------------------------------------------
+{
+#if defined(__aarch64__)
+    alignas(16) ularge_t initial_frame[DEFAULT_FRAME_SIZE + 2];
+    stack_p  frame = initial_jit_fp(initial_frame);
+    uint64_t flags = rt.flags;
+    // x29 is a reserved register on Darwin — save/restore it in the asm
+    // rather than listing it as a clobber.
+    asm volatile(
+        "str x29, [sp, #-16]!\n\t"
+        "mov x29, %0\n\t"
+        "mov x22, %1\n\t"
+        "mov x16, %2\n\t"
+        "blr x16\n\t"
+        "ldr x29, [sp], #16"
+        :
+        : "r"(frame), "r"(flags), "r"(code)
+        : "x16", "x22", "x30", "memory", "cc");
+#else
+    (void) code;
+    rt.error("Cannot invoke AArch64 JIT on this host");
+#endif
+}
+
+
 void arm64::dispatch(local_t loc, byte_p &pc, byte cond)
 // ----------------------------------------------------------------------------
 //   Dispatch a branch table

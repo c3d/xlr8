@@ -65,6 +65,21 @@ backend::backend(runtime &rt, arch_t arch)
 {}
 
 
+stack_p backend::initial_jit_fp(ularge_t slots[DEFAULT_FRAME_SIZE + 2])
+// ----------------------------------------------------------------------------
+//   Build FP for a caller-provided JIT frame (all targets)
+// ----------------------------------------------------------------------------
+//   Backends load/store locals at [FP + local_disp(n)] with
+//   local_disp(n) = ~(n) * sizeof(ularge_t) (local 0 at [FP, #-8], …).
+//   The C caller therefore supplies at least 8 slots below FP.  Two extra
+//   words sit at/above FP so the layout matches the saved FP+LR pad that
+//   arg_disp skips after a real op_enter.  FP = &slots[8].
+{
+    memset(slots, 0, sizeof(ularge_t) * (DEFAULT_FRAME_SIZE + 2));
+    return stack_p(slots + DEFAULT_FRAME_SIZE);
+}
+
+
 void backend::set_output(output_t output)
 // ----------------------------------------------------------------------------
 //   Select the output format (memory, object file, executable, ...)

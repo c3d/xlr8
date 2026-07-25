@@ -1084,6 +1084,31 @@ void arm::call_ptr(void (*fn)())
 }
 
 
+void arm::invoke(runtime &rt, void *code)
+// ----------------------------------------------------------------------------
+//   Jump to generated 32-bit ARM code; r11 = initial frame, r10 = flags
+// ----------------------------------------------------------------------------
+{
+#if defined(__arm__) && !defined(__aarch64__)
+    typedef void (*entry_fn)(void);
+    entry_fn entry = (entry_fn) code;
+    alignas(16) ularge_t initial_frame[DEFAULT_FRAME_SIZE + 2];
+    stack_p  frame = initial_jit_fp(initial_frame);
+    uint64_t flags = rt.flags;
+    asm volatile(
+        "mov r11, %0\n\t"
+        "mov r10, %1"
+        :
+        : "r"(frame), "r"(flags)
+        : "r10", "r11", "memory");
+    entry();
+#else
+    (void) code;
+    rt.error("Cannot invoke ARM32 JIT on this host");
+#endif
+}
+
+
 void arm::dispatch(local_t loc, byte_p &pc, byte cond)
 // ----------------------------------------------------------------------------
 //   Dispatch a branch table

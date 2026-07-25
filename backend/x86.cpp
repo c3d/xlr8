@@ -955,6 +955,43 @@ void x86::call_ptr(void (*fn)())
 }
 
 
+void x86::invoke(runtime &rt, void *code)
+// ----------------------------------------------------------------------------
+//   Jump to generated x86 code with FP = initial frame and flags in HW_FLAGS
+// ----------------------------------------------------------------------------
+{
+#if defined(__x86_64__) || defined(__amd64__)
+    typedef void (*entry_fn)(void);
+    entry_fn entry = (entry_fn) code;
+    alignas(16) ularge_t initial_frame[DEFAULT_FRAME_SIZE + 2];
+    stack_p  frame = initial_jit_fp(initial_frame);
+    uint64_t flags = rt.flags;
+    asm volatile(
+        "mov %1, %%rbp\n\t"
+        "mov %2, %%r15\n\t"
+        "call *%0"
+        :
+        : "r"(entry), "r"(frame), "r"(flags)
+        : "rbp", "r15", "memory", "cc");
+#elif defined(__i386__) || defined(__i386)
+    typedef void (*entry_fn)(void);
+    entry_fn  entry  = (entry_fn) code;
+    alignas(16) ularge_t initial_frame[DEFAULT_FRAME_SIZE + 2];
+    uintptr_t framep = uintptr_t(initial_jit_fp(initial_frame));
+    uint32_t  flags  = uint32_t(rt.flags);
+    asm volatile(
+        "mov %1, %%ebp\n\t"
+        "call *%0"
+        :
+        : "r"(entry), "r"(framep), "S"(flags)
+        : "eax", "ecx", "edx", "ebp", "memory", "cc");
+#else
+    (void) code;
+    rt.error("Cannot invoke x86 JIT on this host");
+#endif
+}
+
+
 void x86::dispatch(local_t loc, byte_p &pc, byte jcc)
 // ----------------------------------------------------------------------------
 //   Dispatch a branch table
