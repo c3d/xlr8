@@ -180,25 +180,10 @@ EMIT(call)
 //   Place live locals 0..7 in x0–x7, and preserve local size across call
 {
     record(arm64_ops, "emit_call %llu", e.tok);
-    spill_all();
-
-    local_t nslots = frame_size();
-    hwreg_t nregs  = nslots > 8 ? 8 : nslots;
-    for (hwreg_t r = 0; r < nregs; r++)
-    {
-        hwreg_t locr = local_reg[r];
-        if (locr == NO_REGISTER)
-            emit_load_off(arm64reg_t(HW_X0 + r), HW_FRAME, local_disp(r));
-        else if (locr != HW_X0 + r)
-            move(hwreg_t(HW_X0 + r), locr);
-    }
-
+    size_t frame = pre_call();
     hwcode_t site = emit_bl_rel();
     rel_function(e.tok, site);
-
-    // Record that the resturn value is in reg X0
-    frame_size(nslots ? nslots : 1);
-    saved(0, HW_X0);
+    post_call(frame);
 }
 
 
@@ -222,9 +207,10 @@ EMIT(icall)
 {
     arm64reg_t r = hw_local(e.src);
     record(arm64_ops, "emit_icall %u reg %u", e.src, r);
-    spill_all();
+    size_t frame = pre_call();
     // TODO: Translate bytecode address to physical address
     emit32le(blr(r));
+    post_call(frame);
 }
 
 

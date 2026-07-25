@@ -791,6 +791,8 @@ protected:
     virtual void prologue();
     virtual void epilogue();
     void         dispatch(local_t loc, byte_p &pc, byte cond);
+    size_t       pre_call();
+    void         post_call(size_t frame);
     void         call_ptr(void (*fn)());
     template <typename T, typename... U>
     void         call_ptr(T (*fn)(U...))
