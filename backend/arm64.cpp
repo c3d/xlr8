@@ -312,12 +312,19 @@ size_t arm64::pre_call(bool args)
 // ----------------------------------------------------------------------------
 {
     spill_all();
-
     local_t nslots = frame_size();
     if (args)
-        if (hwreg_t nregs  = nslots > 8 ? 8 : nslots)
+    {
+        if (hwreg_t nregs = nslots > 8 ? 8 : nslots)
+        {
             for (hwreg_t r = 0; r < nregs; r++)
+            {
                 hw_arg(r, r);
+                reg_local[r] = NO_LOCAL;
+                local_reg[r] = NO_REGISTER;
+            }
+        }
+    }
     return nslots;
 }
 
@@ -327,7 +334,7 @@ void arm64::post_call(size_t nslots)
 //   Cleanup after a call
 // ----------------------------------------------------------------------------
 {
-    // Record that the resturn value is in reg X0
+    // Reload registers after call
     forget_registers();
     frame_size(nslots ? nslots : 1);
 }
@@ -450,14 +457,14 @@ arm64::reginfo arm64::register_definition(hwreg_t reg) const
     {
         // x0–x7: AAPCS64 args/return — not generally allocatable so locals
         // are evacuated to callee-saved regs before helper/SYS calls.
-        {  "x0",                       0 },
-        {  "x1",                       0 },
-        {  "x2",                       0 },
-        {  "x3",                       0 },
-        {  "x4",                       0 },
-        {  "x5",                       0 },
-        {  "x6",                       0 },
-        {  "x7",                       0 },
+        {  "x0",   RSPEC_ARG | RSPEC_INT },
+        {  "x1",   RSPEC_ARG | RSPEC_INT },
+        {  "x2",   RSPEC_ARG | RSPEC_INT },
+        {  "x3",   RSPEC_ARG | RSPEC_INT },
+        {  "x4",   RSPEC_ARG | RSPEC_INT },
+        {  "x5",   RSPEC_ARG | RSPEC_INT },
+        {  "x6",   RSPEC_ARG | RSPEC_INT },
+        {  "x7",   RSPEC_ARG | RSPEC_INT },
         {  "x8",               RSPEC_INT },
         {  "x9",               RSPEC_INT },
         { "x10",               RSPEC_INT },

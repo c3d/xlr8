@@ -227,9 +227,14 @@ EMIT(ret)
     {
         hwreg_t loc0 = local_reg[0];
         if (loc0 != NO_REGISTER && loc0 != HW_X0)
+        {
             move(HW_X0, loc0);
+            emit_store_off(HW_FRAME, HW_X0, local_disp(0));
+        }
         else
+        {
             emit_load_off(HW_X0, HW_FRAME, local_disp(0));
+        }
     }
     epilogue();
 }
@@ -277,7 +282,11 @@ EMIT(enter)
 
     // Args 0-7 are in X0-X7. They also were spilled in the caller's frame
     // However, it is legal to have done computations before enter,
-    // see the fibonacci.xlr8 example. So we need to spill
+    // see the fibonacci.xlr8 example. So we need to spill and move back
+    // computations into registers
+    for (uint i = 0; i < 8; i++)
+        if (local_reg[i] != NO_REGISTER)
+            move(HW_X0 + i, local_reg[i]);
     spill_all();
     frame_size(e.dst);
     emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));

@@ -221,9 +221,14 @@ protected:
         {
             hwreg_t locr = local_reg[loc];
             if (locr == NO_REGISTER)
+            {
                 emit_load_off(argr, HW_FRAME, local_disp(loc));
+            }
             else if (locr != argr)
+            {
                 move(argr, locr);
+                reg_local[locr] = NO_REGISTER;
+            }
             local_reg[loc] = argr;
             reg_local[argr] = loc;
         }

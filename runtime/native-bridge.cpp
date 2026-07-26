@@ -124,12 +124,12 @@ void xlr8_jit_write_double(uvalue_t stream, double value)
 }
 
 
-void xlr8_jit_write_text(uvalue_t stream, uvalue_t tok_or_nat)
+void xlr8_jit_write_text(uvalue_t stream, uvalue_t tok)
 {
     if (!xlr8_current_rt)
         return;
     if (std::ostream *out = out_stream(stream))
-        *out << xlr8_current_rt->as_text(tok_or_nat);
+        *out << xlr8_current_rt->as_text(tok);
 }
 
 

@@ -110,6 +110,7 @@ struct backend
         RSPEC_BRA  = 1 << 8,  // Can store a branch target
         RSPEC_CMP  = 1 << 9,  // Can store a comparision / predicate
         RSPEC_CALL = 1 << 10, // Callee-saved
+        RSPEC_ARG  = 1 << 11, // Use to pass argument
         RSPEC_FP   = RSPEC_FLT | RSPEC_DBL,
     };
 
@@ -142,7 +143,7 @@ struct backend
     intptr_t         branch(byte_p tgt)  { return branch(tgt, cursor()); }
 
     // Resolving labels
-    uint             label(byte_p bytecode, hwcode_t hwcode);
+    uint             label(byte_p bytecode);
     hwcode_t         translated_address(byte_p bytecode);
     const auto      &address_translations() const { return labels; }
 

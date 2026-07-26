@@ -312,15 +312,18 @@ intptr_t backend::function(tok_t tok, hwcode_t hwcode)
 }
 
 
-uint backend::label(byte_p bytecode, hwcode_t hwcode)
+uint backend::label(byte_p bytecode)
 // ----------------------------------------------------------------------------
 //   Add an address translation, resolve labels if necessary
 // ----------------------------------------------------------------------------
 {
-    uint count = 0;
+    uint     count  = 0;
+    hwcode_t hwcode = cursor();
+
+    // Pending branches and calls are keyed by bytecode target
+    auto brange = equal_range(branches, bytecode);
 
     // Pending branches are keyed by bytecode target, not by the patch site
-    auto brange = equal_range(branches, bytecode);
     for (auto b = brange.first; b != brange.second; ++b)
     {
         patch(b->hwcode, hwcode);
@@ -400,7 +403,7 @@ bool backend::translate(byte_p pc, byte_p end)
     {
         // Insert translation in address map
         byte_p insn = pc;
-        label(pc, cursor());
+        label(pc);
 
         // Run that opcode
         op_t op            = op_t(*pc++);
@@ -479,7 +482,7 @@ bool backend::translate(byte_p pc, byte_p end)
                 args.end     = end;
                 record(backend,
                        "Picking up function %p..%p", pc, end);
-                label(pc, cursor());
+                label(pc);
                 functions.erase(fn);
                 callee_entry = true;
                 begin_translation();
