@@ -210,6 +210,26 @@ protected:
         return hw(local(loc, RSPEC_INT, false));
     }
 
+    arm64reg_t hw_arg(uint arg, local_t loc)
+    // ------------------------------------------------------------------------
+    //   Load a local into the corresponding ABI argument register (x0–x7)
+    // ------------------------------------------------------------------------
+    {
+        assert(arg < 8);
+        arm64reg_t argr = arm64reg_t(HW_X0 + arg);
+        if (reg_local[argr] != loc)
+        {
+            hwreg_t locr = local_reg[loc];
+            if (locr == NO_REGISTER)
+                emit_load_off(argr, HW_FRAME, local_disp(loc));
+            else if (locr != argr)
+                move(argr, locr);
+            local_reg[loc] = argr;
+            reg_local[argr] = loc;
+        }
+        return argr;
+    }
+
     static inline uint xn(arm64reg_t r)
     // ------------------------------------------------------------------------
     //   Physical X/SP register number for encoding (0..31)
@@ -791,7 +811,7 @@ protected:
     virtual void prologue();
     virtual void epilogue();
     void         dispatch(local_t loc, byte_p &pc, byte cond);
-    size_t       pre_call();
+    size_t       pre_call(bool args = true);
     void         post_call(size_t frame);
     void         call_ptr(void (*fn)());
     template <typename T, typename... U>

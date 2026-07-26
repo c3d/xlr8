@@ -306,7 +306,7 @@ void arm64::syscall(void (*target)())
 }
 
 
-size_t arm64::pre_call()
+size_t arm64::pre_call(bool args)
 // ----------------------------------------------------------------------------
 //   Prepare for a call (passing arguments)
 // ----------------------------------------------------------------------------
@@ -314,15 +314,10 @@ size_t arm64::pre_call()
     spill_all();
 
     local_t nslots = frame_size();
-    hwreg_t nregs  = nslots > 8 ? 8 : nslots;
-    for (hwreg_t r = 0; r < nregs; r++)
-    {
-        hwreg_t locr = local_reg[r];
-        if (locr == NO_REGISTER)
-            emit_load_off(arm64reg_t(HW_X0 + r), HW_FRAME, local_disp(r));
-        else if (locr != HW_X0 + r)
-            move(hwreg_t(HW_X0 + r), locr);
-    }
+    if (args)
+        if (hwreg_t nregs  = nslots > 8 ? 8 : nslots)
+            for (hwreg_t r = 0; r < nregs; r++)
+                hw_arg(r, r);
     return nslots;
 }
 
@@ -333,8 +328,8 @@ void arm64::post_call(size_t nslots)
 // ----------------------------------------------------------------------------
 {
     // Record that the resturn value is in reg X0
+    forget_registers();
     frame_size(nslots ? nslots : 1);
-    saved(0, HW_X0);
 }
 
 

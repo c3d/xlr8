@@ -184,7 +184,9 @@ EMIT(call)
     hwcode_t site = emit_bl_rel();
     rel_function(e.tok, site);
     post_call(frame);
+    saved(0, HW_X0);
 }
+
 
 
 EMIT(ijmp)
@@ -211,6 +213,7 @@ EMIT(icall)
     // TODO: Translate bytecode address to physical address
     emit32le(blr(r));
     post_call(frame);
+    saved(0, HW_X0);
 }
 
 
@@ -273,7 +276,9 @@ EMIT(enter)
     record(arm64_ops, "emit_enter %u", e.dst);
 
     // Args 0-7 are in X0-X7. They also were spilled in the caller's frame
-    forget_registers();
+    // However, it is legal to have done computations before enter,
+    // see the fibonacci.xlr8 example. So we need to spill
+    spill_all();
     frame_size(e.dst);
     emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
     emit32le(mov_rr(HW_FRAME, HW_SP));
@@ -1355,20 +1360,34 @@ EMIT(ddiv)
 
 // Arm64 SYS emitters covering native.tbl
 #define SYS(op) void arm64::emit_sys_##op(emit_args &e)
-#define XI(loc)  hw(local((loc), RSPEC_INT, true))
-#define XF(loc)  hw(local((loc), RSPEC_FLT, true))
-#define XD(loc)  hw(local((loc), RSPEC_DBL, true))
+#define ARG(arg, loc) hw_arg(arg, loc);
+#define RET(loc)      MOVX(XO(e.dst), HW_X0); saved(e.dst, HW_X0);
+#define NORET         /* no output */
+#define XI(loc)       hw(local((loc), RSPEC_INT, true))
+#define FI(loc)       hw(local((loc), RSPEC_FLT, true))
+#define DI(loc)       hw(local((loc), RSPEC_DBL, true))
+#define XO(loc)       hw(local((loc), RSPEC_INT, false))
+#define FO(loc)       hw(local((loc), RSPEC_FLT, false))
+#define DO(loc)       hw(local((loc), RSPEC_DBL, false))
+#define MOVX(d, s)    emit32le(mov_rr((d), (s)))
+
 // Cast through uintptr_t so overloaded C++ libc/math symbols resolve
-#define CALL(fn) call_ptr(reinterpret_cast<void (*)()>(fn))
-#define MOVX(d,s) emit32le(mov_rr((d), (s)))
+#define CALL(fn, inputs, outputs)                       \
+    do                                                  \
+    {                                                   \
+        size_t frame = pre_call(false);                 \
+        inputs;                                         \
+        call_ptr(reinterpret_cast<void (*)()>(fn));     \
+        post_call(frame);                               \
+        outputs;                                        \
+    } while (0)
 
 SYS(globals)
 // ----------------------------------------------------------------------------
 //   Resize globals table to given length
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.klen);
-    CALL(xlr8_jit_globals);
+    CALL(xlr8_jit_globals, set_imm(HW_X0, e.klen), NORET);
 }
 
 SYS(malloc)
@@ -1376,9 +1395,7 @@ SYS(malloc)
 //   Allocate heap memory of given size
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    CALL(::malloc);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::malloc, ARG(0, e.src), RET(e.dst));
 }
 
 SYS(kmalloc)
@@ -1386,9 +1403,7 @@ SYS(kmalloc)
 //   Allocate heap memory of constant size
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.klen);
-    CALL(::malloc);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::malloc, set_imm(HW_X0, e.klen), RET(e.dst));
 }
 
 SYS(realloc)
@@ -1396,10 +1411,7 @@ SYS(realloc)
 //   Resize heap allocation
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    MOVX(HW_X1, XI(e.src));
-    CALL(::realloc);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::realloc, ARG(0, e.dst) ARG(1, e.src), RET(e.dst));
 }
 
 SYS(free)
@@ -1407,8 +1419,7 @@ SYS(free)
 //   Free heap allocation
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    CALL(::free);
+    CALL(::free, ARG(0, e.dst), NORET);
 }
 
 SYS(alloca)
@@ -1423,9 +1434,13 @@ SYS(alloca)
         bytes = bytes & ~int64_t(15);
 
     if (bytes > 0 && uint64_t(bytes) <= 0xfffu)
+    {
         emit32le(sub_imm(HW_SP, HW_SP, uint(bytes)));
+    }
     else if (bytes < 0 && uint64_t(-bytes) <= 0xfffu)
+    {
         emit32le(add_imm(HW_SP, HW_SP, uint(-bytes)));
+    }
     else if (bytes != 0)
     {
         set_imm(HW_SCRATCH, uint64_t(bytes));
@@ -1433,7 +1448,7 @@ SYS(alloca)
         emit32le(sub_rrr(xn(HW_X17), xn(HW_X17), xn(HW_SCRATCH)));
         emit32le(mov_rr(HW_SP, HW_X17));
     }
-    MOVX(XI(e.dst), HW_SP);
+    MOVX(XO(e.dst), HW_SP);
 }
 
 SYS(valloca)
@@ -1451,7 +1466,7 @@ SYS(valloca)
     emit32le(mov_rr(HW_X17, HW_SP));
     emit32le(sub_rrr(xn(HW_X17), xn(HW_X17), xn(HW_X0)));
     emit32le(mov_rr(HW_SP, HW_X17));
-    MOVX(XI(e.dst), HW_SP);
+    MOVX(XO(e.dst), HW_SP);
 }
 
 SYS(memcpy)
@@ -1459,10 +1474,7 @@ SYS(memcpy)
 //   Copy memory region
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    MOVX(HW_X1, XI(e.src));
-    MOVX(HW_X2, XI(e.len));
-    CALL(::memcpy);
+    CALL(::memcpy, ARG(0, e.dst) ARG(1, e.src) ARG(2, e.len), NORET);
 }
 
 SYS(memmove)
@@ -1470,10 +1482,7 @@ SYS(memmove)
 //   Move memory region (overlap-safe)
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    MOVX(HW_X1, XI(e.src));
-    MOVX(HW_X2, XI(e.len));
-    CALL(::memmove);
+    CALL(::memmove, ARG(0, e.dst) ARG(1, e.src) ARG(2, e.len), NORET);
 }
 
 SYS(memset)
@@ -1481,10 +1490,7 @@ SYS(memset)
 //   Fill memory with byte from register
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    MOVX(HW_X1, XI(e.src));
-    MOVX(HW_X2, XI(e.len));
-    CALL(::memset);
+    CALL(::memset, ARG(0, e.dst) ARG(1, e.src) ARG(2, e.len), NORET);
 }
 
 SYS(kmemcpy)
@@ -1492,10 +1498,7 @@ SYS(kmemcpy)
 //   Copy memory region of constant length
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    MOVX(HW_X1, XI(e.src));
-    set_imm(HW_X2, e.klen);
-    CALL(::memcpy);
+    CALL(::memcpy, ARG(0, e.dst) ARG(1, e.src) set_imm(HW_X2, e.klen), NORET);
 }
 
 SYS(kmemmove)
@@ -1503,10 +1506,7 @@ SYS(kmemmove)
 //   Move memory region of constant length
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    MOVX(HW_X1, XI(e.src));
-    set_imm(HW_X2, e.klen);
-    CALL(::memmove);
+    CALL(::memmove, ARG(0, e.dst) ARG(1, e.src) set_imm(HW_X2, e.klen), NORET);
 }
 
 SYS(kmemset)
@@ -1514,10 +1514,7 @@ SYS(kmemset)
 //   Fill memory with byte, constant length
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    MOVX(HW_X1, XI(e.src));
-    set_imm(HW_X2, e.klen);
-    CALL(::memset);
+    CALL(::memset, ARG(0, e.dst) ARG(1, e.src) set_imm(HW_X2, e.klen), NORET);
 }
 
 SYS(memkset)
@@ -1525,10 +1522,7 @@ SYS(memkset)
 //   Fill memory with constant byte value
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    set_imm(HW_X1, uint64_t(e.kint));
-    MOVX(HW_X2, XI(e.src));
-    CALL(::memset);
+    CALL(::memset, ARG(0, e.dst) set_imm(HW_X1, uint64_t(e.kint)); ARG(2, e.src), NORET);
 }
 
 SYS(kmemkset)
@@ -1536,10 +1530,7 @@ SYS(kmemkset)
 //   Fill memory with constant byte and length
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    set_imm(HW_X1, uint64_t(e.kint));
-    set_imm(HW_X2, e.klen);
-    CALL(::memset);
+    CALL(::memset, ARG(0, e.dst) set_imm(HW_X1, uint64_t(e.kint)); set_imm(HW_X2, e.klen), NORET);
 }
 
 SYS(memcmp)
@@ -1547,11 +1538,7 @@ SYS(memcmp)
 //   Compare two memory regions
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    MOVX(HW_X1, XI(e.xtra));
-    MOVX(HW_X2, XI(e.len));
-    CALL(::memcmp);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::memcmp, ARG(0, e.src) ARG(1, e.xtra) ARG(2, e.len), RET(e.dst));
 }
 
 SYS(kmemcmp)
@@ -1559,11 +1546,7 @@ SYS(kmemcmp)
 //   Compare memory regions of constant length
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    MOVX(HW_X1, XI(e.xtra));
-    set_imm(HW_X2, e.klen);
-    CALL(::memcmp);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::memcmp, ARG(0, e.src) ARG(1, e.xtra) set_imm(HW_X2, e.klen), RET(e.dst));
 }
 
 SYS(memchr)
@@ -1571,11 +1554,7 @@ SYS(memchr)
 //   Find byte in memory region
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    MOVX(HW_X1, XI(e.ival));
-    MOVX(HW_X2, XI(e.len));
-    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr));
-    MOVX(XI(e.dst), HW_X0);
+    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr), ARG(0, e.src) ARG(1, e.ival) ARG(2, e.len), RET(e.dst));
 }
 
 SYS(kmemchr)
@@ -1583,11 +1562,7 @@ SYS(kmemchr)
 //   Find byte in memory of constant length
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    MOVX(HW_X1, XI(e.ival));
-    set_imm(HW_X2, e.klen);
-    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr));
-    MOVX(XI(e.dst), HW_X0);
+    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr), ARG(0, e.src) ARG(1, e.ival) set_imm(HW_X2, e.klen), RET(e.dst));
 }
 
 SYS(memkchr)
@@ -1595,11 +1570,7 @@ SYS(memkchr)
 //   Find constant byte in memory region
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    set_imm(HW_X1, uint64_t(e.kint));
-    MOVX(HW_X2, XI(e.len));
-    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr));
-    MOVX(XI(e.dst), HW_X0);
+    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr), ARG(0, e.src) set_imm(HW_X1, uint64_t(e.kint)); ARG(2, e.len), RET(e.dst));
 }
 
 SYS(kmemkchr)
@@ -1607,11 +1578,7 @@ SYS(kmemkchr)
 //   Find constant byte in memory of constant length
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    set_imm(HW_X1, uint64_t(e.kint));
-    set_imm(HW_X2, e.klen);
-    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr));
-    MOVX(XI(e.dst), HW_X0);
+    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr), ARG(0, e.src) set_imm(HW_X1, uint64_t(e.kint)); set_imm(HW_X2, e.klen), RET(e.dst));
 }
 
 SYS(strlen)
@@ -1619,9 +1586,7 @@ SYS(strlen)
 //   Compute length of C string
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    CALL(::strlen);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::strlen, ARG(0, e.src), RET(e.dst));
 }
 
 SYS(strnlen)
@@ -1629,10 +1594,7 @@ SYS(strnlen)
 //   Compute bounded length of C string
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    MOVX(HW_X1, XI(e.len));
-    CALL(::strnlen);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::strnlen, ARG(0, e.src) ARG(1, e.len), RET(e.dst));
 }
 
 SYS(kstrnlen)
@@ -1640,10 +1602,7 @@ SYS(kstrnlen)
 //   Compute C string length with constant bound
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    set_imm(HW_X1, e.klen);
-    CALL(::strnlen);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::strnlen, ARG(0, e.src) set_imm(HW_X1, e.klen), RET(e.dst));
 }
 
 SYS(strcpy)
@@ -1651,10 +1610,7 @@ SYS(strcpy)
 //   Copy C string
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    MOVX(HW_X1, XI(e.src));
-    CALL(::strcpy);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::strcpy, ARG(0, e.dst) ARG(1, e.src), RET(e.dst));
 }
 
 SYS(strncpy)
@@ -1662,11 +1618,7 @@ SYS(strncpy)
 //   Copy C string with length bound
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    MOVX(HW_X1, XI(e.src));
-    MOVX(HW_X2, XI(e.len));
-    CALL(::strncpy);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::strncpy, ARG(0, e.dst) ARG(1, e.src) ARG(2, e.len), RET(e.dst));
 }
 
 SYS(kstrncpy)
@@ -1674,11 +1626,7 @@ SYS(kstrncpy)
 //   Copy C string with constant length bound
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    MOVX(HW_X1, XI(e.src));
-    set_imm(HW_X2, e.klen);
-    CALL(::strncpy);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::strncpy, ARG(0, e.dst) ARG(1, e.src) set_imm(HW_X2, e.klen), RET(e.dst));
 }
 
 SYS(strcat)
@@ -1686,10 +1634,7 @@ SYS(strcat)
 //   Concatenate C strings
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    MOVX(HW_X1, XI(e.src));
-    CALL(::strcat);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::strcat, ARG(0, e.dst) ARG(1, e.src), RET(e.dst));
 }
 
 SYS(strncat)
@@ -1697,11 +1642,7 @@ SYS(strncat)
 //   Concatenate C strings with length bound
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    MOVX(HW_X1, XI(e.src));
-    MOVX(HW_X2, XI(e.len));
-    CALL(::strncat);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::strncat, ARG(0, e.dst) ARG(1, e.src) ARG(2, e.len), RET(e.dst));
 }
 
 SYS(kstrncat)
@@ -1709,11 +1650,7 @@ SYS(kstrncat)
 //   Concatenate C strings with constant bound
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    MOVX(HW_X1, XI(e.src));
-    set_imm(HW_X2, e.klen);
-    CALL(::strncat);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::strncat, ARG(0, e.dst) ARG(1, e.src) set_imm(HW_X2, e.klen), RET(e.dst));
 }
 
 SYS(strcmp)
@@ -1721,10 +1658,7 @@ SYS(strcmp)
 //   Compare two C strings
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    MOVX(HW_X1, XI(e.xtra));
-    CALL(::strcmp);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::strcmp, ARG(0, e.src) ARG(1, e.xtra), RET(e.dst));
 }
 
 SYS(strncmp)
@@ -1732,11 +1666,7 @@ SYS(strncmp)
 //   Compare C strings with length bound
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    MOVX(HW_X1, XI(e.xtra));
-    MOVX(HW_X2, XI(e.len));
-    CALL(::strncmp);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::strncmp, ARG(0, e.src) ARG(1, e.xtra) ARG(2, e.len), RET(e.dst));
 }
 
 SYS(kstrncmp)
@@ -1744,11 +1674,8 @@ SYS(kstrncmp)
 //   Compare C strings with constant bound
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    MOVX(HW_X1, XI(e.xtra));
-    set_imm(HW_X2, e.klen);
-    CALL(::strncmp);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::strncmp,
+         ARG(0, e.src) ARG(1, e.xtra) set_imm(HW_X2, e.klen), RET(e.dst));
 }
 
 // glibc/libcpp overload strchr/strrchr/strstr as char*(char*,…) /
@@ -1759,10 +1686,8 @@ SYS(strchr)
 //   Find character in C string
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    MOVX(HW_X1, XI(e.ival));
-    CALL(static_cast<char *(*)(char *, int)>(::strchr));
-    MOVX(XI(e.dst), HW_X0);
+    CALL(static_cast<char *(*) (char *, int)>(::strchr),
+         ARG(0, e.src) ARG(1, e.ival), RET(e.dst));
 }
 
 SYS(kstrchr)
@@ -1770,10 +1695,8 @@ SYS(kstrchr)
 //   Find constant character in C string
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    set_imm(HW_X1, uint64_t(e.kint));
-    CALL(static_cast<char *(*)(char *, int)>(::strchr));
-    MOVX(XI(e.dst), HW_X0);
+    CALL(static_cast<char *(*) (char *, int)>(::strchr),
+         ARG(0, e.src) set_imm(HW_X1, uint64_t(e.kint)), RET(e.dst));
 }
 
 SYS(strrchr)
@@ -1781,10 +1704,8 @@ SYS(strrchr)
 //   Find last character in C string
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    MOVX(HW_X1, XI(e.ival));
-    CALL(static_cast<char *(*)(char *, int)>(::strrchr));
-    MOVX(XI(e.dst), HW_X0);
+    CALL(static_cast<char *(*) (char *, int)>(::strrchr),
+         ARG(0, e.src) ARG(1, e.ival), RET(e.dst));
 }
 
 SYS(kstrrchr)
@@ -1792,10 +1713,8 @@ SYS(kstrrchr)
 //   Find last constant character in C string
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    set_imm(HW_X1, uint64_t(e.kint));
-    CALL(static_cast<char *(*)(char *, int)>(::strrchr));
-    MOVX(XI(e.dst), HW_X0);
+    CALL(static_cast<char *(*) (char *, int)>(::strrchr),
+         ARG(0, e.src) set_imm(HW_X1, uint64_t(e.kint)), RET(e.dst));
 }
 
 SYS(strstr)
@@ -1803,10 +1722,8 @@ SYS(strstr)
 //   Find substring in C string
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    MOVX(HW_X1, XI(e.xtra));
-    CALL(static_cast<char *(*)(char *, const char *)>(::strstr));
-    MOVX(XI(e.dst), HW_X0);
+    CALL(static_cast<char *(*) (char *, const char *)>(::strstr),
+         ARG(0, e.src) ARG(1, e.xtra), RET(e.dst));
 }
 
 #if 0 // gated with native.tbl (no strnstr on Debian)
@@ -1815,10 +1732,8 @@ SYS(strnstr)
 //   Find substring in C string with length bound
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    MOVX(HW_X1, XI(e.xtra));
-    CALL(static_cast<char *(*)(char *, const char *)>(::strstr));
-    MOVX(XI(e.dst), HW_X0);
+    CALL(static_cast<char *(*)(char *, const char *)>(::strstr),
+ARG(0, e.src) ARG(1, e.xtra), RET(e.dst));
 }
 
 SYS(kstrnstr)
@@ -1826,10 +1741,8 @@ SYS(kstrnstr)
 //   Find substring with constant length bound
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    MOVX(HW_X1, XI(e.xtra));
-    CALL(static_cast<char *(*)(char *, const char *)>(::strstr));
-    MOVX(XI(e.dst), HW_X0);
+    CALL(static_cast<char *(*)(char *, const char *)>(::strstr),
+ARG(0, e.src) ARG(1, e.xtra), RET(e.dst));
 }
 
 #endif
@@ -1839,15 +1752,14 @@ SYS(strcasestr)
 //   Find substring case-insensitively
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    MOVX(HW_X1, XI(e.xtra));
     // glibc: C++ overloads like strchr; Apple: single C declaration
 #if defined(__GLIBC__)
-    CALL(static_cast<char *(*)(char *, const char *)>(::strcasestr));
+    CALL(static_cast<char *(*) (char *, const char *)>(::strcasestr),
+         ARG(0, e.src) ARG(1, e.xtra), RET(e.dst));
 #else
-    CALL(static_cast<char *(*)(const char *, const char *)>(::strcasestr));
+    CALL(static_cast<char *(*)(const char *, const char *)>(::strcasestr),
+         ARG(0, e.src) ARG(1, e.xtra), RET(e.dst));
 #endif
-    MOVX(XI(e.dst), HW_X0);
 }
 
 SYS(strdup)
@@ -1855,9 +1767,7 @@ SYS(strdup)
 //   Duplicate C string on heap
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    CALL(::strdup);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::strdup, ARG(0, e.src), RET(e.dst));
 }
 
 SYS(strndup)
@@ -1865,10 +1775,7 @@ SYS(strndup)
 //   Duplicate C string on heap with length bound
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    MOVX(HW_X1, XI(e.len));
-    CALL(::strndup);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::strndup, ARG(0, e.src) ARG(1, e.len), RET(e.dst));
 }
 
 SYS(kstrndup)
@@ -1876,10 +1783,7 @@ SYS(kstrndup)
 //   Duplicate C string with constant length bound
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    set_imm(HW_X1, e.klen);
-    CALL(::strndup);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(::strndup, ARG(0, e.src) set_imm(HW_X1, e.klen), RET(e.dst));
 }
 
 SYS(cmdline)
@@ -1887,9 +1791,7 @@ SYS(cmdline)
 //   Get command-line argument by index
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    CALL(xlr8_jit_argv);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(xlr8_jit_argv, ARG(0, e.src), RET(e.dst));
 }
 
 SYS(env)
@@ -1897,9 +1799,7 @@ SYS(env)
 //   Get environment variable by index
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    CALL(xlr8_jit_env);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(xlr8_jit_env, ARG(0, e.src), RET(e.dst));
 }
 
 SYS(infix)
@@ -1907,7 +1807,7 @@ SYS(infix)
 //   Enter infix parsing mode
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_infix);
+    CALL(xlr8_jit_infix, /* no input */, NORET);
 }
 
 SYS(prefix)
@@ -1915,7 +1815,7 @@ SYS(prefix)
 //   Enter prefix parsing mode
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_prefix);
+    CALL(xlr8_jit_prefix, /* no input */, NORET);
 }
 
 SYS(postfix)
@@ -1923,7 +1823,7 @@ SYS(postfix)
 //   Enter postfix parsing mode
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_postfix);
+    CALL(xlr8_jit_postfix, /* no input */, NORET);
 }
 
 SYS(block)
@@ -1931,7 +1831,7 @@ SYS(block)
 //   Enter block parsing mode
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_block);
+    CALL(xlr8_jit_block, /* no input */, NORET);
 }
 
 SYS(builtin)
@@ -1939,7 +1839,7 @@ SYS(builtin)
 //   Switch to builtin (non-parsing) mode
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_builtin);
+    CALL(xlr8_jit_builtin, /* no input */, NORET);
 }
 
 SYS(parsing)
@@ -1947,7 +1847,7 @@ SYS(parsing)
 //   Switch to parsing mode
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_parsing);
+    CALL(xlr8_jit_parsing, /* no input */, NORET);
 }
 
 SYS(branch_on_eof)
@@ -1955,10 +1855,10 @@ SYS(branch_on_eof)
 //   Branch if input stream is at EOF
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    CALL(xlr8_jit_stream_eof);
-    hwcode_t pos = emit_cbnz_rel(HW_X0);
-    rel_branch(e.bpc + e.broff, pos);
+    CALL(xlr8_jit_stream_eof,
+         set_imm(HW_X0, e.knat),
+         hwcode_t pos = emit_cbnz_rel(HW_X0);
+         rel_branch(e.bpc + e.broff, pos));
 }
 
 SYS(branch_on_bad)
@@ -1966,10 +1866,10 @@ SYS(branch_on_bad)
 //   Branch if input stream is bad
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    CALL(xlr8_jit_stream_bad);
-    hwcode_t pos = emit_cbnz_rel(HW_X0);
-    rel_branch(e.bpc + e.broff, pos);
+    CALL(xlr8_jit_stream_bad,
+         set_imm(HW_X0, e.knat),
+         hwcode_t pos = emit_cbnz_rel(HW_X0);
+         rel_branch(e.bpc + e.broff, pos));
 }
 
 SYS(read_char)
@@ -1977,9 +1877,7 @@ SYS(read_char)
 //   Read character from input stream
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    CALL(xlr8_jit_read_char);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(xlr8_jit_read_char, set_imm(HW_X0, e.knat), RET(e.dst));
 }
 
 SYS(read_integer)
@@ -1987,9 +1885,7 @@ SYS(read_integer)
 //   Read integer from input stream
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    CALL(xlr8_jit_read_integer);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(xlr8_jit_read_integer, set_imm(HW_X0, e.knat), RET(e.dst));
 }
 
 SYS(read_natural)
@@ -1997,9 +1893,7 @@ SYS(read_natural)
 //   Read natural number from input stream
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    CALL(xlr8_jit_read_natural);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(xlr8_jit_read_natural, set_imm(HW_X0, e.knat), RET(e.dst));
 }
 
 SYS(read_float)
@@ -2007,9 +1901,9 @@ SYS(read_float)
 //   Read float from input stream
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    CALL(xlr8_jit_read_float);
-    emit32le(fmov_ss(vn(XF(e.dst)), 0));
+    CALL(xlr8_jit_read_float,
+         set_imm(HW_X0, e.knat),
+         emit32le(fmov_ss(vn(FO(e.dst)), 0)));
 }
 
 SYS(read_double)
@@ -2017,9 +1911,9 @@ SYS(read_double)
 //   Read double from input stream
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    CALL(xlr8_jit_read_double);
-    emit32le(fmov_dd(vn(XD(e.dst)), 0));
+    CALL(xlr8_jit_read_double,
+         set_imm(HW_X0, e.knat),
+         emit32le(fmov_dd(vn(DI(e.dst)), 0)));
 }
 
 SYS(write_char)
@@ -2027,9 +1921,7 @@ SYS(write_char)
 //   Write character to output stream
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    MOVX(HW_X1, XI(e.src));
-    CALL(xlr8_jit_write_char);
+    CALL(xlr8_jit_write_char, set_imm(HW_X0, e.knat); ARG(1, e.src), NORET);
 }
 
 SYS(write_integer)
@@ -2037,9 +1929,7 @@ SYS(write_integer)
 //   Write integer to output stream
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X1, XI(e.src));
-    set_imm(HW_X0, e.knat);
-    CALL(xlr8_jit_write_integer);
+    CALL(xlr8_jit_write_integer, set_imm(HW_X0, e.knat); ARG(1, e.src), NORET);
 }
 
 SYS(write_natural)
@@ -2047,9 +1937,7 @@ SYS(write_natural)
 //   Write natural number to output stream
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    MOVX(HW_X1, XI(e.src));
-    CALL(xlr8_jit_write_natural);
+    CALL(xlr8_jit_write_natural, set_imm(HW_X0, e.knat); ARG(1, e.src), NORET);
 }
 
 SYS(write_float)
@@ -2057,10 +1945,10 @@ SYS(write_float)
 //   Write float to output stream
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    arm64reg_t s = XF(e.src);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(xlr8_jit_write_float);
+    arm64reg_t s = FI(e.src);
+    CALL(xlr8_jit_write_float,
+         set_imm(HW_X0, e.knat); if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         NORET);
 }
 
 SYS(write_double)
@@ -2068,10 +1956,10 @@ SYS(write_double)
 //   Write double to output stream
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    arm64reg_t s = XD(e.src);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(xlr8_jit_write_double);
+    arm64reg_t s = DI(e.src);
+    CALL(xlr8_jit_write_double,
+         set_imm(HW_X0, e.knat); if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         NORET);
 }
 
 SYS(write_text)
@@ -2079,9 +1967,8 @@ SYS(write_text)
 //   Write text symbol to output stream
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    MOVX(HW_X1, XI(e.src));
-    CALL(xlr8_jit_write_text);
+    CALL(xlr8_jit_write_text,
+         set_imm(HW_X0, e.knat); ARG(1, e.src), NORET);
 }
 
 SYS(write_token)
@@ -2089,9 +1976,8 @@ SYS(write_token)
 //   Write token text to output stream
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    set_imm(HW_X1, e.tok);
-    CALL(xlr8_jit_write_token);
+    CALL(xlr8_jit_write_token,
+         set_imm(HW_X0, e.knat); set_imm(HW_X1, e.tok), NORET);
 }
 
 SYS(write_newline)
@@ -2099,8 +1985,7 @@ SYS(write_newline)
 //   Write newline to output stream
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    CALL(xlr8_jit_write_newline);
+    CALL(xlr8_jit_write_newline, set_imm(HW_X0, e.knat), NORET);
 }
 
 SYS(read_scanner)
@@ -2108,14 +1993,13 @@ SYS(read_scanner)
 //   Scan next token from input stream
 // ----------------------------------------------------------------------------
 {
-    emit32le(sub_imm(xn(HW_SP), xn(HW_SP), 16));
-    set_imm(HW_X0, e.knat);
-    MOVX(HW_X1, HW_SP);
-    emit32le(add_imm(xn(HW_X2), xn(HW_SP), 8));
-    CALL(xlr8_jit_read_scanner);
-    emit_load_off(XI(e.dst), HW_SP, 0);
-    emit_load_off(XI(local_t(e.dst + 1)), HW_SP, 8);
-    emit32le(add_imm(xn(HW_SP), xn(HW_SP), 16));
+    CALL(xlr8_jit_read_scanner,
+         emit32le(sub_imm(xn(HW_SP), xn(HW_SP), 16)); set_imm(HW_X0, e.knat);
+         MOVX(HW_X1, HW_SP);
+         emit32le(add_imm(xn(HW_X2), xn(HW_SP), 8)),
+         emit_load_off(XO(e.dst), HW_SP, 0);
+         emit_load_off(XI(local_t(e.dst + 1)), HW_SP, 8);
+         emit32le(add_imm(xn(HW_SP), xn(HW_SP), 16)));
 }
 
 SYS(nat)
@@ -2123,9 +2007,7 @@ SYS(nat)
 //   Append natural number to scanner output
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    MOVX(HW_X1, XI(e.src));
-    CALL(xlr8_jit_nat_append);
+    CALL(xlr8_jit_nat_append, set_imm(HW_X0, e.knat); ARG(1, e.src), NORET);
 }
 
 SYS(int)
@@ -2133,9 +2015,7 @@ SYS(int)
 //   Append integer to scanner output
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    MOVX(HW_X1, XI(e.src));
-    CALL(xlr8_jit_int_append);
+    CALL(xlr8_jit_int_append, set_imm(HW_X0, e.knat); ARG(1, e.src), NORET);
 }
 
 SYS(flt)
@@ -2143,10 +2023,10 @@ SYS(flt)
 //   Append float to scanner output
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    arm64reg_t s = XF(e.src);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(xlr8_jit_flt_append);
+    arm64reg_t s = FI(e.src);
+    CALL(xlr8_jit_flt_append,
+         set_imm(HW_X0, e.knat); if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         NORET);
 }
 
 SYS(dbl)
@@ -2154,10 +2034,10 @@ SYS(dbl)
 //   Append double to scanner output
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    arm64reg_t s = XD(e.src);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(xlr8_jit_dbl_append);
+    arm64reg_t s = DI(e.src);
+    CALL(xlr8_jit_dbl_append,
+         set_imm(HW_X0, e.knat); if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         NORET);
 }
 
 SYS(print_error)
@@ -2165,8 +2045,7 @@ SYS(print_error)
 //   Print runtime error to output stream
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.knat);
-    CALL(xlr8_jit_print_error);
+    CALL(xlr8_jit_print_error, set_imm(HW_X0, e.knat), NORET);
 }
 
 SYS(clear_error)
@@ -2174,7 +2053,7 @@ SYS(clear_error)
 //   Clear runtime error state
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_clear_error);
+    CALL(xlr8_jit_clear_error, /* no input */, NORET);
 }
 
 SYS(trap_error)
@@ -2182,9 +2061,10 @@ SYS(trap_error)
 //   Branch if a runtime error is set
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_has_error);
-    hwcode_t pos = emit_cbnz_rel(HW_X0);
-    rel_branch(e.bpc + e.broff, pos);
+    CALL(xlr8_jit_has_error,
+         /* no input */,
+         hwcode_t pos = emit_cbnz_rel(HW_X0);
+         rel_branch(e.bpc + e.broff, pos));
 }
 
 SYS(i2f)
@@ -2195,7 +2075,7 @@ SYS(i2f)
     // Evaluate INT source before FLT dest so aliased locals keep the
     // integer binding long enough for scvtf (dest rebind must not steal first).
     arm64reg_t s = XI(e.src);
-    arm64reg_t d = XF(e.dst);
+    arm64reg_t d = FO(e.dst);
     emit32le(scvtf_s_x(vn(d), xn(s)));
 }
 
@@ -2205,7 +2085,7 @@ SYS(i2d)
 // ----------------------------------------------------------------------------
 {
     arm64reg_t s = XI(e.src);
-    arm64reg_t d = XD(e.dst);
+    arm64reg_t d = DI(e.dst);
     emit32le(scvtf_d_x(vn(d), xn(s)));
 }
 
@@ -2215,7 +2095,7 @@ SYS(u2f)
 // ----------------------------------------------------------------------------
 {
     arm64reg_t s = XI(e.src);
-    arm64reg_t d = XF(e.dst);
+    arm64reg_t d = FO(e.dst);
     emit32le(ucvtf_s_x(vn(d), xn(s)));
 }
 
@@ -2225,7 +2105,7 @@ SYS(u2d)
 // ----------------------------------------------------------------------------
 {
     arm64reg_t s = XI(e.src);
-    arm64reg_t d = XD(e.dst);
+    arm64reg_t d = DI(e.dst);
     emit32le(ucvtf_d_x(vn(d), xn(s)));
 }
 
@@ -2235,8 +2115,8 @@ SYS(f2i)
 // ----------------------------------------------------------------------------
 {
     // FLT source before INT dest — same aliasing concern as i2f.
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XI(e.dst);
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = XO(e.dst);
     emit32le(fcvtzs_x_s(xn(d), vn(s)));
 }
 
@@ -2245,8 +2125,8 @@ SYS(d2i)
 //   Convert double to integer
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XI(e.dst);
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = XO(e.dst);
     emit32le(fcvtzs_x_d(xn(d), vn(s)));
 }
 
@@ -2255,8 +2135,8 @@ SYS(f2u)
 //   Convert float to natural
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XI(e.dst);
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = XO(e.dst);
     emit32le(fcvtzu_x_s(xn(d), vn(s)));
 }
 
@@ -2265,8 +2145,8 @@ SYS(d2u)
 //   Convert double to natural
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XI(e.dst);
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = XO(e.dst);
     emit32le(fcvtzu_x_d(xn(d), vn(s)));
 }
 
@@ -2275,8 +2155,8 @@ SYS(f2d)
 //   Convert float to double
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XD(e.dst);
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = DI(e.dst);
     emit32le(fcvt_d_s(vn(d), vn(s)));
 }
 
@@ -2285,8 +2165,8 @@ SYS(d2f)
 //   Convert double to float
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XF(e.dst);
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = FO(e.dst);
     emit32le(fcvt_s_d(vn(d), vn(s)));
 }
 
@@ -2295,9 +2175,10 @@ SYS(fpush)
 //   Push float bits onto runtime stack
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(xlr8_jit_fpush);
+    arm64reg_t s = FI(e.src);
+    CALL(xlr8_jit_fpush,
+         if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         NORET);
 }
 
 SYS(dpush)
@@ -2305,9 +2186,10 @@ SYS(dpush)
 //   Push double bits onto runtime stack
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(xlr8_jit_dpush);
+    arm64reg_t s = DI(e.src);
+    CALL(xlr8_jit_dpush,
+         if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         NORET);
 }
 
 SYS(fpop)
@@ -2315,8 +2197,9 @@ SYS(fpop)
 //   Pop float bits from runtime stack
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_fpop);
-    emit32le(fmov_ss(vn(XF(e.dst)), 0));
+    CALL(xlr8_jit_fpop,
+         /* no input */,
+         emit32le(fmov_ss(vn(FO(e.dst)), 0)));
 }
 
 SYS(dpop)
@@ -2324,8 +2207,9 @@ SYS(dpop)
 //   Pop double bits from runtime stack
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_dpop);
-    emit32le(fmov_dd(vn(XD(e.dst)), 0));
+    CALL(xlr8_jit_dpop,
+         /* no input */,
+         emit32le(fmov_dd(vn(DI(e.dst)), 0)));
 }
 
 SYS(fmod)
@@ -2333,12 +2217,12 @@ SYS(fmod)
 //   Float remainder (modulo)
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t d = XF(e.dst);
-    arm64reg_t s = XF(e.src);
-    emit32le(fmov_ss(0, vn(d)));
-    emit32le(fmov_ss(1, vn(s)));
-    CALL(static_cast<float (*)(float, float)>(::fmodf));
-    emit32le(fmov_ss(vn(d), 0));
+    arm64reg_t d = FO(e.dst);
+    arm64reg_t s = FI(e.src);
+    CALL(static_cast<float (*)(float, float)>(::fmodf),
+         emit32le(fmov_ss(0, vn(d)));
+         emit32le(fmov_ss(1, vn(s))),
+         emit32le(fmov_ss(vn(d), 0)));
 }
 
 SYS(dmod)
@@ -2346,12 +2230,12 @@ SYS(dmod)
 //   Double remainder (modulo)
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t d = XD(e.dst);
-    arm64reg_t s = XD(e.src);
-    emit32le(fmov_dd(0, vn(d)));
-    emit32le(fmov_dd(1, vn(s)));
-    CALL(static_cast<double (*)(double, double)>(::fmod));
-    emit32le(fmov_dd(vn(d), 0));
+    arm64reg_t d = DI(e.dst);
+    arm64reg_t s = DI(e.src);
+    CALL(static_cast<double (*)(double, double)>(::fmod),
+         emit32le(fmov_dd(0, vn(d)));
+         emit32le(fmov_dd(1, vn(s))),
+         emit32le(fmov_dd(vn(d), 0)));
 }
 
 SYS(ffloor)
@@ -2359,11 +2243,11 @@ SYS(ffloor)
 //   Floor of float
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XF(e.dst);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(static_cast<float (*)(float)>(::floorf));
-    emit32le(fmov_ss(vn(d), 0));
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = FO(e.dst);
+    CALL(static_cast<float (*)(float)>(::floorf),
+         if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         emit32le(fmov_ss(vn(d), 0)));
 }
 
 SYS(dfloor)
@@ -2371,11 +2255,11 @@ SYS(dfloor)
 //   Floor of double
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XD(e.dst);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(static_cast<double (*)(double)>(::floor));
-    emit32le(fmov_dd(vn(d), 0));
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = DI(e.dst);
+    CALL(static_cast<double (*)(double)>(::floor),
+         if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         emit32le(fmov_dd(vn(d), 0)));
 }
 
 SYS(fceil)
@@ -2383,11 +2267,11 @@ SYS(fceil)
 //   Ceiling of float
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XF(e.dst);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(static_cast<float (*)(float)>(::ceilf));
-    emit32le(fmov_ss(vn(d), 0));
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = FO(e.dst);
+    CALL(static_cast<float (*)(float)>(::ceilf),
+         if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         emit32le(fmov_ss(vn(d), 0)));
 }
 
 SYS(dceil)
@@ -2395,11 +2279,11 @@ SYS(dceil)
 //   Ceiling of double
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XD(e.dst);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(static_cast<double (*)(double)>(::ceil));
-    emit32le(fmov_dd(vn(d), 0));
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = DI(e.dst);
+    CALL(static_cast<double (*)(double)>(::ceil),
+         if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         emit32le(fmov_dd(vn(d), 0)));
 }
 
 SYS(fsqrt)
@@ -2407,11 +2291,11 @@ SYS(fsqrt)
 //   Square root of float
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XF(e.dst);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(static_cast<float (*)(float)>(::sqrtf));
-    emit32le(fmov_ss(vn(d), 0));
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = FO(e.dst);
+    CALL(static_cast<float (*)(float)>(::sqrtf),
+         if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         emit32le(fmov_ss(vn(d), 0)));
 }
 
 SYS(dsqrt)
@@ -2419,11 +2303,11 @@ SYS(dsqrt)
 //   Square root of double
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XD(e.dst);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(static_cast<double (*)(double)>(::sqrt));
-    emit32le(fmov_dd(vn(d), 0));
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = DI(e.dst);
+    CALL(static_cast<double (*)(double)>(::sqrt),
+         if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         emit32le(fmov_dd(vn(d), 0)));
 }
 
 SYS(fcbrt)
@@ -2431,11 +2315,11 @@ SYS(fcbrt)
 //   Cube root of float
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XF(e.dst);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(static_cast<float (*)(float)>(::cbrtf));
-    emit32le(fmov_ss(vn(d), 0));
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = FO(e.dst);
+    CALL(static_cast<float (*)(float)>(::cbrtf),
+         if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         emit32le(fmov_ss(vn(d), 0)));
 }
 
 SYS(dcbrt)
@@ -2443,11 +2327,11 @@ SYS(dcbrt)
 //   Cube root of double
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XD(e.dst);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(static_cast<double (*)(double)>(::cbrt));
-    emit32le(fmov_dd(vn(d), 0));
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = DI(e.dst);
+    CALL(static_cast<double (*)(double)>(::cbrt),
+         if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         emit32le(fmov_dd(vn(d), 0)));
 }
 
 SYS(fsin)
@@ -2455,11 +2339,11 @@ SYS(fsin)
 //   Sine of float
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XF(e.dst);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(static_cast<float (*)(float)>(::sinf));
-    emit32le(fmov_ss(vn(d), 0));
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = FO(e.dst);
+    CALL(static_cast<float (*)(float)>(::sinf),
+         if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         emit32le(fmov_ss(vn(d), 0)));
 }
 
 SYS(dsin)
@@ -2467,11 +2351,11 @@ SYS(dsin)
 //   Sine of double
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XD(e.dst);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(static_cast<double (*)(double)>(::sin));
-    emit32le(fmov_dd(vn(d), 0));
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = DI(e.dst);
+    CALL(static_cast<double (*)(double)>(::sin),
+         if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         emit32le(fmov_dd(vn(d), 0)));
 }
 
 SYS(fcos)
@@ -2479,11 +2363,11 @@ SYS(fcos)
 //   Cosine of float
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XF(e.dst);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(static_cast<float (*)(float)>(::cosf));
-    emit32le(fmov_ss(vn(d), 0));
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = FO(e.dst);
+    CALL(static_cast<float (*)(float)>(::cosf),
+         if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         emit32le(fmov_ss(vn(d), 0)));
 }
 
 SYS(dcos)
@@ -2491,11 +2375,11 @@ SYS(dcos)
 //   Cosine of double
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XD(e.dst);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(static_cast<double (*)(double)>(::cos));
-    emit32le(fmov_dd(vn(d), 0));
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = DI(e.dst);
+    CALL(static_cast<double (*)(double)>(::cos),
+         if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         emit32le(fmov_dd(vn(d), 0)));
 }
 
 SYS(ftan)
@@ -2503,11 +2387,11 @@ SYS(ftan)
 //   Tangent of float
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XF(e.dst);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(static_cast<float (*)(float)>(::tanf));
-    emit32le(fmov_ss(vn(d), 0));
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = FO(e.dst);
+    CALL(static_cast<float (*)(float)>(::tanf),
+         if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         emit32le(fmov_ss(vn(d), 0)));
 }
 
 SYS(dtan)
@@ -2515,11 +2399,11 @@ SYS(dtan)
 //   Tangent of double
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XD(e.dst);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(static_cast<double (*)(double)>(::tan));
-    emit32le(fmov_dd(vn(d), 0));
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = DI(e.dst);
+    CALL(static_cast<double (*)(double)>(::tan),
+         if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         emit32le(fmov_dd(vn(d), 0)));
 }
 
 SYS(fasin)
@@ -2527,11 +2411,11 @@ SYS(fasin)
 //   Arc sine of float
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XF(e.dst);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(static_cast<float (*)(float)>(::asinf));
-    emit32le(fmov_ss(vn(d), 0));
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = FO(e.dst);
+    CALL(static_cast<float (*)(float)>(::asinf),
+         if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         emit32le(fmov_ss(vn(d), 0)));
 }
 
 SYS(dasin)
@@ -2539,11 +2423,11 @@ SYS(dasin)
 //   Arc sine of double
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XD(e.dst);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(static_cast<double (*)(double)>(::asin));
-    emit32le(fmov_dd(vn(d), 0));
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = DI(e.dst);
+    CALL(static_cast<double (*)(double)>(::asin),
+         if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         emit32le(fmov_dd(vn(d), 0)));
 }
 
 SYS(facos)
@@ -2551,11 +2435,11 @@ SYS(facos)
 //   Arc cosine of float
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XF(e.dst);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(static_cast<float (*)(float)>(::acosf));
-    emit32le(fmov_ss(vn(d), 0));
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = FO(e.dst);
+    CALL(static_cast<float (*)(float)>(::acosf),
+         if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         emit32le(fmov_ss(vn(d), 0)));
 }
 
 SYS(dacos)
@@ -2563,11 +2447,11 @@ SYS(dacos)
 //   Arc cosine of double
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XD(e.dst);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(static_cast<double (*)(double)>(::acos));
-    emit32le(fmov_dd(vn(d), 0));
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = DI(e.dst);
+    CALL(static_cast<double (*)(double)>(::acos),
+         if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         emit32le(fmov_dd(vn(d), 0)));
 }
 
 SYS(fatan)
@@ -2575,11 +2459,11 @@ SYS(fatan)
 //   Arc tangent of float
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XF(e.dst);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(static_cast<float (*)(float)>(::atanf));
-    emit32le(fmov_ss(vn(d), 0));
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = FO(e.dst);
+    CALL(static_cast<float (*)(float)>(::atanf),
+         if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         emit32le(fmov_ss(vn(d), 0)));
 }
 
 SYS(datan)
@@ -2587,11 +2471,11 @@ SYS(datan)
 //   Arc tangent of double
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XD(e.dst);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(static_cast<double (*)(double)>(::atan));
-    emit32le(fmov_dd(vn(d), 0));
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = DI(e.dst);
+    CALL(static_cast<double (*)(double)>(::atan),
+         if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         emit32le(fmov_dd(vn(d), 0)));
 }
 
 SYS(fexp)
@@ -2599,11 +2483,11 @@ SYS(fexp)
 //   Exponential of float
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XF(e.dst);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(static_cast<float (*)(float)>(::expf));
-    emit32le(fmov_ss(vn(d), 0));
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = FO(e.dst);
+    CALL(static_cast<float (*)(float)>(::expf),
+         if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         emit32le(fmov_ss(vn(d), 0)));
 }
 
 SYS(dexp)
@@ -2611,11 +2495,11 @@ SYS(dexp)
 //   Exponential of double
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XD(e.dst);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(static_cast<double (*)(double)>(::exp));
-    emit32le(fmov_dd(vn(d), 0));
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = DI(e.dst);
+    CALL(static_cast<double (*)(double)>(::exp),
+         if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         emit32le(fmov_dd(vn(d), 0)));
 }
 
 SYS(flog)
@@ -2623,11 +2507,11 @@ SYS(flog)
 //   Natural log of float
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XF(e.dst);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(static_cast<float (*)(float)>(::logf));
-    emit32le(fmov_ss(vn(d), 0));
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = FO(e.dst);
+    CALL(static_cast<float (*)(float)>(::logf),
+         if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         emit32le(fmov_ss(vn(d), 0)));
 }
 
 SYS(dlog)
@@ -2635,11 +2519,11 @@ SYS(dlog)
 //   Natural log of double
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XD(e.dst);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(static_cast<double (*)(double)>(::log));
-    emit32le(fmov_dd(vn(d), 0));
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = DI(e.dst);
+    CALL(static_cast<double (*)(double)>(::log),
+         if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         emit32le(fmov_dd(vn(d), 0)));
 }
 
 SYS(fexp2)
@@ -2647,11 +2531,11 @@ SYS(fexp2)
 //   Base-2 exponential of float
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XF(e.dst);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(static_cast<float (*)(float)>(::exp2f));
-    emit32le(fmov_ss(vn(d), 0));
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = FO(e.dst);
+    CALL(static_cast<float (*)(float)>(::exp2f),
+         if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         emit32le(fmov_ss(vn(d), 0)));
 }
 
 SYS(dexp2)
@@ -2659,11 +2543,11 @@ SYS(dexp2)
 //   Base-2 exponential of double
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XD(e.dst);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(static_cast<double (*)(double)>(::exp2));
-    emit32le(fmov_dd(vn(d), 0));
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = DI(e.dst);
+    CALL(static_cast<double (*)(double)>(::exp2),
+         if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         emit32le(fmov_dd(vn(d), 0)));
 }
 
 SYS(flog2)
@@ -2671,11 +2555,11 @@ SYS(flog2)
 //   Base-2 log of float
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XF(e.src);
-    arm64reg_t d = XF(e.dst);
-    if (vn(s) != 0) emit32le(fmov_ss(0, vn(s)));
-    CALL(static_cast<float (*)(float)>(::log2f));
-    emit32le(fmov_ss(vn(d), 0));
+    arm64reg_t s = FI(e.src);
+    arm64reg_t d = FO(e.dst);
+    CALL(static_cast<float (*)(float)>(::log2f),
+         if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         emit32le(fmov_ss(vn(d), 0)));
 }
 
 SYS(dlog2)
@@ -2683,11 +2567,11 @@ SYS(dlog2)
 //   Base-2 log of double
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = XD(e.src);
-    arm64reg_t d = XD(e.dst);
-    if (vn(s) != 0) emit32le(fmov_dd(0, vn(s)));
-    CALL(static_cast<double (*)(double)>(::log2));
-    emit32le(fmov_dd(vn(d), 0));
+    arm64reg_t s = DI(e.src);
+    arm64reg_t d = DI(e.dst);
+    CALL(static_cast<double (*)(double)>(::log2),
+         if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         emit32le(fmov_dd(vn(d), 0)));
 }
 
 SYS(fcmpeq)
@@ -2695,8 +2579,8 @@ SYS(fcmpeq)
 //   Compare floats for equality
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t d = XF(e.dst);
-    arm64reg_t s = XF(e.src);
+    arm64reg_t d = FO(e.dst);
+    arm64reg_t s = FI(e.src);
     emit32le(fcmp_ss(vn(d), vn(s)));
     set_pred_cmp(e.pred, COND_EQ);
 }
@@ -2706,8 +2590,8 @@ SYS(dcmpeq)
 //   Compare doubles for equality
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t d = XD(e.dst);
-    arm64reg_t s = XD(e.src);
+    arm64reg_t d = DI(e.dst);
+    arm64reg_t s = DI(e.src);
     emit32le(fcmp_dd(vn(d), vn(s)));
     set_pred_cmp(e.pred, COND_EQ);
 }
@@ -2717,8 +2601,8 @@ SYS(fcmpne)
 //   Compare floats for inequality
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t d = XF(e.dst);
-    arm64reg_t s = XF(e.src);
+    arm64reg_t d = FO(e.dst);
+    arm64reg_t s = FI(e.src);
     emit32le(fcmp_ss(vn(d), vn(s)));
     set_pred_cmp(e.pred, COND_NE);
 }
@@ -2728,8 +2612,8 @@ SYS(dcmpne)
 //   Compare doubles for inequality
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t d = XD(e.dst);
-    arm64reg_t s = XD(e.src);
+    arm64reg_t d = DI(e.dst);
+    arm64reg_t s = DI(e.src);
     emit32le(fcmp_dd(vn(d), vn(s)));
     set_pred_cmp(e.pred, COND_NE);
 }
@@ -2739,8 +2623,8 @@ SYS(fcmplt)
 //   Compare floats less-than
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t d = XF(e.dst);
-    arm64reg_t s = XF(e.src);
+    arm64reg_t d = FO(e.dst);
+    arm64reg_t s = FI(e.src);
     emit32le(fcmp_ss(vn(d), vn(s)));
     set_pred_cmp(e.pred, COND_MI);
 }
@@ -2750,8 +2634,8 @@ SYS(dcmplt)
 //   Compare doubles less-than
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t d = XD(e.dst);
-    arm64reg_t s = XD(e.src);
+    arm64reg_t d = DI(e.dst);
+    arm64reg_t s = DI(e.src);
     emit32le(fcmp_dd(vn(d), vn(s)));
     set_pred_cmp(e.pred, COND_MI);
 }
@@ -2761,8 +2645,8 @@ SYS(fcmpgt)
 //   Compare floats greater-than
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t d = XF(e.dst);
-    arm64reg_t s = XF(e.src);
+    arm64reg_t d = FO(e.dst);
+    arm64reg_t s = FI(e.src);
     emit32le(fcmp_ss(vn(d), vn(s)));
     set_pred_cmp(e.pred, COND_GT);
 }
@@ -2772,8 +2656,8 @@ SYS(dcmpgt)
 //   Compare doubles greater-than
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t d = XD(e.dst);
-    arm64reg_t s = XD(e.src);
+    arm64reg_t d = DI(e.dst);
+    arm64reg_t s = DI(e.src);
     emit32le(fcmp_dd(vn(d), vn(s)));
     set_pred_cmp(e.pred, COND_GT);
 }
@@ -2783,8 +2667,8 @@ SYS(fcmple)
 //   Compare floats less-or-equal
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t d = XF(e.dst);
-    arm64reg_t s = XF(e.src);
+    arm64reg_t d = FO(e.dst);
+    arm64reg_t s = FI(e.src);
     emit32le(fcmp_ss(vn(d), vn(s)));
     set_pred_cmp(e.pred, COND_LS);
 }
@@ -2794,8 +2678,8 @@ SYS(dcmple)
 //   Compare doubles less-or-equal
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t d = XD(e.dst);
-    arm64reg_t s = XD(e.src);
+    arm64reg_t d = DI(e.dst);
+    arm64reg_t s = DI(e.src);
     emit32le(fcmp_dd(vn(d), vn(s)));
     set_pred_cmp(e.pred, COND_LS);
 }
@@ -2805,8 +2689,8 @@ SYS(fcmpge)
 //   Compare floats greater-or-equal
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t d = XF(e.dst);
-    arm64reg_t s = XF(e.src);
+    arm64reg_t d = FO(e.dst);
+    arm64reg_t s = FI(e.src);
     emit32le(fcmp_ss(vn(d), vn(s)));
     set_pred_cmp(e.pred, COND_GE);
 }
@@ -2816,8 +2700,8 @@ SYS(dcmpge)
 //   Compare doubles greater-or-equal
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t d = XD(e.dst);
-    arm64reg_t s = XD(e.src);
+    arm64reg_t d = DI(e.dst);
+    arm64reg_t s = DI(e.src);
     emit32le(fcmp_dd(vn(d), vn(s)));
     set_pred_cmp(e.pred, COND_GE);
 }
@@ -2827,8 +2711,7 @@ SYS(stack)
 //   Get runtime stack pointer
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_stack_ptr);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(xlr8_jit_stack_ptr, /* no input */, RET(e.dst));
 }
 
 SYS(st8v)
@@ -2932,9 +2815,7 @@ SYS(tok)
 //   Get address of token by index
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    CALL(xlr8_jit_tokaddr);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(xlr8_jit_tokaddr, ARG(0, e.src), RET(e.dst));
 }
 
 SYS(leb2i)
@@ -2942,10 +2823,10 @@ SYS(leb2i)
 //   Decode LEB128 signed integer
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    CALL(xlr8_jit_leb2i);
-    MOVX(XI(e.dst), HW_X0);
-    MOVX(XI(e.src), HW_X1);
+    CALL(xlr8_jit_leb2i,
+         ARG(0, e.src),
+         MOVX(XO(e.dst), HW_X0);
+         MOVX(XI(e.src), HW_X1));
 }
 
 SYS(leb2u)
@@ -2953,10 +2834,10 @@ SYS(leb2u)
 //   Decode LEB128 unsigned integer
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    CALL(xlr8_jit_leb2u);
-    MOVX(XI(e.dst), HW_X0);
-    MOVX(XI(e.src), HW_X1);
+    CALL(xlr8_jit_leb2u,
+         ARG(0, e.src),
+         MOVX(XO(e.dst), HW_X0);
+         MOVX(XI(e.src), HW_X1));
 }
 
 SYS(i2leb)
@@ -2964,10 +2845,7 @@ SYS(i2leb)
 //   Encode signed integer as LEB128
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    MOVX(HW_X1, XI(e.src));
-    CALL(xlr8_jit_i2leb);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(xlr8_jit_i2leb, ARG(0, e.dst) ARG(1, e.src), RET(e.dst));
 }
 
 SYS(u2leb)
@@ -2975,10 +2853,7 @@ SYS(u2leb)
 //   Encode unsigned integer as LEB128
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.dst));
-    MOVX(HW_X1, XI(e.src));
-    CALL(xlr8_jit_u2leb);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(xlr8_jit_u2leb, ARG(0, e.dst) ARG(1, e.src), RET(e.dst));
 }
 
 SYS(i2lebsz)
@@ -2986,9 +2861,7 @@ SYS(i2lebsz)
 //   Size of signed integer as LEB128
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    CALL(xlr8_jit_i2lebsz);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(xlr8_jit_i2lebsz, ARG(0, e.src), RET(e.dst));
 }
 
 SYS(u2lebsz)
@@ -2996,9 +2869,7 @@ SYS(u2lebsz)
 //   Size of unsigned integer as LEB128
 // ----------------------------------------------------------------------------
 {
-    MOVX(HW_X0, XI(e.src));
-    CALL(xlr8_jit_u2lebsz);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(xlr8_jit_u2lebsz, ARG(0, e.src), RET(e.dst));
 }
 
 SYS(cstring)
@@ -3006,7 +2877,5 @@ SYS(cstring)
 //   Get C string for token
 // ----------------------------------------------------------------------------
 {
-    set_imm(HW_X0, e.tok);
-    CALL(xlr8_jit_cstring);
-    MOVX(XI(e.dst), HW_X0);
+    CALL(xlr8_jit_cstring, set_imm(HW_X0, e.tok), RET(e.dst));
 }
