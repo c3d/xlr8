@@ -143,12 +143,20 @@ void arm64::register_sync()
         spill(HW_TEMP0 + t) || spill(HW_DTEMP0 + t) || spill(HW_FTEMP0 + t);
 
     // Move floating point values back into X registers
-    for (uint fp = 0; fp < HW_FSHADOWS; fp++)
+    for (int sz = 0; sz < 1; sz++)
     {
-        if (reg_local[HW_V0F + fp] != NO_LOCAL)
-            emit32le(fmov_w_s(fp, fp));
-        else if (reg_local[HW_V0D + fp] != NO_LOCAL)
-            emit32le(fmov_x_d(fp, fp));
+        hwreg_t base = sz ? HW_V0D : HW_V0F;
+        for (uint fp = 0; fp < HW_FSHADOWS; fp++)
+        {
+            local_t loc = reg_local[base + fp];
+            if (loc != NO_LOCAL)
+            {
+                emit32le(sz ? fmov_x_d(fp, fp) : fmov_w_s(fp, fp));
+                local_reg[loc] = HW_X0+fp;
+                reg_local[HW_X0 + fp] = loc;
+                reg_local[base + fp] = NO_LOCAL;
+            }
+        }
     }
 }
 
