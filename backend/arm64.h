@@ -205,6 +205,9 @@ protected:
     //   Return hardware register associated with a local
     // ------------------------------------------------------------------------
     {
+        if (loc > local_frame_size)
+            record(arm64_warning, "Reading local %u outside of frame %u",
+                   loc, local_frame_size);
         return hw(local(loc, RSPEC_INT, true));
     }
 
@@ -213,6 +216,9 @@ protected:
     //   Return hardware register associated with a local
     // ------------------------------------------------------------------------
     {
+        if (loc > local_frame_size)
+            record(arm64_warning, "Writing local %u outside of frame %u",
+                   loc, local_frame_size);
         return hw(local(loc, RSPEC_INT, false));
     }
 
