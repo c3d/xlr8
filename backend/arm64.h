@@ -159,6 +159,7 @@ protected:
         HW_FSHADOWS  = 12,
         HW_TEMPS     = 4,
 
+        HW_RESERVED  = HW_X18,
         HW_TEMP0     = HW_X24,
         HW_FTEMP0    = HW_V12F,
         HW_DTEMP0    = HW_V12D,

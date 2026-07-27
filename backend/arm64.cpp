@@ -104,7 +104,9 @@ hwreg_t arm64::register_for(local_t loc, hwspec_t spec, bool ld)
     uint first = isint ? HW_X0 : isdbl ? HW_V0D  : isflt ? HW_V0F  : HW_COUNT;
     uint count = isint ? HW_SHADOWS : HW_FSHADOWS;
     uint last  = first + count;
-    if (loc < count)
+
+    // Reserved registers (don't touch)
+    if (loc < count && loc != HW_RESERVED)
     {
         if (ld)
         {
