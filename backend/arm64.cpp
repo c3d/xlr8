@@ -285,6 +285,20 @@ void arm64::syscall(void (*target)())
 // ----------------------------------------------------------------------------
 {
     record(arm64, "syscall %p", target);
+
+    // Preserve the call-cloberred registers
+    for (uint i = 0; i < HW_CLOBBERED; i++)
+    {
+        if (~spilled_args & (1 << i))
+        {
+            if (reg_local[i] != NO_LOCAL)
+            {
+                emit_store_off(HW_FRAME, arm64reg_t(HW_X0+i), local_disp(i));
+                spilled_args |= 1 << i;
+            }
+        }
+    }
+
     call_ptr(target);
 }
 

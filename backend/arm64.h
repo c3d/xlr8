@@ -153,19 +153,20 @@ protected:
 
         HW_COUNT,
 
-        HW_ARGS     = 8,
-        HW_SHADOWS  = 24,
-        HW_FSHADOWS = 12,
-        HW_TEMPS    = 4,
+        HW_ARGS      = 8,
+        HW_CLOBBERED = 19,      // Call-cloberred registers in AAPCS64
+        HW_SHADOWS   = 24,
+        HW_FSHADOWS  = 12,
+        HW_TEMPS     = 4,
 
-        HW_TEMP0    = HW_X24,
-        HW_FTEMP0   = HW_V12F,
-        HW_DTEMP0   = HW_V12D,
-        HW_SCRATCH  = HW_X27,
-        HW_FLAGS    = HW_X28,
-        HW_FRAME    = HW_X29,
-        HW_LR       = HW_X30,
-        HW_NONE     = 0,
+        HW_TEMP0     = HW_X24,
+        HW_FTEMP0    = HW_V12F,
+        HW_DTEMP0    = HW_V12D,
+        HW_SCRATCH   = HW_X27,
+        HW_FLAGS     = HW_X28,
+        HW_FRAME     = HW_X29,
+        HW_LR        = HW_X30,
+        HW_NONE      = 0,
     };
 
     // AArch64 condition codes (B.cond / CSET)
@@ -265,7 +266,7 @@ protected:
     //   Reload arguments we spilled before calling C code
     // ------------------------------------------------------------------------
     {
-        for (uint i = 0; spilled_args && i < HW_ARGS; i++)
+        for (uint i = 0; spilled_args && i < HW_SHADOWS; i++)
         {
             if (spilled_args & (1<<i))
             {

@@ -275,7 +275,7 @@ EMIT(enter)
     record(arm64_ops, "emit_enter %u", e.dst);
 
     uint frame = e.dst;
-    if (local_frame_size)
+    if (local_frame_size && num_functions)
         record(arm64_error, "Enter called twice in a function, %u after %u",
                frame, local_frame_size);
     local_frame_size = frame;
@@ -1393,7 +1393,7 @@ EMIT(ddiv)
     do                                              \
     {                                               \
         inputs;                                     \
-        call_ptr(reinterpret_cast<void (*)()>(fn)); \
+        syscall(reinterpret_cast<void (*)()>(fn));  \
         outputs;                                    \
         hw_sys_arg_reload();                        \
     } while (0)
