@@ -231,6 +231,25 @@ bool riscv64::store(local_t n, hwreg_t h)
 }
 
 
+hwreg_t riscv64::register_for(local_t loc, hwspec_t spec, bool ld)
+// ----------------------------------------------------------------------------
+//   Find the register associated to the local
+// ----------------------------------------------------------------------------
+{
+    record(riscv64_error, "Not yet implemented");
+    return NO_REGISTER;
+}
+
+
+void riscv64::register_sync()
+// ----------------------------------------------------------------------------
+//   Synchronize the temporaries
+// ----------------------------------------------------------------------------
+{
+    record(riscv64_error, "Not yet implemented");
+}
+
+
 riscv64::reginfo riscv64::register_definition(hwreg_t reg) const
 // ----------------------------------------------------------------------------
 //   Return the register specification flags for RV64

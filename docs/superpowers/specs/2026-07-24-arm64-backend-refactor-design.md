@@ -1,18 +1,27 @@
 # Arm64 backend refactor (x86 parity)
 
 **Date:** 2026-07-24  
-**Status:** Approved design (pending implementation plan)  
-**Reference:** Refactored `backend/x86.{h,cpp}`, `x86-emit.cpp`, `amd64.*`; pre-refactor baseline under `work/xlr8/backend/`
+**Status:** Superseded in part by direct-map regalloc (2026-07-27)  
+**Reference:** Refactored `backend/x86.{h,cpp}`, `x86-emit.cpp`, `amd64.*`; pre-refactor baseline under `work/xlr8/backend/`  
+**Follow-up:** `docs/superpowers/specs/2026-07-27-register-allocation-direct-mapping.md`,  
+`docs/superpowers/plans/2026-07-27-arm64-O-failures-after-direct-map.md`
 
 ## Goal
 
 Port the arm64 JIT backend to the same architecture as the refactored x86 backend: native frame (enter/leave), `backend::local()` allocation, `branch`/`function`/`label`/`patch` fixups, thin `EMIT(op)` emitters, no `rtcall` / `record_branch` / fixed shadow map.
 
+**Register policy update (2026-07-27):** arm64 no longer prefers callee-saved
+shadows with `spill_all` on every bytecode `call`. It uses **direct mapping**
+(`local n` → `xn` / `vn`) so recursive fibonacci works under `-O`. The tables
+below still describe the *original* approved design; treat the 2026-07-27 spec
+as authoritative for allocation, scratch (x27), and flags (x28).
+
 ## Success criteria
 
 - Compiles on macOS (arm64 objects + shared backend pieces used by arm64).
 - Small smoke subset under `tests/bytecode` passes interpreter and `-O` against `.ref` (e.g. `addi`, `addition`, `bfalse`, plus one exercise of `enter`/`get` if available).
-- Full suite and **torpille** verification are **out of scope** for this pass.
+- **Achieved later:** `performance/fibonacci` `-O` via direct map.
+- Full suite under `-O` remains open — see the 2026-07-27 plan.
 
 ## Non-goals
 
@@ -45,14 +54,17 @@ Arm64 is a peer of x86 under the new backend — not a subclass of x86.
 
 ## Registers and frame
 
+**Original design (below) — superseded for allocation by direct map.**
+
 | Role | Register | Notes |
 |------|----------|--------|
 | Frame | x29 (`HW_FRAME`) | Native FP, like RBP |
 | Link | x30 | Saved with FP on enter; epilogue `ret` |
-| Flags | x22 (`HW_FLAGS`) | Callee-saved; 64-bit predicates |
-| Scratch | x16 (`HW_SCRATCH`) | Temps / call targets; not allocatable |
-| Allocatable GPRs | Subset of x0–x15, x19–x21, x23–x28 | Via `local()` + `RSPEC_*` |
-| FP | v-regs | `RSPEC_FLT` / `RSPEC_DBL` |
+| Flags | x28 (`HW_FLAGS`) | **Shipping:** was x22 in the 07-24 draft |
+| Scratch | x27 (`HW_SCRATCH`) | **Shipping:** was x16 in the 07-24 draft |
+| Direct GPRs | x0–x23 | **Shipping:** `local n` ↔ `xn` |
+| Overflow temps | x24–x27 / v12+ | Spilled in `register_sync` |
+| FP | v0–v11 banks | `RSPEC_FLT` / `RSPEC_DBL` direct map |
 
 ### enter / leave
 

@@ -51,7 +51,9 @@ arm64::arm64(runtime &rt)
 // ----------------------------------------------------------------------------
 //   Construct an AArch64 code generator
 // ----------------------------------------------------------------------------
-    : backend(rt, ARCH_ARM64)
+    : backend(rt, ARCH_ARM64),
+      relocations(),
+      local_frame_size(0), spilled_args(0), num_functions(0)
 {
     record(arm64, "New backend arch=%+s", arch_name(ARCH_ARM64));
 }
@@ -73,94 +75,81 @@ cstring arm64::machine_defs() const
 }
 
 
-const hwreg_t arm64::regs[] =
-// ----------------------------------------------------------------------------
-//   Registers that can be allocated
-// ----------------------------------------------------------------------------
-{
-        HW_X9,
-        HW_X10,
-        HW_X11,
-        HW_X12,
-        HW_X13,
-        HW_X14,
-        HW_X15,
-        HW_X16,
-        HW_X17,
-
-        HW_X0,
-        HW_X1,
-        HW_X2,
-        HW_X3,
-        HW_X4,
-        HW_X5,
-        HW_X6,
-        HW_X7,
-        HW_X8,
-
-        HW_X19,
-        HW_X20,
-        HW_X21,
-        HW_X22,
-        HW_X23,
-        HW_X24,
-        HW_X25,
-        HW_X26,
-        HW_X27,
-        HW_X28,
-
-        HW_V0D,
-        HW_V1D,
-        HW_V2D,
-        HW_V3D,
-        HW_V4D,
-        HW_V5D,
-        HW_V6D,
-        HW_V7D,
-        HW_V8D,
-        HW_V9D,
-        HW_V10D,
-        HW_V11D,
-        HW_V12D,
-        HW_V13D,
-        HW_V14D,
-        HW_V15D,
-
-        HW_V0F,
-        HW_V1F,
-        HW_V2F,
-        HW_V3F,
-        HW_V4F,
-        HW_V5F,
-        HW_V6F,
-        HW_V7F,
-        HW_V8F,
-        HW_V9F,
-        HW_V10F,
-        HW_V11F,
-        HW_V12F,
-        HW_V13F,
-        HW_V14F,
-        HW_V15F,
-};
-
-
 uint arm64::registers() const
 // ----------------------------------------------------------------------------
 //   Return the number of hardware registers on this platform
 // ----------------------------------------------------------------------------
 {
-    return sizeof(regs) / sizeof(regs[0]);
+    return HW_COUNT;
 }
 
 
-hwreg_t arm64::register_order(uint i)
+hwreg_t arm64::register_for(local_t loc, hwspec_t spec, bool ld)
 // ----------------------------------------------------------------------------
-//   Return registers in the order we want to use them
+//   Find the register associated to the local
 // ----------------------------------------------------------------------------
 {
-    assert (i < sizeof(regs) / sizeof(regs[0]));
-    return regs[i];
+    // Check the register range to look at
+    bool isint = spec & RSPEC_INT;
+    bool isflt = spec & RSPEC_FLT;
+    bool isdbl = spec & RSPEC_DBL;
+    if (!isint && !isflt && !isdbl)
+    {
+        record(arm64_error,
+               "Invalid register specification 0x%08X", spec);
+        return NO_REGISTER;
+    }
+
+    // Select register range and check if we can allocate statically
+    uint first = isint ? HW_X0 : isdbl ? HW_V0D  : isflt ? HW_V0F  : HW_COUNT;
+    uint count = isint ? HW_SHADOWS : HW_FSHADOWS;
+    uint last  = first + count;
+    if (loc < count)
+    {
+        if (ld)
+        {
+            if (isflt)
+                emit32le(fmov_s_w(loc, loc));
+            else if (isdbl)
+                emit32le(fmov_d_x(loc, loc));
+        }
+        return hwreg_t(first + loc);
+    }
+
+    // We need a scratch register
+    for (uint tmp = last; tmp < last + HW_TEMPS; tmp++)
+    {
+        local_t rloc = reg_local[tmp];
+        if (rloc == NO_LOCAL || rloc == loc)
+        {
+            if (ld)
+                load(tmp, loc);
+            return tmp;
+        }
+    }
+
+    record(arm64_error, "No register available for spec 0x%08X", spec);
+    return NO_REGISTER;
+}
+
+
+void arm64::register_sync()
+// ----------------------------------------------------------------------------
+//   Synchronize the temporaries
+// ----------------------------------------------------------------------------
+{
+    // Spill anything that was loaded in a temporary
+    for (uint t = 0; t < HW_TEMPS; t++)
+        spill(HW_TEMP0 + t) || spill(HW_DTEMP0 + t) || spill(HW_FTEMP0 + t);
+
+    // Move floating point values back into X registers
+    for (uint fp = 0; fp < HW_FSHADOWS; fp++)
+    {
+        if (reg_local[HW_V0F + fp] != NO_LOCAL)
+            emit32le(fmov_w_s(fp, fp));
+        else if (reg_local[HW_V0D + fp] != NO_LOCAL)
+            emit32le(fmov_x_d(fp, fp));
+    }
 }
 
 
@@ -180,15 +169,14 @@ void arm64::begin_translation()
 {
     record(arm64, "begin_translation callee=%u", callee_entry);
     backend::begin_translation();
-    prologue();
-    // Nested functions: seed local 0 from AAPCS64 x0.  No frame yet — do not
-    // spill through the caller's FP until enter().
-    // Entry/unit code uses the invoke-provided frame immediately.
-    have_frame = !callee_entry;
-    if (callee_entry)
+    local_frame_size = 0;
+    spilled_args     = 0;
+
+    if (num_functions == 0)
     {
-        local_reg[0] = HW_X0;
-        reg_local[HW_X0] = 0;
+        // Assume 8 registers on the stack, save LR/FP
+        emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
+        local_frame_size = DEFAULT_FRAME_SIZE;
     }
 }
 
@@ -199,8 +187,8 @@ void arm64::finish_translation()
 // ----------------------------------------------------------------------------
 {
     record(arm64, "finish_translation");
-    epilogue();
     backend::finish_translation();
+    num_functions++;
 }
 
 
@@ -287,9 +275,7 @@ void arm64::call(void (*target)())
 // ----------------------------------------------------------------------------
 {
     record(arm64, "call %p", target);
-    size_t frame = pre_call();
     call_ptr(target);
-    post_call(frame);
 }
 
 
@@ -298,45 +284,8 @@ void arm64::syscall(void (*target)())
 //   Spill all locals then call a runtime helper
 // ----------------------------------------------------------------------------
 {
-    size_t spilled = spill_all();
-    record(arm64, "syscall %p spilled %zu", target, spilled);
-    size_t frame = pre_call();
+    record(arm64, "syscall %p", target);
     call_ptr(target);
-    post_call(frame);
-}
-
-
-size_t arm64::pre_call(bool args)
-// ----------------------------------------------------------------------------
-//   Prepare for a call (passing arguments)
-// ----------------------------------------------------------------------------
-{
-    spill_all();
-    local_t nslots = frame_size();
-    if (args)
-    {
-        if (hwreg_t nregs = nslots > 8 ? 8 : nslots)
-        {
-            for (hwreg_t r = 0; r < nregs; r++)
-            {
-                hw_arg(r, r);
-                reg_local[r] = NO_LOCAL;
-                local_reg[r] = NO_REGISTER;
-            }
-        }
-    }
-    return nslots;
-}
-
-
-void arm64::post_call(size_t nslots)
-// ----------------------------------------------------------------------------
-//   Cleanup after a call
-// ----------------------------------------------------------------------------
-{
-    // Reload registers after call
-    forget_registers();
-    frame_size(nslots ? nslots : 1);
 }
 
 
@@ -450,45 +399,45 @@ arm64::reginfo arm64::register_definition(hwreg_t reg) const
 //   Return the register specification flags for AArch64
 // ----------------------------------------------------------------------------
 {
-    // Prefer callee-saved allocatable GPRs so values survive sys/helper calls.
-    // x0-x7 hold AAPCS64 args/return at call boundaries but are not allocatable.
-    // x16 SCRATCH, x22 FLAGS, x29 FRAME, x30 LR, sp: not allocatable.
+    // Direct map: local n ↔ xn / vn (see register_for). RSPEC_ARG marks
+    // AAPCS64 arg/return regs; RSPEC_CALL marks callee-saved. Scratch x27 and
+    // flags x28 remain named roles but still appear in the table for dumps.
+    // x29 FRAME, x30 LR, sp: not allocatable (spec 0).
     static const reginfo arm64_registers[arm64::HW_COUNT] =
     {
-        // x0–x7: AAPCS64 args/return — not generally allocatable so locals
-        // are evacuated to callee-saved regs before helper/SYS calls.
-        {  "x0",   RSPEC_ARG | RSPEC_INT },
-        {  "x1",   RSPEC_ARG | RSPEC_INT },
-        {  "x2",   RSPEC_ARG | RSPEC_INT },
-        {  "x3",   RSPEC_ARG | RSPEC_INT },
-        {  "x4",   RSPEC_ARG | RSPEC_INT },
-        {  "x5",   RSPEC_ARG | RSPEC_INT },
-        {  "x6",   RSPEC_ARG | RSPEC_INT },
-        {  "x7",   RSPEC_ARG | RSPEC_INT },
-        {  "x8",               RSPEC_INT },
-        {  "x9",               RSPEC_INT },
-        { "x10",               RSPEC_INT },
-        { "x11",               RSPEC_INT },
-        { "x12",               RSPEC_INT },
-        { "x13",               RSPEC_INT },
-        { "x14",               RSPEC_INT },
-        { "x15",               RSPEC_INT },
-        { "x16",                       0 }, // HW_SCRATCH
-        { "x17",               RSPEC_INT },
-        { "x18",                       0 },
-        { "x19", RSPEC_CALL |  RSPEC_INT },
-        { "x20", RSPEC_CALL |  RSPEC_INT },
-        { "x21", RSPEC_CALL |  RSPEC_INT },
-        { "x22",                       0 }, // HW_FLAGS
-        { "x23", RSPEC_CALL |  RSPEC_INT },
-        { "x24", RSPEC_CALL |  RSPEC_INT },
-        { "x25", RSPEC_CALL |  RSPEC_INT },
-        { "x26", RSPEC_CALL |  RSPEC_INT },
-        { "x27", RSPEC_CALL |  RSPEC_INT },
-        { "x28", RSPEC_CALL |  RSPEC_INT },
-        { "x29",                       0 }, // HW_FRAME
-        { "x30",                       0 }, // HW_LR
-        {  "sp",                       0 },
+        // x0–x7: AAPCS64 args/return — also direct homes for locals 0–7.
+        {   "x0",  RSPEC_ARG | RSPEC_INT },
+        {   "x1",  RSPEC_ARG | RSPEC_INT },
+        {   "x2",  RSPEC_ARG | RSPEC_INT },
+        {   "x3",  RSPEC_ARG | RSPEC_INT },
+        {   "x4",  RSPEC_ARG | RSPEC_INT },
+        {   "x5",  RSPEC_ARG | RSPEC_INT },
+        {   "x6",  RSPEC_ARG | RSPEC_INT },
+        {   "x7",  RSPEC_ARG | RSPEC_INT },
+        {   "x8",              RSPEC_INT },
+        {   "x9",              RSPEC_INT },
+        {  "x10",              RSPEC_INT },
+        {  "x11",              RSPEC_INT },
+        {  "x12",              RSPEC_INT },
+        {  "x13",              RSPEC_INT },
+        {  "x14",              RSPEC_INT },
+        {  "x15",              RSPEC_INT },
+        {  "x16",              RSPEC_INT },
+        {  "x17",              RSPEC_INT },
+        {  "x18",              RSPEC_INT },
+        {  "x19", RSPEC_CALL | RSPEC_INT },
+        {  "x20", RSPEC_CALL | RSPEC_INT },
+        {  "x21", RSPEC_CALL | RSPEC_INT },
+        {  "x22", RSPEC_CALL | RSPEC_INT },
+        {  "x23", RSPEC_CALL | RSPEC_INT },
+        {  "x24", RSPEC_CALL | RSPEC_INT }, // HW_NONLOCAL
+        {  "x25", RSPEC_CALL | RSPEC_INT },
+        {  "x26", RSPEC_CALL | RSPEC_INT },
+        {  "x27", RSPEC_CALL | RSPEC_INT }, // HW_SCRATCH
+        {  "x28", RSPEC_CALL | RSPEC_INT }, // HW_FLAGS
+        {  "x29",                      0 }, // HW_FRAME
+        {  "x30",                      0 }, // HW_LR
+        {   "sp",                      0 },
 
         {  "v0d",              RSPEC_DBL },
         {  "v1d",              RSPEC_DBL },
@@ -498,14 +447,14 @@ arm64::reginfo arm64::register_definition(hwreg_t reg) const
         {  "v5d",              RSPEC_DBL },
         {  "v6d",              RSPEC_DBL },
         {  "v7d",              RSPEC_DBL },
-        {  "v8d",  RSPEC_CALL | RSPEC_DBL },
-        {  "v9d",  RSPEC_CALL | RSPEC_DBL },
-        { "v10d",  RSPEC_CALL | RSPEC_DBL },
-        { "v11d",  RSPEC_CALL | RSPEC_DBL },
-        { "v12d",  RSPEC_CALL | RSPEC_DBL },
-        { "v13d",  RSPEC_CALL | RSPEC_DBL },
-        { "v14d",  RSPEC_CALL | RSPEC_DBL },
-        { "v15d",  RSPEC_CALL | RSPEC_DBL },
+        {  "v8d", RSPEC_CALL | RSPEC_DBL },
+        {  "v9d", RSPEC_CALL | RSPEC_DBL },
+        { "v10d", RSPEC_CALL | RSPEC_DBL },
+        { "v11d", RSPEC_CALL | RSPEC_DBL },
+        { "v12d", RSPEC_CALL | RSPEC_DBL },
+        { "v13d", RSPEC_CALL | RSPEC_DBL },
+        { "v14d", RSPEC_CALL | RSPEC_DBL },
+        { "v15d", RSPEC_CALL | RSPEC_DBL },
 
         {  "v0f",              RSPEC_FLT },
         {  "v1f",              RSPEC_FLT },
@@ -515,14 +464,14 @@ arm64::reginfo arm64::register_definition(hwreg_t reg) const
         {  "v5f",              RSPEC_FLT },
         {  "v6f",              RSPEC_FLT },
         {  "v7f",              RSPEC_FLT },
-        {  "v8f",  RSPEC_CALL | RSPEC_FLT },
-        {  "v9f",  RSPEC_CALL | RSPEC_FLT },
-        { "v10f",  RSPEC_CALL | RSPEC_FLT },
-        { "v11f",  RSPEC_CALL | RSPEC_FLT },
-        { "v12f",  RSPEC_CALL | RSPEC_FLT },
-        { "v13f",  RSPEC_CALL | RSPEC_FLT },
-        { "v14f",  RSPEC_CALL | RSPEC_FLT },
-        { "v15f",  RSPEC_CALL | RSPEC_FLT },
+        {  "v8f", RSPEC_CALL | RSPEC_FLT },
+        {  "v9f", RSPEC_CALL | RSPEC_FLT },
+        { "v10f", RSPEC_CALL | RSPEC_FLT },
+        { "v11f", RSPEC_CALL | RSPEC_FLT },
+        { "v12f", RSPEC_CALL | RSPEC_FLT },
+        { "v13f", RSPEC_CALL | RSPEC_FLT },
+        { "v14f", RSPEC_CALL | RSPEC_FLT },
+        { "v15f", RSPEC_CALL | RSPEC_FLT },
     };
 
     return reg < HW_COUNT ? arm64_registers[reg] : reginfo{"INVALID", 0};
@@ -1275,13 +1224,9 @@ void arm64::bra_pred(byte p, byte_p target, bool sense)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "bra_%+s %u, %p", sense ? "true" : "false", p, target);
-    if (have_frame)
-        spill_all();
     hwcode_t pos = sense ? emit_tbnz_rel(HW_FLAGS, p)
                          : emit_tbz_rel(HW_FLAGS, p);
     rel_branch(target, pos);
-    if (have_frame)
-        forget_registers();
 }
 
 
@@ -1308,8 +1253,6 @@ void arm64::bra_test(local_t s, byte_p target, byte cond)
         hwcode_t pos = emit_bcond_rel(cond);
         rel_branch(target, pos);
     }
-    if (have_frame)
-        forget_registers();
 }
 
 
@@ -1335,40 +1278,22 @@ void arm64::rel_function(tok_t tok, hwcode_t site)
 }
 
 
-void arm64::prologue()
-// ----------------------------------------------------------------------------
-//   Push callee-saved registers and LR; do not move the frame pointer
-// ----------------------------------------------------------------------------
-//   Layout after prologue (high → low): x19–x28, then saved FP+LR.
-//   FP still points at the caller-provided initial frame until enter().
-//   enter() pushes another FP+LR pair, sets FP=SP, and allocates locals;
-//   leave() does mov SP,FP (drops locals/alloca) and pops that pair.
-//   Epilogue then pops this prologue save area from SP.
-{
-    record(arm64, "prologue");
-}
-
-
-void arm64::epilogue()
-// ----------------------------------------------------------------------------
-//   Pop the prologue save area and return
-// ----------------------------------------------------------------------------
-//   Requires SP to point at the prologue block (leave / no alloca, or leave
-//   after alloca). Does not use FP — after leave, FP is the outer frame.
-{
-    record(arm64, "epilogue()");
-    emit32le(ret_insn());
-}
-
-
 void arm64::call_ptr(void (*fn)())
 // ----------------------------------------------------------------------------
 //   Emit a call through a function pointer in x16
 // ----------------------------------------------------------------------------
 {
     record(arm64, "call_ptr %p", fn);
+    if (!local_frame_size)
+    {
+        record(arm64_warning,
+               "Calling %p without a frame size, saving LR/FP", fn);
+        emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
+    }
     set_imm(HW_SCRATCH, uint64_t(fn));
     emit32le(blr(xn(HW_SCRATCH)));
+    if (!local_frame_size)
+        emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
 }
 
 
@@ -1384,12 +1309,12 @@ void arm64::invoke(runtime &rt, void *code)
     // x29 is a reserved register on Darwin — save/restore it in the asm
     // rather than listing it as a clobber.
     asm volatile(
-        "str x29, [sp, #-16]!\n\t"
+        "stp x29, lr, [sp, #-16]!\n\t"
         "mov x29, %0\n\t"
-        "mov x22, %1\n\t"
+        "mov x28, %1\n\t"
         "mov x16, %2\n\t"
         "blr x16\n\t"
-        "ldr x29, [sp], #16"
+        "ldp x29, lr, [sp], #16"
         :
         : "r"(frame), "r"(flags), "r"(code)
         : "x16", "x22", "x30", "memory", "cc");

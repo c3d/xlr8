@@ -232,6 +232,25 @@ bool arm::store(local_t n, hwreg_t h)
 }
 
 
+hwreg_t arm::register_for(local_t loc, hwspec_t spec, bool ld)
+// ----------------------------------------------------------------------------
+//   Find the register associated to the local
+// ----------------------------------------------------------------------------
+{
+    record(arm_error, "Not yet implemented");
+    return NO_REGISTER;
+}
+
+
+void arm::register_sync()
+// ----------------------------------------------------------------------------
+//   Synchronize the temporaries
+// ----------------------------------------------------------------------------
+{
+    record(arm_error, "Not yet implemented");
+}
+
+
 arm::reginfo arm::register_definition(hwreg_t reg) const
 // ----------------------------------------------------------------------------
 //   Return the register specification flags for AArch32

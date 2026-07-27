@@ -1,8 +1,19 @@
 # XLR8 Backend Code Generation Optimization Review
 
-**Date**: 2026-07-17
+**Date**: 2026-07-17 (regalloc addendum 2026-07-27)
 **Scope**: `backend/` — all four platform backends, with focus on generated code quality
 **Companion**: `BACKEND-REVIEW.md` (correctness review, updated 2026-07-17)
+
+### Addendum — Direct-map register allocation (2026-07-27)
+
+Arm64 recursive calls now keep `local n` in `xn` (see
+`docs/superpowers/specs/2026-07-27-register-allocation-direct-mapping.md`).
+That removes most spill/reload around bytecode `call` and is why
+`performance/fibonacci` passes at `-O`. Remaining `-O` gaps (FP across
+`sys`, top-level `enter`, flags, globals, …) are sequenced in
+`docs/superpowers/plans/2026-07-27-arm64-O-failures-after-direct-map.md`.
+Several older sections below still assume shadow-register evacuation; treat
+them as historical where they conflict with direct mapping.
 
 ---
 

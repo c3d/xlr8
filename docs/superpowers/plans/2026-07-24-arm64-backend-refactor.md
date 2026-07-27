@@ -8,12 +8,19 @@
 
 **Tech Stack:** C++17, AArch64, existing `backend` / `regmap` / recorder.
 
+**Status (2026-07-27):** Structural port is largely in place. Register allocation
+shipped as **direct mapping** (not preferred-order callee-saved shadows).
+Fibonacci `-O` passes. Remaining `-O` work is tracked in
+`docs/superpowers/plans/2026-07-27-arm64-O-failures-after-direct-map.md`
+and `docs/superpowers/specs/2026-07-27-register-allocation-direct-mapping.md`.
+
 ## Global Constraints
 
-- Frame: x29=`HW_FRAME`, x30=LR, x22=`HW_FLAGS`, x16=`HW_SCRATCH`; `local_disp(n)=~(n)*8`; `arg_disp(n)=n*8+16`.
+- Frame: x29=`HW_FRAME`, x30=LR, **x28=`HW_FLAGS`, x27=`HW_SCRATCH`**; `local_disp(n)=~(n)*8`; `arg_disp(n)=n*8+16`.
+- Direct map: local `n` → `xn` (`n < 24`); no `spill_all` on bytecode `call`.
 - No `rtcall` / `record_branch` / `jump_chain` / `xreg()` shadows.
-- Done when arm64 compiles and smoke (`addi`, `addition`, `bfalse`, ± enter/get) passes at `OPTLEVEL=` and `-O`.
-- Do not “fix” by changing shared backend unless required; do not port riscv/arm32 in this plan.
+- Smoke + fibonacci `-O` done; full `-O` suite is the 2026-07-27 plan.
+- Do not port riscv/arm32 in this plan.
 - Commits only when the user requests them.
 
 ---
@@ -97,10 +104,10 @@
 
 **Files:** none (verify)
 
-- [ ] **Step 1:** `clang++ -std=gnu++17 -c -I../recorder -I../runtime -I. arm64.cpp backend.cpp` (and deps) — clean compile.
-- [ ] **Step 2:** Build enough of the product to run `tests/xlr8` (or `make` skipping broken backends if required).
-- [ ] **Step 3:** Smoke: `cd tests && make ref-addi ref-addition ref-bfalse` and same with `OPTLEVEL=-O`; compare to `.ref`.
-- [ ] **Step 4:** If enter/get covered by those tests, done; else add one more smoke that hits frame/args.
+- [x] **Step 1:** `clang++ -std=gnu++17 -c -I../recorder -I../runtime -I. arm64.cpp backend.cpp` (and deps) — clean compile.
+- [x] **Step 2:** Build enough of the product to run `tests/xlr8` (or `make` skipping broken backends if required).
+- [x] **Step 3:** Smoke: `cd tests && make ref-addi ref-addition ref-bfalse` and same with `OPTLEVEL=-O`; compare to `.ref`.
+- [x] **Step 4:** Fibonacci `-O` via direct-map regalloc (`0a582d4`). Full suite: see `2026-07-27-arm64-O-failures-after-direct-map.md`.
 
 ---
 
@@ -114,3 +121,5 @@
 | Helpers local_t/op_t/rel_* | 3 |
 | Thin EMIT parity with x86-emit | 4 |
 | Smoke done bar | 5 |
+| Direct-map regalloc / fibonacci `-O` | 2026-07-27 specs |
+| Remaining `-O` failures | `plans/2026-07-27-arm64-O-failures-after-direct-map.md` |

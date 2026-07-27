@@ -195,20 +195,19 @@ struct backend
     //
     // ========================================================================
 
-    virtual bool     move(hwreg_t to, hwreg_t from)             = 0;
-    virtual bool     load(hwreg_t, local_t r)                   = 0;
-    virtual bool     store(local_t r, hwreg_t)                  = 0;
-
     struct reginfo { cstring  name; hwspec_t spec; };
-    virtual reginfo  register_definition(hwreg_t) const         = 0;
+
+    virtual hwreg_t  register_for(local_t loc, hwspec_t spec, bool ld) = 0;
+    virtual void     register_sync()                                   = 0;
+    virtual bool     move(hwreg_t to, hwreg_t from)                    = 0;
+    virtual bool     load(hwreg_t, local_t r)                          = 0;
+    virtual bool     store(local_t r, hwreg_t)                         = 0;
+    virtual reginfo  register_definition(hwreg_t) const                = 0;
+
     virtual bool     register_matches(hwreg_t reg, hwspec_t spec)
     {
         hwspec_t rspec = register_specification(reg);
         return rspec & (spec & ~RSPEC_CALL);
-    }
-    virtual hwreg_t  register_order(uint i)
-    {
-        return hwreg_t(i);
     }
     hwspec_t register_specification(hwreg_t r) const
     {

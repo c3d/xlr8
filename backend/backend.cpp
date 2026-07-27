@@ -455,6 +455,9 @@ bool backend::translate(byte_p pc, byte_p end)
         pc  = args.pc;
         end = args.end;
 
+        // Make sure we spill what is held in scratch registers
+        register_sync();
+
         // If we are done here, pick up the next item to translate
         if (pc >= end)
         {
@@ -589,55 +592,20 @@ hwreg_t backend::local(local_t loc, hwspec_t spec, bool ld)
     if (reg != NO_REGISTER)
     {
         assert(reg < reg_local.size() && "Register beyound hardware count");
-        local_t rloc = reg_local[reg];
-        assert(rloc == loc && "Inconsistent register <-> local mapping");
-
-        // Check if this matches the required spec
+        assert(reg_local[reg] == loc &&
+               "Inconsistent register <-> local mapping");
         if (register_matches(reg, spec))
             return reg;
+        spill(reg);
     }
 
-    // Try to find some register satisfying the constraint (unused first)
-    hwreg_t nregs = registers();
-    for (uint used = 0; used < 2; used++)
+    // Find the matching register
+    reg = register_for(loc, spec, ld);
+    if (reg != NO_REGISTER)
     {
-        for (uint ri = 0; ri < nregs; ri++)
-        {
-            hwreg_t r = register_order(ri);
-            if (register_matches(r, spec))
-            {
-                local_t rloc = reg_local[r];
-
-                // Check if we can move from a register that did not match
-                if (reg != NO_REGISTER && reg != r)
-                {
-                    if (!ld || move(r, reg))
-                    {
-                        local_reg[loc] = r;
-                        reg_local[reg] = NO_LOCAL;
-                        reg_local[r] = loc;
-                        return r;
-                    }
-                }
-
-                if (used || rloc == NO_LOCAL)
-                {
-                    if (used && rloc != NO_LOCAL)
-                    {
-                        if (!store(rloc, r))
-                            continue;
-                        local_reg[rloc] = NO_REGISTER;
-                        reg_local[r] = NO_LOCAL;
-                    }
-                    if (!ld || load(r, loc))
-                    {
-                        local_reg[loc] = r;
-                        reg_local[r] = loc;
-                        return r;
-                    }
-                }
-            }
-        }
+        local_reg[loc] = reg;
+        reg_local[reg] = loc;
+        return reg;
     }
 
     record(backend_error,
@@ -706,8 +674,6 @@ size_t backend::frame_size(size_t slots)
 // ----------------------------------------------------------------------------
 {
     size_t before = local_reg.size();
-    if (size_t spilled = spill_all())
-        record(backend, "Frame resizing spilled %zu live registers", spilled);
     local_reg.resize(slots, NO_REGISTER);
     return before;
 }

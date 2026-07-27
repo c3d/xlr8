@@ -30,28 +30,27 @@
 // ****************************************************************************
 //
 //  ===========================================================================
-//  REGISTER ALLOCATION CONVENTIONS (AArch64)
+//  REGISTER ALLOCATION CONVENTIONS (AArch64) — direct mapping
 //  ===========================================================================
 //
 //  Locals use [x29 - (local+1)*8]; x29 is adjusted by op_enter and op_leave.
-//  JIT calls use the host AAPCS64 ABI: args 0–7 in x0–x7, return in x0.
-//  Callers also store those eight words in an outgoing home area so get/set
-//  can use fixed FP offsets: [x29 + 16 + prologue + arg*8].
-//  Flags (predicates) live in x22 (HW_FLAGS).
+//  Bytecode local n maps to hardware register x0+n (n < 24) so recursive
+//  calls keep args/returns in AAPCS64 registers without spill_all.
+//  Float/double local n maps to v0+n (n < 12); overflow uses x24–x27 / v12+.
+//  get/set walk the parent frame via [x29]; see local_disp / arg_disp.
 //
 //  Register map:
 //
 //    Frame pointer     x29 (HW_FRAME)   Native FP for locals / args
 //    Link register     x30 (HW_LR)      Saved with FP on enter
-//    Flags/predicates  x22 (HW_FLAGS)   64-bit predicate bits
-//    Scratch           x16 (HW_SCRATCH) Temps / call targets (not allocatable)
-//    Allocatable GPRs  x19–x21,x23–x28  Callee-saved only (survive sys calls)
-//                      x0–x18           Call-clobbered / reserved (not alloc)
-//    FP                v0–v7           RSPEC_FLT / RSPEC_DBL banks
+//    Flags/predicates  x28 (HW_FLAGS)   64-bit predicate bits
+//    Scratch           x27 (HW_SCRATCH) Temps / large offsets / call targets
+//    Direct GPRs       x0–x23           local n ↔ xn (call-clobbered + saved)
+//    Overflow temps    x24–x27          spilled in register_sync
+//    FP banks          v0–v11           RSPEC_FLT / RSPEC_DBL direct map
 //    Stack pointer     sp              native stack
 //
-//  Bytecode PC is the translator cursor, not a fixed HW register.
-//  Runtime is reached via xlr8_get_runtime() in spill/sys paths.
+//  Spec: docs/superpowers/specs/2026-07-27-register-allocation-direct-mapping.md
 //
 //  ===========================================================================
 
@@ -78,11 +77,8 @@ struct arm64 : backend
     static backend *make(runtime &rt) { return new arm64(rt); }
 
 #include "backend-iface.h"
-    hwreg_t    register_order(uint i)                           override;
 
 protected:
-    static const hwreg_t regs[];
-
     enum arm64reg_t : hwreg_t
     // ------------------------------------------------------------------------
     //    Hardware register names for AArch64
@@ -111,15 +107,15 @@ protected:
         HW_X20,
         HW_X21,
         HW_X22,
-        HW_X23,
-        HW_X24,
+        HW_X23,                 // Last register mapped 1-1 on locals
+        HW_X24,                 // Used for locals above 24
         HW_X25,
         HW_X26,
-        HW_X27,
-        HW_X28,
-        HW_X29,
-        HW_X30,
-        HW_SP,
+        HW_X27,                 // Scratch
+        HW_X28,                 // Flags
+        HW_X29,                 // Frame pointer
+        HW_X30,                 // Link register
+        HW_SP,                  // Stack pointer
 
         HW_V0D,
         HW_V1D,
@@ -157,11 +153,19 @@ protected:
 
         HW_COUNT,
 
-        HW_FRAME   = HW_X29,
-        HW_LR      = HW_X30,
-        HW_FLAGS   = HW_X22,
-        HW_SCRATCH = HW_X16,
-        HW_NONE    = 0,
+        HW_ARGS     = 8,
+        HW_SHADOWS  = 24,
+        HW_FSHADOWS = 12,
+        HW_TEMPS    = 4,
+
+        HW_TEMP0    = HW_X24,
+        HW_FTEMP0   = HW_V12F,
+        HW_DTEMP0   = HW_V12D,
+        HW_SCRATCH  = HW_X27,
+        HW_FLAGS    = HW_X28,
+        HW_FRAME    = HW_X29,
+        HW_LR       = HW_X30,
+        HW_NONE     = 0,
     };
 
     // AArch64 condition codes (B.cond / CSET)
@@ -210,29 +214,65 @@ protected:
         return hw(local(loc, RSPEC_INT, false));
     }
 
-    arm64reg_t hw_arg(uint arg, local_t loc)
+    arm64reg_t hw_sys_arg(uint arg, local_t loc)
     // ------------------------------------------------------------------------
     //   Load a local into the corresponding ABI argument register (x0–x7)
     // ------------------------------------------------------------------------
     {
-        assert(arg < 8);
-        arm64reg_t argr = arm64reg_t(HW_X0 + arg);
-        if (reg_local[argr] != loc)
+        assert(arg < HW_ARGS);
+        arm64reg_t src = hw_local(loc);
+        arm64reg_t dst = arm64reg_t(HW_X0 + arg);
+        if (src != dst)
         {
-            hwreg_t locr = local_reg[loc];
-            if (locr == NO_REGISTER)
-            {
-                emit_load_off(argr, HW_FRAME, local_disp(loc));
-            }
-            else if (locr != argr)
-            {
-                move(argr, locr);
-                reg_local[locr] = NO_REGISTER;
-            }
-            local_reg[loc] = argr;
-            reg_local[argr] = loc;
+            emit_store_off(HW_FRAME, dst, local_disp(arg));
+            spilled_args |= 1<<arg;
+            if (src < HW_ARGS && (spilled_args & (1<<src)))
+                emit_load_off(dst, HW_FRAME, local_disp(src));
+            else
+                move(dst, src);
         }
-        return argr;
+        return dst;
+    }
+
+    arm64reg_t hw_sys_imm(uint arg, value_t imm)
+    // ------------------------------------------------------------------------
+    //   Load a local into the corresponding ABI argument register (x0–x7)
+    // ------------------------------------------------------------------------
+    {
+        assert(arg < HW_ARGS);
+        arm64reg_t dst = arm64reg_t(HW_X0 + arg);
+        emit_store_off(HW_FRAME, dst, local_disp(arg));
+        spilled_args |= 1<<arg;
+        set_imm(dst, imm);
+        return dst;
+    }
+
+    arm64reg_t hw_sys_ret(local_t loc)
+    // ------------------------------------------------------------------------
+    //    Move the value in the target location, may block its reload
+    // ------------------------------------------------------------------------
+    {
+        arm64reg_t dst = hw_local(loc);
+        if (dst != HW_X0)
+            emit32le(mov_rr(dst, HW_X0));
+        if (loc < HW_ARGS)
+            spilled_args &= ~(1 << loc);
+        return dst;
+    }
+
+    void hw_sys_arg_reload()
+    // ------------------------------------------------------------------------
+    //   Reload arguments we spilled before calling C code
+    // ------------------------------------------------------------------------
+    {
+        for (uint i = 0; spilled_args && i < HW_ARGS; i++)
+        {
+            if (spilled_args & (1<<i))
+            {
+                emit_load_off(arm64reg_t(HW_X0 + i), HW_FRAME, local_disp(i));
+                spilled_args &= ~(1<<i);
+            }
+        }
     }
 
     static inline uint xn(arm64reg_t r)
@@ -277,14 +317,6 @@ protected:
     // ------------------------------------------------------------------------
     {
         return ~n * int(sizeof(ularge_t));
-    }
-
-    int arg_disp(int n) const
-    // ------------------------------------------------------------------------
-    //   Displacement from FP to argument n (above enter record + prologue)
-    // ------------------------------------------------------------------------
-    {
-        return n * int(sizeof(ularge_t)) + 2 * int(sizeof(ularge_t));
     }
 
 
@@ -654,6 +686,17 @@ protected:
              | (rt2 << 10) | (rn << 5) | rt;
     }
 
+    static inline uint stp_off(uint rt, uint rt2, uint rn, int imm7)
+    // ------------------------------------------------------------------------
+    //   Encode stp rt, rt2, [rn, #imm]  (no writeback; imm multiple of 8)
+    // ------------------------------------------------------------------------
+    {
+        int scaled = imm7 / 8;
+        return 0xa9000000u
+             | ((uint32_t(scaled) & 0x7fu) << 15)
+             | (rt2 << 10) | (rn << 5) | rt;
+    }
+
     static inline uint ldp_post(uint rt, uint rt2, uint rn, int imm7)
     // ------------------------------------------------------------------------
     //   Encode ldp rt, rt2, [rn], #imm  (imm in bytes, multiple of 8)
@@ -661,6 +704,17 @@ protected:
     {
         int scaled = imm7 / 8;
         return 0xa8c00000u
+             | ((uint32_t(scaled) & 0x7fu) << 15)
+             | (rt2 << 10) | (rn << 5) | rt;
+    }
+
+    static inline uint ldp_off(uint rt, uint rt2, uint rn, int imm7)
+    // ------------------------------------------------------------------------
+    //   Encode ldp rt, rt2, [rn, #imm]  (no writeback; imm multiple of 8)
+    // ------------------------------------------------------------------------
+    {
+        int scaled = imm7 / 8;
+        return 0xa9400000u
              | ((uint32_t(scaled) & 0x7fu) << 15)
              | (rt2 << 10) | (rn << 5) | rt;
     }
@@ -813,11 +867,7 @@ protected:
     void         bra_test(local_t s, byte_p target, byte cond);
     void         rel_branch(byte_p target, hwcode_t site);
     void         rel_function(tok_t tok, hwcode_t site);
-    virtual void prologue();
-    virtual void epilogue();
     void         dispatch(local_t loc, byte_p &pc, byte cond);
-    size_t       pre_call(bool args = true);
-    void         post_call(size_t frame);
     void         call_ptr(void (*fn)());
     template <typename T, typename... U>
     void         call_ptr(T (*fn)(U...))
@@ -825,11 +875,14 @@ protected:
         return call(((void (*)()) fn));
     }
 
-  protected:
+protected:
     // False for nested callees until op_enter (avoids spilling through caller FP).
-    bool          have_frame = true;
     using relocations_t = std::vector<hwcode_t>;
     relocations_t relocations;
+
+    uint          local_frame_size;
+    uint          spilled_args;
+    uint          num_functions;
 };
 
 #endif // ARM64_H

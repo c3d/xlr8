@@ -65,7 +65,9 @@ EMIT(end)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_end");
-    // Epilogue is emitted by finish_translation()
+    if (num_functions == 0)
+        emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
+    emit32le(ret_insn());
     e.pc = e.end;
 }
 
@@ -166,7 +168,6 @@ EMIT(jmp)
 //   Emit bytecode for the jmp opcode
 // ----------------------------------------------------------------------------
 {
-    spill_all();
     hwcode_t site = emit_b_rel();
     rel_function(e.tok, site);
     record(arm64_ops, "emit_jump %llu", e.tok);
@@ -180,11 +181,15 @@ EMIT(call)
 //   Place live locals 0..7 in x0–x7, and preserve local size across call
 {
     record(arm64_ops, "emit_call %llu", e.tok);
-    size_t frame = pre_call();
+    if (!local_frame_size)
+    {
+        record(arm64_warning, "Calling tok %u  without a frame size", e.tok);
+        emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
+    }
     hwcode_t site = emit_bl_rel();
     rel_function(e.tok, site);
-    post_call(frame);
-    saved(0, HW_X0);
+    if (!local_frame_size)
+        emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
 }
 
 
@@ -196,7 +201,6 @@ EMIT(ijmp)
 {
     arm64reg_t r = hw_local(e.src);
     record(arm64_ops, "emit_ijmp %u reg %u", e.src, r);
-    spill_all();
     // TODO: Translate bytecode address to physical address
     emit32le(br(r));
 }
@@ -209,11 +213,15 @@ EMIT(icall)
 {
     arm64reg_t r = hw_local(e.src);
     record(arm64_ops, "emit_icall %u reg %u", e.src, r);
-    size_t frame = pre_call();
     // TODO: Translate bytecode address to physical address
+    if (!local_frame_size)
+    {
+        record(arm64_warning, "Calling reg %u without a frame size", e.src);
+        emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
+    }
     emit32le(blr(r));
-    post_call(frame);
-    saved(0, HW_X0);
+    if (!local_frame_size)
+        emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
 }
 
 
@@ -222,21 +230,7 @@ EMIT(ret)
 //   Emit bytecode for the ret opcode
 // ----------------------------------------------------------------------------
 {
-    // AAPCS64 return in x0: prefer live local 0
-    if (local_reg.size() > 0)
-    {
-        hwreg_t loc0 = local_reg[0];
-        if (loc0 != NO_REGISTER && loc0 != HW_X0)
-        {
-            move(HW_X0, loc0);
-            emit_store_off(HW_FRAME, HW_X0, local_disp(0));
-        }
-        else
-        {
-            emit_load_off(HW_X0, HW_FRAME, local_disp(0));
-        }
-    }
-    epilogue();
+    emit32le(ret_insn());
 }
 
 
@@ -280,15 +274,21 @@ EMIT(enter)
 {
     record(arm64_ops, "emit_enter %u", e.dst);
 
-    // Args 0-7 are in X0-X7. They also were spilled in the caller's frame
-    // However, it is legal to have done computations before enter,
-    // see the fibonacci.xlr8 example. So we need to spill and move back
-    // computations into registers
-    for (uint i = 0; i < 8; i++)
-        if (local_reg[i] != NO_REGISTER)
-            move(HW_X0 + i, local_reg[i]);
-    spill_all();
-    frame_size(e.dst);
+    uint frame = e.dst;
+    if (local_frame_size)
+        record(arm64_error, "Enter called twice in a function, %u after %u",
+               frame, local_frame_size);
+    local_frame_size = frame;
+    frame_size(frame);
+    if (frame > HW_SHADOWS)
+        frame = HW_SHADOWS;
+    for (uint i = 0; i < frame; i += 2)
+    {
+        if (i + 1 < frame)
+            emit32le(stp_off(i+1, i, HW_FRAME, local_disp(i+1)));
+        else
+            emit_store_off(HW_FRAME, arm64reg_t(HW_X0+i), local_disp(i));
+    }
     emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
     emit32le(mov_rr(HW_FRAME, HW_SP));
 
@@ -316,8 +316,21 @@ EMIT(leave)
     record(arm64_ops, "emit_leave");
     emit32le(mov_rr(HW_SP, HW_FRAME));
     emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
-    // Outer frame is restored; drop stale inner mappings so loads refill.
-    forget_registers();
+
+    // Outer frame is restored; recover registers
+    uint frame = local_frame_size;
+    if (!frame)
+        record(arm64_error, "Running leave without having run enter");
+    if (frame > HW_SHADOWS)
+        frame = HW_SHADOWS;
+    for (uint i = 0; i < frame; i += 2)
+    {
+        if (i + 1 < frame)
+            emit32le(ldp_off(i+1, i, HW_FRAME, local_disp(i+1)));
+        else
+            emit_load_off(arm64reg_t(HW_X0+i), HW_FRAME, local_disp(i));
+    }
+    local_frame_size = 0;
 }
 
 
@@ -327,13 +340,10 @@ EMIT(get)
 // ----------------------------------------------------------------------------
 {
     arm64reg_t dr  = hw_dst_local(e.dst);
-    int        off = arg_disp(e.src);
+    emit_load_off(HW_SCRATCH, HW_FRAME, 0);
+    emit_load_off(dr, HW_SCRATCH, local_disp(e.src));
     record(arm64_ops, "emit_get [%u] = %u reg %u offs %d",
-           e.dst, e.src, dr, off);
-    if (e.dst < 8)
-        move(dr, arm64reg_t(HW_X0 + e.dst));
-    else
-        emit_load_off(dr, HW_FRAME, off);
+           e.dst, e.src, dr, local_disp(e.src));
 }
 
 
@@ -343,13 +353,10 @@ EMIT(set)
 // ----------------------------------------------------------------------------
 {
     arm64reg_t sr  = hw_local(e.src);
-    int      off = arg_disp(e.dst);
+    emit_load_off(HW_SCRATCH, HW_FRAME, 0);
+    emit_store_off(HW_SCRATCH, sr, local_disp(e.dst));
     record(arm64_ops, "emit_set %u = [%u] reg %u offs %d",
-           e.dst, e.src, sr, off);
-    emit_store_off(HW_FRAME, sr, off);
-    // Arg 0 is also the AAPCS64 return register.
-    if (e.dst == 0 && sr != HW_X0)
-        emit32le(mov_rr(xn(HW_X0), xn(sr)));
+           e.dst, e.src, sr, local_disp(e.dst));
 }
 
 
@@ -1077,7 +1084,6 @@ EMIT(frame)
         set_imm(dr, uint64_t(int64_t(offs)));
         emit32le(add_rrr(xn(dr), xn(HW_FRAME), xn(dr)));
     }
-    spill_all();                // So that we can use the result
 }
 
 
@@ -1369,9 +1375,11 @@ EMIT(ddiv)
 
 // Arm64 SYS emitters covering native.tbl
 #define SYS(op) void arm64::emit_sys_##op(emit_args &e)
-#define ARG(arg, loc) hw_arg(arg, loc);
-#define RET(loc)      MOVX(XO(e.dst), HW_X0); saved(e.dst, HW_X0);
+#define ARG(a, loc)   hw_sys_arg(a, loc);
+#define IMM(a, val)   hw_sys_imm(a, val);
+#define RET(loc)      hw_sys_ret(loc);
 #define NORET         /* no output */
+
 #define XI(loc)       hw(local((loc), RSPEC_INT, true))
 #define FI(loc)       hw(local((loc), RSPEC_FLT, true))
 #define DI(loc)       hw(local((loc), RSPEC_DBL, true))
@@ -1381,14 +1389,13 @@ EMIT(ddiv)
 #define MOVX(d, s)    emit32le(mov_rr((d), (s)))
 
 // Cast through uintptr_t so overloaded C++ libc/math symbols resolve
-#define CALL(fn, inputs, outputs)                       \
-    do                                                  \
-    {                                                   \
-        size_t frame = pre_call(false);                 \
-        inputs;                                         \
-        call_ptr(reinterpret_cast<void (*)()>(fn));     \
-        post_call(frame);                               \
-        outputs;                                        \
+#define CALL(fn, inputs, outputs)                   \
+    do                                              \
+    {                                               \
+        inputs;                                     \
+        call_ptr(reinterpret_cast<void (*)()>(fn)); \
+        outputs;                                    \
+        hw_sys_arg_reload();                        \
     } while (0)
 
 SYS(globals)
@@ -1396,7 +1403,7 @@ SYS(globals)
 //   Resize globals table to given length
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_globals, set_imm(HW_X0, e.klen), NORET);
+    CALL(xlr8_jit_globals, IMM(HW_X0, e.klen), NORET);
 }
 
 SYS(malloc)
@@ -1412,7 +1419,7 @@ SYS(kmalloc)
 //   Allocate heap memory of constant size
 // ----------------------------------------------------------------------------
 {
-    CALL(::malloc, set_imm(HW_X0, e.klen), RET(e.dst));
+    CALL(::malloc, IMM(HW_X0, e.klen), RET(e.dst));
 }
 
 SYS(realloc)
@@ -1453,8 +1460,8 @@ SYS(alloca)
     else if (bytes != 0)
     {
         set_imm(HW_SCRATCH, uint64_t(bytes));
-        emit32le(mov_rr(HW_X17, HW_SP));
-        emit32le(sub_rrr(xn(HW_X17), xn(HW_X17), xn(HW_SCRATCH)));
+        emit32le(mov_rr(HW_X24, HW_SP));
+        emit32le(sub_rrr(xn(HW_X24), xn(HW_X24), xn(HW_SCRATCH)));
         emit32le(mov_rr(HW_SP, HW_X17));
     }
     MOVX(XO(e.dst), HW_SP);
@@ -1466,15 +1473,17 @@ SYS(valloca)
 // ----------------------------------------------------------------------------
 {
     // size = (size > 0 ? size + 15 : size) & ~15
-    MOVX(HW_X0, XI(e.src));
-    emit32le(add_imm(xn(HW_X1), xn(HW_X0), 15));
-    emit32le(cmp_r_imm(xn(HW_X0), 0));
-    emit32le(csel_rrr(xn(HW_X0), xn(HW_X1), xn(HW_X0), COND_GT));
-    set_imm(HW_SCRATCH, ~uint64_t(15));
-    emit32le(and_rrr(xn(HW_X0), xn(HW_X0), xn(HW_SCRATCH)));
-    emit32le(mov_rr(HW_X17, HW_SP));
-    emit32le(sub_rrr(xn(HW_X17), xn(HW_X17), xn(HW_X0)));
-    emit32le(mov_rr(HW_SP, HW_X17));
+    arm64reg_t a = HW_SCRATCH;
+    arm64reg_t b = HW_X26;
+    MOVX(a, XI(e.src));
+    emit32le(add_imm(xn(b), xn(a), 15));
+    emit32le(cmp_r_imm(xn(a), 0));
+    emit32le(csel_rrr(xn(a), xn(b), xn(a), COND_GT));
+    set_imm(b, ~uint64_t(15));
+    emit32le(and_rrr(xn(a), xn(a), xn(b)));
+    emit32le(mov_rr(b, HW_SP));
+    emit32le(sub_rrr(xn(b), xn(b), xn(a)));
+    emit32le(mov_rr(HW_SP, b));
     MOVX(XO(e.dst), HW_SP);
 }
 
@@ -1507,7 +1516,7 @@ SYS(kmemcpy)
 //   Copy memory region of constant length
 // ----------------------------------------------------------------------------
 {
-    CALL(::memcpy, ARG(0, e.dst) ARG(1, e.src) set_imm(HW_X2, e.klen), NORET);
+    CALL(::memcpy, ARG(0, e.dst) ARG(1, e.src) IMM(HW_X2, e.klen), NORET);
 }
 
 SYS(kmemmove)
@@ -1523,7 +1532,7 @@ SYS(kmemset)
 //   Fill memory with byte, constant length
 // ----------------------------------------------------------------------------
 {
-    CALL(::memset, ARG(0, e.dst) ARG(1, e.src) set_imm(HW_X2, e.klen), NORET);
+    CALL(::memset, ARG(0, e.dst) ARG(1, e.src) IMM(HW_X2, e.klen), NORET);
 }
 
 SYS(memkset)
@@ -1531,7 +1540,7 @@ SYS(memkset)
 //   Fill memory with constant byte value
 // ----------------------------------------------------------------------------
 {
-    CALL(::memset, ARG(0, e.dst) set_imm(HW_X1, uint64_t(e.kint)); ARG(2, e.src), NORET);
+    CALL(::memset, ARG(0, e.dst) IMM(HW_X1, uint64_t(e.kint)); ARG(2, e.src), NORET);
 }
 
 SYS(kmemkset)
@@ -1539,7 +1548,7 @@ SYS(kmemkset)
 //   Fill memory with constant byte and length
 // ----------------------------------------------------------------------------
 {
-    CALL(::memset, ARG(0, e.dst) set_imm(HW_X1, uint64_t(e.kint)); set_imm(HW_X2, e.klen), NORET);
+    CALL(::memset, ARG(0, e.dst) IMM(HW_X1, uint64_t(e.kint)); IMM(HW_X2, e.klen), NORET);
 }
 
 SYS(memcmp)
@@ -1555,7 +1564,7 @@ SYS(kmemcmp)
 //   Compare memory regions of constant length
 // ----------------------------------------------------------------------------
 {
-    CALL(::memcmp, ARG(0, e.src) ARG(1, e.xtra) set_imm(HW_X2, e.klen), RET(e.dst));
+    CALL(::memcmp, ARG(0, e.src) ARG(1, e.xtra) IMM(HW_X2, e.klen), RET(e.dst));
 }
 
 SYS(memchr)
@@ -1571,7 +1580,7 @@ SYS(kmemchr)
 //   Find byte in memory of constant length
 // ----------------------------------------------------------------------------
 {
-    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr), ARG(0, e.src) ARG(1, e.ival) set_imm(HW_X2, e.klen), RET(e.dst));
+    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr), ARG(0, e.src) ARG(1, e.ival) IMM(HW_X2, e.klen), RET(e.dst));
 }
 
 SYS(memkchr)
@@ -1579,7 +1588,7 @@ SYS(memkchr)
 //   Find constant byte in memory region
 // ----------------------------------------------------------------------------
 {
-    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr), ARG(0, e.src) set_imm(HW_X1, uint64_t(e.kint)); ARG(2, e.len), RET(e.dst));
+    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr), ARG(0, e.src) IMM(HW_X1, uint64_t(e.kint)); ARG(2, e.len), RET(e.dst));
 }
 
 SYS(kmemkchr)
@@ -1587,7 +1596,7 @@ SYS(kmemkchr)
 //   Find constant byte in memory of constant length
 // ----------------------------------------------------------------------------
 {
-    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr), ARG(0, e.src) set_imm(HW_X1, uint64_t(e.kint)); set_imm(HW_X2, e.klen), RET(e.dst));
+    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr), ARG(0, e.src) IMM(HW_X1, uint64_t(e.kint)); IMM(HW_X2, e.klen), RET(e.dst));
 }
 
 SYS(strlen)
@@ -1611,7 +1620,7 @@ SYS(kstrnlen)
 //   Compute C string length with constant bound
 // ----------------------------------------------------------------------------
 {
-    CALL(::strnlen, ARG(0, e.src) set_imm(HW_X1, e.klen), RET(e.dst));
+    CALL(::strnlen, ARG(0, e.src) IMM(HW_X1, e.klen), RET(e.dst));
 }
 
 SYS(strcpy)
@@ -1635,7 +1644,7 @@ SYS(kstrncpy)
 //   Copy C string with constant length bound
 // ----------------------------------------------------------------------------
 {
-    CALL(::strncpy, ARG(0, e.dst) ARG(1, e.src) set_imm(HW_X2, e.klen), RET(e.dst));
+    CALL(::strncpy, ARG(0, e.dst) ARG(1, e.src) IMM(HW_X2, e.klen), RET(e.dst));
 }
 
 SYS(strcat)
@@ -1659,7 +1668,7 @@ SYS(kstrncat)
 //   Concatenate C strings with constant bound
 // ----------------------------------------------------------------------------
 {
-    CALL(::strncat, ARG(0, e.dst) ARG(1, e.src) set_imm(HW_X2, e.klen), RET(e.dst));
+    CALL(::strncat, ARG(0, e.dst) ARG(1, e.src) IMM(HW_X2, e.klen), RET(e.dst));
 }
 
 SYS(strcmp)
@@ -1684,7 +1693,7 @@ SYS(kstrncmp)
 // ----------------------------------------------------------------------------
 {
     CALL(::strncmp,
-         ARG(0, e.src) ARG(1, e.xtra) set_imm(HW_X2, e.klen), RET(e.dst));
+         ARG(0, e.src) ARG(1, e.xtra) IMM(HW_X2, e.klen), RET(e.dst));
 }
 
 // glibc/libcpp overload strchr/strrchr/strstr as char*(char*,…) /
@@ -1705,7 +1714,7 @@ SYS(kstrchr)
 // ----------------------------------------------------------------------------
 {
     CALL(static_cast<char *(*) (char *, int)>(::strchr),
-         ARG(0, e.src) set_imm(HW_X1, uint64_t(e.kint)), RET(e.dst));
+         ARG(0, e.src) IMM(HW_X1, uint64_t(e.kint)), RET(e.dst));
 }
 
 SYS(strrchr)
@@ -1723,7 +1732,7 @@ SYS(kstrrchr)
 // ----------------------------------------------------------------------------
 {
     CALL(static_cast<char *(*) (char *, int)>(::strrchr),
-         ARG(0, e.src) set_imm(HW_X1, uint64_t(e.kint)), RET(e.dst));
+         ARG(0, e.src) IMM(HW_X1, uint64_t(e.kint)), RET(e.dst));
 }
 
 SYS(strstr)
@@ -1792,7 +1801,7 @@ SYS(kstrndup)
 //   Duplicate C string with constant length bound
 // ----------------------------------------------------------------------------
 {
-    CALL(::strndup, ARG(0, e.src) set_imm(HW_X1, e.klen), RET(e.dst));
+    CALL(::strndup, ARG(0, e.src) IMM(HW_X1, e.klen), RET(e.dst));
 }
 
 SYS(cmdline)
@@ -1865,7 +1874,7 @@ SYS(branch_on_eof)
 // ----------------------------------------------------------------------------
 {
     CALL(xlr8_jit_stream_eof,
-         set_imm(HW_X0, e.knat),
+         IMM(HW_X0, e.knat),
          hwcode_t pos = emit_cbnz_rel(HW_X0);
          rel_branch(e.bpc + e.broff, pos));
 }
@@ -1876,7 +1885,7 @@ SYS(branch_on_bad)
 // ----------------------------------------------------------------------------
 {
     CALL(xlr8_jit_stream_bad,
-         set_imm(HW_X0, e.knat),
+         IMM(HW_X0, e.knat),
          hwcode_t pos = emit_cbnz_rel(HW_X0);
          rel_branch(e.bpc + e.broff, pos));
 }
@@ -1886,7 +1895,7 @@ SYS(read_char)
 //   Read character from input stream
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_read_char, set_imm(HW_X0, e.knat), RET(e.dst));
+    CALL(xlr8_jit_read_char, IMM(HW_X0, e.knat), RET(e.dst));
 }
 
 SYS(read_integer)
@@ -1894,7 +1903,7 @@ SYS(read_integer)
 //   Read integer from input stream
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_read_integer, set_imm(HW_X0, e.knat), RET(e.dst));
+    CALL(xlr8_jit_read_integer, IMM(HW_X0, e.knat), RET(e.dst));
 }
 
 SYS(read_natural)
@@ -1902,7 +1911,7 @@ SYS(read_natural)
 //   Read natural number from input stream
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_read_natural, set_imm(HW_X0, e.knat), RET(e.dst));
+    CALL(xlr8_jit_read_natural, IMM(HW_X0, e.knat), RET(e.dst));
 }
 
 SYS(read_float)
@@ -1911,7 +1920,7 @@ SYS(read_float)
 // ----------------------------------------------------------------------------
 {
     CALL(xlr8_jit_read_float,
-         set_imm(HW_X0, e.knat),
+         IMM(HW_X0, e.knat),
          emit32le(fmov_ss(vn(FO(e.dst)), 0)));
 }
 
@@ -1921,7 +1930,7 @@ SYS(read_double)
 // ----------------------------------------------------------------------------
 {
     CALL(xlr8_jit_read_double,
-         set_imm(HW_X0, e.knat),
+         IMM(HW_X0, e.knat),
          emit32le(fmov_dd(vn(DI(e.dst)), 0)));
 }
 
@@ -1930,7 +1939,7 @@ SYS(write_char)
 //   Write character to output stream
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_write_char, set_imm(HW_X0, e.knat); ARG(1, e.src), NORET);
+    CALL(xlr8_jit_write_char, IMM(HW_X0, e.knat); ARG(1, e.src), NORET);
 }
 
 SYS(write_integer)
@@ -1938,7 +1947,7 @@ SYS(write_integer)
 //   Write integer to output stream
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_write_integer, set_imm(HW_X0, e.knat); ARG(1, e.src), NORET);
+    CALL(xlr8_jit_write_integer, IMM(HW_X0, e.knat); ARG(1, e.src), NORET);
 }
 
 SYS(write_natural)
@@ -1946,7 +1955,7 @@ SYS(write_natural)
 //   Write natural number to output stream
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_write_natural, set_imm(HW_X0, e.knat); ARG(1, e.src), NORET);
+    CALL(xlr8_jit_write_natural, IMM(HW_X0, e.knat); ARG(1, e.src), NORET);
 }
 
 SYS(write_float)
@@ -1956,7 +1965,9 @@ SYS(write_float)
 {
     arm64reg_t s = FI(e.src);
     CALL(xlr8_jit_write_float,
-         set_imm(HW_X0, e.knat); if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         IMM(HW_X0, e.knat);
+         if (vn(s) != 0)
+             emit32le(fmov_ss(0, vn(s))),
          NORET);
 }
 
@@ -1967,7 +1978,9 @@ SYS(write_double)
 {
     arm64reg_t s = DI(e.src);
     CALL(xlr8_jit_write_double,
-         set_imm(HW_X0, e.knat); if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         IMM(HW_X0, e.knat);
+         if (vn(s) != 0)
+             emit32le(fmov_dd(0, vn(s))),
          NORET);
 }
 
@@ -1977,7 +1990,7 @@ SYS(write_text)
 // ----------------------------------------------------------------------------
 {
     CALL(xlr8_jit_write_text,
-         set_imm(HW_X0, e.knat); ARG(1, e.src), NORET);
+         IMM(HW_X0, e.knat); ARG(1, e.src), NORET);
 }
 
 SYS(write_token)
@@ -1986,7 +1999,7 @@ SYS(write_token)
 // ----------------------------------------------------------------------------
 {
     CALL(xlr8_jit_write_token,
-         set_imm(HW_X0, e.knat); set_imm(HW_X1, e.tok), NORET);
+         IMM(HW_X0, e.knat); IMM(HW_X1, e.tok), NORET);
 }
 
 SYS(write_newline)
@@ -1994,7 +2007,7 @@ SYS(write_newline)
 //   Write newline to output stream
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_write_newline, set_imm(HW_X0, e.knat), NORET);
+    CALL(xlr8_jit_write_newline, IMM(HW_X0, e.knat), NORET);
 }
 
 SYS(read_scanner)
@@ -2003,7 +2016,7 @@ SYS(read_scanner)
 // ----------------------------------------------------------------------------
 {
     CALL(xlr8_jit_read_scanner,
-         emit32le(sub_imm(xn(HW_SP), xn(HW_SP), 16)); set_imm(HW_X0, e.knat);
+         emit32le(sub_imm(xn(HW_SP), xn(HW_SP), 16)); IMM(HW_X0, e.knat);
          MOVX(HW_X1, HW_SP);
          emit32le(add_imm(xn(HW_X2), xn(HW_SP), 8)),
          emit_load_off(XO(e.dst), HW_SP, 0);
@@ -2016,7 +2029,7 @@ SYS(nat)
 //   Append natural number to scanner output
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_nat_append, set_imm(HW_X0, e.knat); ARG(1, e.src), NORET);
+    CALL(xlr8_jit_nat_append, IMM(HW_X0, e.knat); ARG(1, e.src), NORET);
 }
 
 SYS(int)
@@ -2024,7 +2037,7 @@ SYS(int)
 //   Append integer to scanner output
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_int_append, set_imm(HW_X0, e.knat); ARG(1, e.src), NORET);
+    CALL(xlr8_jit_int_append, IMM(HW_X0, e.knat); ARG(1, e.src), NORET);
 }
 
 SYS(flt)
@@ -2034,7 +2047,7 @@ SYS(flt)
 {
     arm64reg_t s = FI(e.src);
     CALL(xlr8_jit_flt_append,
-         set_imm(HW_X0, e.knat); if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
+         IMM(HW_X0, e.knat); if (vn(s) != 0) emit32le(fmov_ss(0, vn(s))),
          NORET);
 }
 
@@ -2045,7 +2058,7 @@ SYS(dbl)
 {
     arm64reg_t s = DI(e.src);
     CALL(xlr8_jit_dbl_append,
-         set_imm(HW_X0, e.knat); if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
+         IMM(HW_X0, e.knat); if (vn(s) != 0) emit32le(fmov_dd(0, vn(s))),
          NORET);
 }
 
@@ -2054,7 +2067,7 @@ SYS(print_error)
 //   Print runtime error to output stream
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_print_error, set_imm(HW_X0, e.knat), NORET);
+    CALL(xlr8_jit_print_error, IMM(HW_X0, e.knat), NORET);
 }
 
 SYS(clear_error)
@@ -2886,5 +2899,5 @@ SYS(cstring)
 //   Get C string for token
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_cstring, set_imm(HW_X0, e.tok), RET(e.dst));
+    CALL(xlr8_jit_cstring, IMM(HW_X0, e.tok), RET(e.dst));
 }
