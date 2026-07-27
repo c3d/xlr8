@@ -65,6 +65,9 @@ EMIT(end)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_end");
+    if (local_frame_size)
+        record(arm64_error, "Missing 'leave' before 'end', frame size %u",
+               local_frame_size);
     if (num_functions == 0)
         emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
     emit32le(ret_insn());
