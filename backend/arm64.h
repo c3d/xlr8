@@ -221,6 +221,7 @@ protected:
     // ------------------------------------------------------------------------
     {
         assert(arg < HW_ARGS);
+        assert((~spilled_args & (1 << arg)) && "Double spill");
         arm64reg_t src = hw_local(loc);
         arm64reg_t dst = arm64reg_t(HW_X0 + arg);
         if (src != dst)
@@ -241,6 +242,7 @@ protected:
     // ------------------------------------------------------------------------
     {
         assert(arg < HW_ARGS);
+        assert((~spilled_args & (1 << arg)) && "Double spill");
         arm64reg_t dst = arm64reg_t(HW_X0 + arg);
         emit_store_off(HW_FRAME, dst, local_disp(arg));
         spilled_args |= 1<<arg;
