@@ -10,11 +10,12 @@
 
 Port the arm64 JIT backend to the same architecture as the refactored x86 backend: native frame (enter/leave), `backend::local()` allocation, `branch`/`function`/`label`/`patch` fixups, thin `EMIT(op)` emitters, no `rtcall` / `record_branch` / fixed shadow map.
 
-**Register policy update (2026-07-27):** arm64 no longer prefers callee-saved
-shadows with `spill_all` on every bytecode `call`. It uses **direct mapping**
-(`local n` → `xn` / `vn`) so recursive fibonacci works under `-O`. The tables
-below still describe the *original* approved design; treat the 2026-07-27 spec
-as authoritative for allocation, scratch (x27), and flags (x28).
+**Register policy update (2026-07-27):** arm64 uses **direct mapping** (`local
+n` → `xn`; `vn` only transiently, remapped to `xn` in `register_sync`), spills
+live `x0`–`x18` around C/`sys`, reserves `x18`, and saves caller GPRs into the
+callee frame on `enter`. Authoritative write-up:
+`docs/superpowers/specs/2026-07-27-register-allocation-direct-mapping.md`.
+Tables below still show the *original* 07-24 design where they disagree.
 
 ## Success criteria
 
@@ -54,17 +55,20 @@ Arm64 is a peer of x86 under the new backend — not a subclass of x86.
 
 ## Registers and frame
 
-**Original design (below) — superseded for allocation by direct map.**
+**Original design superseded — shipping policy summary:**
 
 | Role | Register | Notes |
 |------|----------|--------|
-| Frame | x29 (`HW_FRAME`) | Native FP, like RBP |
-| Link | x30 | Saved with FP on enter; epilogue `ret` |
-| Flags | x28 (`HW_FLAGS`) | **Shipping:** was x22 in the 07-24 draft |
-| Scratch | x27 (`HW_SCRATCH`) | **Shipping:** was x16 in the 07-24 draft |
-| Direct GPRs | x0–x23 | **Shipping:** `local n` ↔ `xn` |
+| Frame | x29 (`HW_FRAME`) | Native FP |
+| Link | x30 | Saved with FP on enter |
+| Flags | x28 (`HW_FLAGS`) | Predicate bits |
+| Scratch | x27 (`HW_SCRATCH`) | Temps / call targets |
+| Reserved | x18 | Not a direct local home |
+| Direct GPRs | x0–x17, x19–x23 | `local n` ↔ `xn` |
 | Overflow temps | x24–x27 / v12+ | Spilled in `register_sync` |
-| FP | v0–v11 banks | `RSPEC_FLT` / `RSPEC_DBL` direct map |
+| FP | v0–v11 | Transient; durable home is `xn` after sync |
+
+Full detail: `docs/superpowers/specs/2026-07-27-register-allocation-direct-mapping.md`.
 
 ### enter / leave
 

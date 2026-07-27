@@ -144,8 +144,8 @@ void arm64::register_sync()
     for (uint t = 0; t < HW_TEMPS; t++)
         spill(HW_TEMP0 + t) || spill(HW_DTEMP0 + t) || spill(HW_FTEMP0 + t);
 
-    // Move floating point values back into X registers
-    for (int sz = 0; sz < 1; sz++)
+    // Move floating point values back into X registers (durable home).
+    for (int sz = 0; sz < 2; sz++)
     {
         hwreg_t base = sz ? HW_V0D : HW_V0F;
         for (uint fp = 0; fp < HW_FSHADOWS; fp++)
