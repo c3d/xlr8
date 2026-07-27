@@ -274,7 +274,7 @@ EMIT(enter)
 {
     record(arm64_ops, "emit_enter %u", e.dst);
 
-    uint frame = e.dst;
+    uint frame = e.dst + 1;
     if (local_frame_size && num_functions)
         record(arm64_error, "Enter called twice in a function, %u after %u",
                frame, local_frame_size);
@@ -293,7 +293,7 @@ EMIT(enter)
     emit32le(mov_rr(HW_FRAME, HW_SP));
 
     // Keep SP 16-byte aligned (AAPCS64).
-    uint bytes = uint(e.dst) * uint(sizeof(ularge_t));
+    uint bytes = frame * uint(sizeof(ularge_t));
     bytes = (bytes + 15u) & ~15u;
     if (bytes <= 0xfffu)
     {

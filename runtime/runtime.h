@@ -280,11 +280,12 @@ struct runtime
     }
 
 
-    stack_p enter(byte locals)
+    stack_p enter(byte lastreg)
     // ------------------------------------------------------------------------
     //    Set the frame pointer at the current locals
     // ------------------------------------------------------------------------
     {
+        size_t locals = lastreg + 1;
         CHECK(stack > frame,
               "Cannot allocate locals, stack is above frame", nullptr);
         CHECK(stack - locals - 1 <= (stack_p) heap,
