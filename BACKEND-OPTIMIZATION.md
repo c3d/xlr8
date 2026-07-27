@@ -6,14 +6,15 @@
 
 ### Addendum — Direct-map register allocation (2026-07-27)
 
-Arm64 recursive calls now keep `local n` in `xn` (see
-`docs/superpowers/specs/2026-07-27-register-allocation-direct-mapping.md`).
-That removes most spill/reload around bytecode `call` and is why
-`performance/fibonacci` passes at `-O`. Remaining `-O` gaps (FP across
-`sys`, top-level `enter`, flags, globals, …) are sequenced in
+Arm64 keeps `local n` in `xn` for recursive bytecode `call` (no `spill_all`),
+with durable homes in X even for floats: `register_sync` remaps live `Vn` →
+`Xn`. C/`sys` paths use `syscall()` to spill live call-clobbered `x0`–`x18`.
+`enter` saves caller GPRs into the callee frame; `get`/`set` read that copy
+for low indices. `x18` is reserved. Details:
+`docs/superpowers/specs/2026-07-27-register-allocation-direct-mapping.md`.
+Remaining `-O` work:
 `docs/superpowers/plans/2026-07-27-arm64-O-failures-after-direct-map.md`.
-Several older sections below still assume shadow-register evacuation; treat
-them as historical where they conflict with direct mapping.
+Older sections below that assume shadow-register evacuation are historical.
 
 ---
 
