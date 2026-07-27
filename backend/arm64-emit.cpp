@@ -280,30 +280,32 @@ EMIT(enter)
                frame, local_frame_size);
     local_frame_size = frame;
     frame_size(frame);
-    if (frame > HW_SHADOWS)
-        frame = HW_SHADOWS;
-    for (uint i = 0; i < frame; i += 2)
-    {
-        if (i + 1 < frame)
-            emit32le(stp_off(i+1, i, HW_FRAME, local_disp(i+1)));
-        else
-            emit_store_off(HW_FRAME, arm64reg_t(HW_X0+i), local_disp(i));
-    }
     emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
     emit32le(mov_rr(HW_FRAME, HW_SP));
 
+    // Save the caller's registers we may otherwise clobber
+    uint shadows = frame;
+    if (shadows > HW_SHADOWS)
+        shadows = HW_SHADOWS;
+    shadows = (shadows + 1) & ~1;
+    for (uint i = 0; i < shadows; i += 2)
+        emit32le(stp_pre(i+1, i, HW_SP, -16));
+
     // Keep SP 16-byte aligned (AAPCS64).
-    uint bytes = frame * uint(sizeof(ularge_t));
-    bytes = (bytes + 15u) & ~15u;
-    if (bytes <= 0xfffu)
+    if (frame > shadows)
     {
-        emit32le(sub_imm(HW_SP, HW_SP, bytes));
-    }
-    else
-    {
-        // sub (shifted reg) treats Rn/Rd=31 as XZR; go with sub_ext
-        set_imm(HW_SCRATCH, bytes);
-        emit32le(sub_ext(HW_SP, HW_SP, HW_SCRATCH));
+        uint bytes = (frame - shadows) * uint(sizeof(ularge_t));
+        bytes = (bytes + 15u) & ~15u;
+        if (bytes <= 0xfffu)
+        {
+            emit32le(sub_imm(HW_SP, HW_SP, bytes));
+        }
+        else
+        {
+            // sub (shifted reg) treats Rn/Rd=31 as XZR; go with sub_ext
+            set_imm(HW_SCRATCH, bytes);
+            emit32le(sub_ext(HW_SP, HW_SP, HW_SCRATCH));
+        }
     }
 }
 
@@ -314,22 +316,21 @@ EMIT(leave)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_leave");
-    emit32le(mov_rr(HW_SP, HW_FRAME));
-    emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
 
-    // Outer frame is restored; recover registers
+    // Recover registers that we saved for the caller
     uint frame = local_frame_size;
     if (!frame)
         record(arm64_error, "Running leave without having run enter");
-    if (frame > HW_SHADOWS)
-        frame = HW_SHADOWS;
-    for (uint i = 0; i < frame; i += 2)
-    {
-        if (i + 1 < frame)
-            emit32le(ldp_off(i+1, i, HW_FRAME, local_disp(i+1)));
-        else
-            emit_load_off(arm64reg_t(HW_X0+i), HW_FRAME, local_disp(i));
-    }
+    uint shadows = frame;
+    if (shadows > HW_SHADOWS)
+        shadows = HW_SHADOWS;
+    shadows = (shadows + 1) & ~1;
+    for (uint i = 0; i < shadows; i += 2)
+        emit32le(ldp_off(i+1, i, HW_FRAME, local_disp(i+1)));
+    emit32le(mov_rr(HW_SP, HW_FRAME));
+    emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
+
+
     local_frame_size = 0;
 }
 
@@ -340,10 +341,19 @@ EMIT(get)
 // ----------------------------------------------------------------------------
 {
     arm64reg_t dr  = hw_dst_local(e.dst);
-    emit_load_off(HW_SCRATCH, HW_FRAME, 0);
-    emit_load_off(dr, HW_SCRATCH, local_disp(e.src));
-    record(arm64_ops, "emit_get [%u] = %u reg %u offs %d",
-           e.dst, e.src, dr, local_disp(e.src));
+    if (e.src < HW_SHADOWS && e.src < local_frame_size)
+    {
+        emit_load_off(dr, HW_FRAME, local_disp(e.src));
+        record(arm64_ops, "emit_get [%u] = %u reg %u local %d",
+               e.dst, e.src, dr, local_disp(e.src));
+    }
+    else
+    {
+        emit_load_off(HW_SCRATCH, HW_FRAME, 0);
+        emit_load_off(dr, HW_SCRATCH, local_disp(e.src));
+        record(arm64_ops, "emit_get [%u] = %u reg %u parent %d",
+               e.dst, e.src, dr, local_disp(e.src));
+    }
 }
 
 
@@ -353,10 +363,19 @@ EMIT(set)
 // ----------------------------------------------------------------------------
 {
     arm64reg_t sr  = hw_local(e.src);
-    emit_load_off(HW_SCRATCH, HW_FRAME, 0);
-    emit_store_off(HW_SCRATCH, sr, local_disp(e.dst));
-    record(arm64_ops, "emit_set %u = [%u] reg %u offs %d",
-           e.dst, e.src, sr, local_disp(e.dst));
+    if (e.src < HW_SHADOWS && e.src < local_frame_size)
+    {
+        emit_store_off(HW_FRAME, sr, local_disp(e.dst));
+        record(arm64_ops, "emit_set %u = [%u] reg %u local %d",
+               e.dst, e.src, sr, local_disp(e.dst));
+    }
+    else
+    {
+        emit_load_off(HW_SCRATCH, HW_FRAME, 0);
+        emit_store_off(HW_SCRATCH, sr, local_disp(e.dst));
+        record(arm64_ops, "emit_set %u = [%u] reg %u parent %d",
+               e.dst, e.src, sr, local_disp(e.dst));
+    }
 }
 
 
