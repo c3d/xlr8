@@ -65,7 +65,8 @@ EMIT(end)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_end");
-    if (local_frame_size)
+    hw_sys_arg_reload();
+    if (local_frame_size && (num_functions != 0 || local_frame_size != 8))
         record(arm64_error, "Missing 'leave' before 'end', frame size %u",
                local_frame_size);
     if (num_functions == 0)
@@ -171,6 +172,7 @@ EMIT(jmp)
 //   Emit bytecode for the jmp opcode
 // ----------------------------------------------------------------------------
 {
+    hw_sys_arg_reload();
     hwcode_t site = emit_b_rel();
     rel_function(e.tok, site);
     record(arm64_ops, "emit_jump %llu", e.tok);
@@ -184,9 +186,10 @@ EMIT(call)
 //   Place live locals 0..7 in x0–x7, and preserve local size across call
 {
     record(arm64_ops, "emit_call %llu", e.tok);
+    hw_sys_arg_reload();
     if (!local_frame_size)
     {
-        record(arm64_warning, "Calling tok %u  without a frame size", e.tok);
+        record(arm64, "Calling tok %u  without a frame size", e.tok);
         emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
     }
     hwcode_t site = emit_bl_rel();
@@ -202,6 +205,7 @@ EMIT(ijmp)
 //   Emit bytecode for the ijmp opcode
 // ----------------------------------------------------------------------------
 {
+    hw_sys_arg_reload();
     arm64reg_t r = hw_local(e.src);
     record(arm64_ops, "emit_ijmp %u reg %u", e.src, r);
     // TODO: Translate bytecode address to physical address
@@ -219,7 +223,7 @@ EMIT(icall)
     // TODO: Translate bytecode address to physical address
     if (!local_frame_size)
     {
-        record(arm64_warning, "Calling reg %u without a frame size", e.src);
+        record(arm64, "Calling reg %u without a frame size", e.src);
         emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
     }
     emit32le(blr(r));
@@ -233,6 +237,7 @@ EMIT(ret)
 //   Emit bytecode for the ret opcode
 // ----------------------------------------------------------------------------
 {
+    hw_sys_arg_reload();
     emit32le(ret_insn());
 }
 
@@ -276,6 +281,7 @@ EMIT(enter)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_enter %u", e.dst);
+    hw_sys_arg_reload();
 
     uint frame = e.dst + 1;
     if (local_frame_size && num_functions)
@@ -319,6 +325,7 @@ EMIT(leave)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_leave");
+    hw_sys_arg_reload();
 
     // Recover registers that we saved for the caller
     uint frame = local_frame_size;
@@ -344,7 +351,7 @@ EMIT(get)
 // ----------------------------------------------------------------------------
 {
     arm64reg_t dr  = hw_dst_local(e.dst);
-    if (e.src < HW_SHADOWS && e.src < local_frame_size)
+    if (e.src < HW_SHADOWS && e.src < local_frame_size && e.src != HW_RESERVED)
     {
         emit_load_off(dr, HW_FRAME, local_disp(e.src));
         record(arm64_ops, "emit_get [%u] = %u reg %u local %d",
@@ -366,7 +373,7 @@ EMIT(set)
 // ----------------------------------------------------------------------------
 {
     arm64reg_t sr  = hw_local(e.src);
-    if (e.src < HW_SHADOWS && e.src < local_frame_size)
+    if (e.src < HW_SHADOWS && e.src < local_frame_size && e.src != HW_RESERVED)
     {
         emit_store_off(HW_FRAME, sr, local_disp(e.dst));
         record(arm64_ops, "emit_set %u = [%u] reg %u local %d",
@@ -419,8 +426,8 @@ EMIT(sto)
 //   Emit bytecode for the sto opcode
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t  r     = hw_local(e.src);
-    uintptr_t gaddr = uintptr_t(&rt.globals[e.dst]);
+    arm64reg_t r     = hw_local(e.src);
+    uintptr_t  gaddr = uintptr_t(&rt.globals[e.dst]);
     set_imm(HW_SCRATCH, gaddr);
     emit_store_off(HW_SCRATCH, r, 0);
     record(arm64_ops, "store_global g[%u]=%u addr %p reg %u",
@@ -434,7 +441,7 @@ EMIT(rcl)
 // ----------------------------------------------------------------------------
 {
     arm64reg_t r = hw_dst_local(e.dst);
-    uintptr_t gaddr = uintptr_t(&rt.globals[e.src]);
+    uintptr_t  gaddr = uintptr_t(&rt.globals[e.src]);
     set_imm(HW_SCRATCH, gaddr);
     emit_load_off(r, HW_SCRATCH, 0);
     record(arm64_ops, "load_global g[%u]=%u addr %p reg %u",
@@ -447,6 +454,7 @@ EMIT(dbra)
 //   Emit bytecode for the dbra opcode
 // ----------------------------------------------------------------------------
 {
+    hw_sys_arg_reload();
     arm64reg_t r = hw_dst_local(e.dst);
     record(arm64_ops, "emit_dbra %u, %lld reg %u", e.dst, e.broff, r);
     emit32le(sub_imm(r, r, 1));
@@ -462,6 +470,7 @@ EMIT(bra)
 {
     record(arm64_ops, "emit_bra %lld + %lld -> %lld",
            e.bpc, e.broff, e.bpc+e.broff);
+    hw_sys_arg_reload();
     hwcode_t site = emit_b_rel();
     rel_branch(e.bpc + e.broff, site);
     e.pc = e.end;               // Pick up next translation spot
@@ -1417,7 +1426,6 @@ EMIT(ddiv)
         inputs;                                     \
         syscall(reinterpret_cast<void (*)()>(fn));  \
         outputs;                                    \
-        hw_sys_arg_reload();                        \
     } while (0)
 
 SYS(globals)

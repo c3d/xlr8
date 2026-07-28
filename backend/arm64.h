@@ -33,6 +33,17 @@
 //  REGISTER ALLOCATION CONVENTIONS (AArch64) — direct mapping
 //  ===========================================================================
 //
+//  Map hardware registers X0-X23 to logical registers 0-23,
+//  except X18 on macOS which the kernel stupidly may corrupt (!!!)
+//
+//  Since the live value is in the register, the spill area 0-23 is for the
+//  caller's value, while 24+ is for the current value.
+//  This means that reading args 0-23 can be done directly from the frame,
+//  whereas other args need to "unframe" and read from parent's frame.
+//
+//  Calling C code requires special handling because C clobbers X0-X19.
+//
+//  Registers above 24 (and 18 on
 //  Locals use [x29 - (local+1)*8]; x29 is adjusted by op_enter and op_leave.
 //  Bytecode local n maps to hardware register x0+n (n < 24) so recursive
 //  calls keep args/returns in AAPCS64 registers without spill_all.
@@ -107,15 +118,15 @@ protected:
         HW_X20,
         HW_X21,
         HW_X22,
-        HW_X23,                 // Last register mapped 1-1 on locals
-        HW_X24,                 // Used for locals above 24
+        HW_X23, // Last register mapped 1-1 on locals
+        HW_X24, // Used for locals above 24
         HW_X25,
         HW_X26,
-        HW_X27,                 // Scratch
-        HW_X28,                 // Flags
-        HW_X29,                 // Frame pointer
-        HW_X30,                 // Link register
-        HW_SP,                  // Stack pointer
+        HW_X27, // Scratch
+        HW_X28, // Flags
+        HW_X29, // Frame pointer
+        HW_X30, // Link register
+        HW_SP,  // Stack pointer
 
         HW_V0D,
         HW_V1D,
@@ -154,7 +165,7 @@ protected:
         HW_COUNT,
 
         HW_ARGS      = 8,
-        HW_CLOBBERED = 19,      // Call-cloberred registers in AAPCS64
+        HW_CLOBBERED = 19, // Call-cloberred registers in AAPCS64
         HW_SHADOWS   = 24,
         HW_FSHADOWS  = 12,
         HW_TEMPS     = 4,
@@ -171,21 +182,24 @@ protected:
     };
 
     // AArch64 condition codes (B.cond / CSET)
-    static constexpr byte COND_EQ = 0;
-    static constexpr byte COND_NE = 1;
-    static constexpr byte COND_CS = 2;
-    static constexpr byte COND_CC = 3;
-    static constexpr byte COND_MI = 4;
-    static constexpr byte COND_PL = 5;
-    static constexpr byte COND_VS = 6;
-    static constexpr byte COND_VC = 7;
-    static constexpr byte COND_HI = 8;
-    static constexpr byte COND_LS = 9;
-    static constexpr byte COND_GE = 10;
-    static constexpr byte COND_LT = 11;
-    static constexpr byte COND_GT = 12;
-    static constexpr byte COND_LE = 13;
-    static constexpr byte COND_AL = 14;
+    enum cond_t : byte
+    {
+        COND_EQ = 0,
+        COND_NE = 1,
+        COND_CS = 2,
+        COND_CC = 3,
+        COND_MI = 4,
+        COND_PL = 5,
+        COND_VS = 6,
+        COND_VC = 7,
+        COND_HI = 8,
+        COND_LS = 9,
+        COND_GE = 10,
+        COND_LT = 11,
+        COND_GT = 12,
+        COND_LE = 13,
+        COND_AL = 14,
+    };
 
     arm64reg_t hw(hwreg_t r)
     // ------------------------------------------------------------------------
@@ -200,14 +214,33 @@ protected:
         return arm64reg_t(r);
     }
 
+    bool hw_is_shadow(hwreg_t r)
+    // ------------------------------------------------------------------------
+    //   Check if a register is holds a logical register directly
+    // ------------------------------------------------------------------------
+    {
+        return r < HW_X24 && r != HW_X18;
+    }
+
+    bool hw_is_arg(hwreg_t r)
+    // ------------------------------------------------------------------------
+    //   Check if a register is holds a logical register directly
+    // ------------------------------------------------------------------------
+    {
+        return r < HW_X8;
+    }
+
     arm64reg_t hw_local(local_t loc)
     // ------------------------------------------------------------------------
     //   Return hardware register associated with a local
     // ------------------------------------------------------------------------
     {
         if (loc > local_frame_size)
-            record(arm64_warning, "Reading local %u outside of frame %u",
-                   loc, local_frame_size);
+            record(arm64_warning,
+                   "Reading local %u outside of frame %u",
+                   loc,
+                   local_frame_size);
+        hw_sys_arg_reload(loc, true);
         return hw(local(loc, RSPEC_INT, true));
     }
 
@@ -219,6 +252,7 @@ protected:
         if (loc > local_frame_size)
             record(arm64_warning, "Writing local %u outside of frame %u",
                    loc, local_frame_size);
+        hw_sys_arg_reload(loc, false);
         return hw(local(loc, RSPEC_INT, false));
     }
 
@@ -228,15 +262,13 @@ protected:
     // ------------------------------------------------------------------------
     {
         assert(arg < HW_ARGS);
-        assert((~spilled_args & (1 << arg)) && "Double spill");
-        arm64reg_t src = hw_local(loc);
+        arm64reg_t src = hw(local(loc, RSPEC_INT, false));
         arm64reg_t dst = arm64reg_t(HW_X0 + arg);
+        hw_sys_arg_spill(dst);
         if (src != dst)
         {
-            emit_store_off(HW_FRAME, dst, local_disp(arg));
-            spilled_args |= 1<<arg;
             if (src < HW_ARGS && (spilled_args & (1<<src)))
-                emit_load_off(dst, HW_FRAME, local_disp(src));
+                emit_load_off(dst, HW_SP, src*sizeof(ularge_t));
             else
                 move(dst, src);
         }
@@ -249,10 +281,8 @@ protected:
     // ------------------------------------------------------------------------
     {
         assert(arg < HW_ARGS);
-        assert((~spilled_args & (1 << arg)) && "Double spill");
         arm64reg_t dst = arm64reg_t(HW_X0 + arg);
-        emit_store_off(HW_FRAME, dst, local_disp(arg));
-        spilled_args |= 1<<arg;
+        hw_sys_arg_spill(dst);
         set_imm(dst, imm);
         return dst;
     }
@@ -265,9 +295,60 @@ protected:
         arm64reg_t dst = hw_local(loc);
         if (dst != HW_X0)
             emit32le(mov_rr(dst, HW_X0));
-        if (loc < HW_ARGS)
+        if (loc < HW_CLOBBERED)
             spilled_args &= ~(1 << loc);
         return dst;
+    }
+
+    void hw_sys_arg_spill(hwreg_t r)
+    // ------------------------------------------------------------------------
+    //  Spill one register
+    // ------------------------------------------------------------------------
+    {
+        if (!spilled_args)
+            hw_sys_arg_spill();
+        if (r < HW_CLOBBERED && ~spilled_args & (1 << r))
+        {
+            emit_store_off(HW_SP, arm64reg_t(r), r * sizeof(ularge_t));
+            spilled_args |= 1 << r;
+        }
+    }
+
+    void hw_sys_arg_spill()
+    // ------------------------------------------------------------------------
+    //   Spill registers that may be clobbered by C calls
+    // ------------------------------------------------------------------------
+    {
+        // Reserve space for 32 registers
+        emit32le(sub_imm(HW_SP, HW_SP, 32 * sizeof(ularge_t)));
+        uint frame = local_frame_size;
+        if (frame > HW_CLOBBERED)
+            frame = HW_CLOBBERED;
+        for (uint r = 0; r < frame; r += 2)
+            emit32le(stp_off(r, r + 1, HW_SP, r * sizeof(ularge_t)));
+        emit32le(stp_off(HW_FRAME, HW_LR, HW_SP, HW_FRAME * sizeof(ularge_t)));
+        spilled_args |= (1 << frame) - 1;
+        spilled_args |= (3 << HW_FRAME);
+    }
+
+
+    void hw_sys_arg_reload(hwreg_t r, bool load)
+    // ------------------------------------------------------------------------
+    //   Reload argument from the sysargs if needed
+    // ------------------------------------------------------------------------
+    {
+        if (r < HW_CLOBBERED && spilled_args & (1 << r))
+        {
+            arm64reg_t dst = arm64reg_t(HW_X0 + r);
+            if (load)
+            {
+                uint index = r < HW_ARGS ? r : r - HW_FRAME + 8;
+                emit_load_off(dst, HW_SP, index * sizeof(ularge_t));
+            }
+            spilled_args &= ~(1 << r);
+            if (!spilled_args)
+                emit32le(add_imm(HW_SP, HW_SP, 32 * sizeof(ularge_t)));
+        }
     }
 
     void hw_sys_arg_reload()
@@ -275,13 +356,27 @@ protected:
     //   Reload arguments we spilled before calling C code
     // ------------------------------------------------------------------------
     {
-        for (uint i = 0; spilled_args && i < HW_SHADOWS; i++)
+        if (spilled_args)
         {
-            if (spilled_args & (1<<i))
+            uint frame = local_frame_size;
+            if (frame > HW_CLOBBERED)
+                frame = HW_CLOBBERED;
+            for (uint r = 0; r < frame; r += 2)
             {
-                emit_load_off(arm64reg_t(HW_X0 + i), HW_FRAME, local_disp(i));
-                spilled_args &= ~(1<<i);
+                arm64reg_t r1   = arm64reg_t(r);
+                arm64reg_t r2   = arm64reg_t(r + 1);
+                size_t     offs = r * sizeof(ularge_t);
+                switch ((spilled_args >> r) & 3)
+                {
+                case 0: break;
+                case 1: emit_store_off(HW_SP, r1, offs); break;
+                case 2: emit_store_off(HW_SP, r2, offs); break;
+                case 3: emit32le(ldp_off(r1, r2, HW_SP, offs)); break;
+                }
             }
+            emit32le(ldp_off(HW_FRAME,HW_LR,HW_SP,HW_FRAME*sizeof(ularge_t)));
+            emit32le(add_imm(HW_SP, HW_SP, 32 * sizeof(ularge_t)));
+            spilled_args = 0;
         }
     }
 
@@ -891,7 +986,7 @@ protected:
     relocations_t relocations;
 
     uint          local_frame_size;
-    uint          spilled_args;
+    uint          spilled_args;         // Spilled X0..X7, FP, LR, ...
     uint          num_functions;
 };
 

@@ -35,10 +35,7 @@
 
 #include <cmath>
 #include <cstring>
-
-#if defined(__APPLE__)
-#include <strings.h>            // strcasestr
-#endif
+#include <strings.h> // strcasestr
 
 
 RECORDER(arm64,             32, "AArch64 code generation helpers");
@@ -53,11 +50,12 @@ arm64::arm64(runtime &rt)
 // ----------------------------------------------------------------------------
     : backend(rt, ARCH_ARM64),
       relocations(),
-      local_frame_size(0), spilled_args(0), num_functions(0)
+      local_frame_size(0),
+      spilled_args(0),
+      num_functions(0)
 {
     record(arm64, "New backend arch=%+s", arch_name(ARCH_ARM64));
 }
-
 
 
 // ============================================================================
@@ -95,13 +93,12 @@ hwreg_t arm64::register_for(local_t loc, hwspec_t spec, bool ld)
     bool isdbl = spec & RSPEC_DBL;
     if (!isint && !isflt && !isdbl)
     {
-        record(arm64_error,
-               "Invalid register specification 0x%08X", spec);
+        record(arm64_error, "Invalid register specification 0x%08X", spec);
         return NO_REGISTER;
     }
 
     // Select register range and check if we can allocate statically
-    uint first = isint ? HW_X0 : isdbl ? HW_V0D  : isflt ? HW_V0F  : HW_COUNT;
+    uint first = isint ? HW_X0 : isdbl ? HW_V0D : isflt ? HW_V0F : HW_COUNT;
     uint count = isint ? HW_SHADOWS : HW_FSHADOWS;
     uint last  = first + count;
 
@@ -154,9 +151,9 @@ void arm64::register_sync()
             if (loc != NO_LOCAL)
             {
                 emit32le(sz ? fmov_x_d(fp, fp) : fmov_w_s(fp, fp));
-                local_reg[loc] = HW_X0+fp;
+                local_reg[loc]        = HW_X0 + fp;
                 reg_local[HW_X0 + fp] = loc;
-                reg_local[base + fp] = NO_LOCAL;
+                reg_local[base + fp]  = NO_LOCAL;
             }
         }
     }
@@ -207,20 +204,19 @@ void arm64::patch(hwcode_t pos, hwcode_t pvalue, uint flags)
 //   Patch a recorded branch (B / B.cond / CBZ / TBZ) to jump to target
 // ----------------------------------------------------------------------------
 {
-    record(arm64, "patch pos=%llu target=%llu flags=0x%X",
-           pos, pvalue, flags);
+    record(arm64, "patch pos=%llu target=%llu flags=0x%X", pos, pvalue, flags);
 
-    section &sec = code();
+    section &sec      = code();
     int64_t  byte_off = int64_t(pvalue) - int64_t(pos);
     if (byte_off & 3)
     {
         record(arm64_error, "Unaligned branch patch off=%lld", byte_off);
         return;
     }
-    int32_t insn_off = int32_t(byte_off / 4);
+    int32_t  insn_off = int32_t(byte_off / 4);
 
-    uint32_t insn = sec.value32le(pos);
-    uint32_t op   = insn & 0xff000000u;
+    uint32_t insn     = sec.value32le(pos);
+    uint32_t op       = insn & 0xff000000u;
 
     if (op == 0x14000000u || op == 0x94000000u)
     {
@@ -251,11 +247,11 @@ void arm64::patch(hwcode_t pos, hwcode_t pvalue, uint flags)
             return;
         }
         uint rt = insn & 0x1fu;
-        insn = (op == 0xb4000000u) ? cbz_imm(rt, insn_off)
-                                   : cbnz_imm(rt, insn_off);
+        insn    = (op == 0xb4000000u) ? cbz_imm(rt, insn_off)
+                                      : cbnz_imm(rt, insn_off);
     }
-    else if ((insn & 0x7f000000u) == 0x36000000u
-          || (insn & 0x7f000000u) == 0x37000000u)
+    else if ((insn & 0x7f000000u) == 0x36000000u ||
+             (insn & 0x7f000000u) == 0x37000000u)
     {
         // TBZ / TBNZ imm14
         if (insn_off < -(1 << 13) || insn_off >= (1 << 13))
@@ -265,9 +261,9 @@ void arm64::patch(hwcode_t pos, hwcode_t pvalue, uint flags)
         }
         uint rt  = insn & 0x1fu;
         uint bit = ((insn >> 26) & 0x20u) | ((insn >> 19) & 0x1fu);
-        insn = ((insn & 0x7f000000u) == 0x36000000u)
-             ? tbz_imm(rt, bit, insn_off)
-             : tbnz_imm(rt, bit, insn_off);
+        insn     = ((insn & 0x7f000000u) == 0x36000000u)
+                     ? tbz_imm(rt, bit, insn_off)
+                     : tbnz_imm(rt, bit, insn_off);
     }
     else
     {
@@ -295,20 +291,6 @@ void arm64::syscall(void (*target)())
 // ----------------------------------------------------------------------------
 {
     record(arm64, "syscall %p", target);
-
-    // Preserve the call-cloberred registers
-    for (uint i = 0; i < HW_CLOBBERED; i++)
-    {
-        if (~spilled_args & (1 << i))
-        {
-            if (reg_local[i] != NO_LOCAL)
-            {
-                emit_store_off(HW_FRAME, arm64reg_t(HW_X0+i), local_disp(i));
-                spilled_args |= 1 << i;
-            }
-        }
-    }
-
     call_ptr(target);
 }
 
@@ -338,30 +320,22 @@ bool arm64::move(hwreg_t to, hwreg_t from)
         return true;
 
     if (is_fp(d) && is_fp(s))
-    {
         if (is_flt(d) || is_flt(s))
             emit32le(fmov_ss(vn(d), vn(s)));
         else
             emit32le(fmov_dd(vn(d), vn(s)));
-    }
     else if (is_fp(d))
-    {
         if (is_flt(d))
             emit32le(fmov_s_w(vn(d), xn(s)));
         else
             emit32le(fmov_d_x(vn(d), xn(s)));
-    }
     else if (is_fp(s))
-    {
         if (is_flt(s))
             emit32le(fmov_w_s(xn(d), vn(s)));
         else
             emit32le(fmov_x_d(xn(d), vn(s)));
-    }
     else
-    {
         emit32le(mov_rr(xn(d), xn(s)));
-    }
     return true;
 }
 
@@ -427,8 +401,7 @@ arm64::reginfo arm64::register_definition(hwreg_t reg) const
     // AAPCS64 arg/return regs; RSPEC_CALL marks callee-saved. Scratch x27 and
     // flags x28 remain named roles but still appear in the table for dumps.
     // x29 FRAME, x30 LR, sp: not allocatable (spec 0).
-    static const reginfo arm64_registers[arm64::HW_COUNT] =
-    {
+    static const reginfo arm64_registers[arm64::HW_COUNT] = {
         // x0–x7: AAPCS64 args/return — also direct homes for locals 0–7.
         {   "x0",  RSPEC_ARG | RSPEC_INT },
         {   "x1",  RSPEC_ARG | RSPEC_INT },
@@ -498,9 +471,8 @@ arm64::reginfo arm64::register_definition(hwreg_t reg) const
         { "v15f", RSPEC_CALL | RSPEC_FLT },
     };
 
-    return reg < HW_COUNT ? arm64_registers[reg] : reginfo{"INVALID", 0};
+    return reg < HW_COUNT ? arm64_registers[reg] : reginfo{ "INVALID", 0 };
 }
-
 
 
 // ============================================================================
@@ -517,9 +489,13 @@ void arm64::emit_load_off(arm64reg_t rd, arm64reg_t rn, int offs)
     uint d = xn(rd);
     uint n = xn(rn);
     if (offs >= 0 && (offs % 8) == 0 && (offs / 8) <= 0xfff)
+    {
         emit32le(ldr_off(d, n, uint(offs / 8)));
+    }
     else if (offs >= -256 && offs <= 255)
+    {
         emit32le(ldur_imm(d, n, offs));
+    }
     else
     {
         // Large offset: add scratch base
@@ -538,9 +514,13 @@ void arm64::emit_store_off(arm64reg_t rn, arm64reg_t rt, int offs)
     uint n = xn(rn);
     uint t = xn(rt);
     if (offs >= 0 && (offs % 8) == 0 && (offs / 8) <= 0xfff)
+    {
         emit32le(str_off(t, n, uint(offs / 8)));
+    }
     else if (offs >= -256 && offs <= 255)
+    {
         emit32le(stur_imm(t, n, offs));
+    }
     else
     {
         set_imm(HW_SCRATCH, uint64_t(int64_t(offs)));
@@ -642,7 +622,7 @@ void arm64::set_imm(arm64reg_t r, uint64_t v)
     record(arm64, "set_imm %u = 0x%llX", rd, v);
 
     uint64_t inv = ~v;
-    int nz = 0, nz_inv = 0;
+    int      nz = 0, nz_inv = 0;
     for (int i = 0; i < 4; i++)
     {
         if (((v >> (16 * i)) & 0xffffu) != 0)
@@ -690,8 +670,8 @@ arm64::arm64reg_t arm64::load_fp(local_t loc, byte sz)
 //   Allocate an FP register for local and ensure it holds the value
 // ----------------------------------------------------------------------------
 {
-    hwspec_t spec = sz == 64 ? RSPEC_DBL : RSPEC_FLT;
-    arm64reg_t r = hw(local(loc, spec, true));
+    hwspec_t   spec = sz == 64 ? RSPEC_DBL : RSPEC_FLT;
+    arm64reg_t r    = hw(local(loc, spec, true));
     record(arm64, "load_fp%u [%u]=%u", sz, loc, r);
     return r;
 }
@@ -771,7 +751,7 @@ void arm64::store_float(local_t d, float v)
 {
     record(arm64, "store_flt [%u] = %g", d, v);
     arm64reg_t dreg = hw(local(d, RSPEC_FLT, false));
-    uint32_t bits = 0;
+    uint32_t   bits = 0;
     memcpy(&bits, &v, sizeof(bits));
     set_imm(HW_SCRATCH, bits);
     emit32le(fmov_s_w(vn(dreg), xn(HW_SCRATCH)));
@@ -785,7 +765,7 @@ void arm64::store_double(local_t d, double v)
 {
     record(arm64, "store_dbl [%u] = %g", d, v);
     arm64reg_t dreg = hw(local(d, RSPEC_DBL, false));
-    uint64_t bits = 0;
+    uint64_t   bits = 0;
     memcpy(&bits, &v, sizeof(bits));
     set_imm(HW_SCRATCH, bits);
     emit32le(fmov_d_x(vn(dreg), xn(HW_SCRATCH)));
@@ -801,27 +781,22 @@ void arm64::binop_local(local_t dloc, local_t sloc, op_t op, byte fp)
     arm64reg_t s    = hw(local(sloc, spec, true));
     arm64reg_t d    = hw(local(dloc, spec, false));
 
-    record(arm64, "binop_local%+s [%u]=[%u] reg %u=%u",
-           opcode_name(op), dloc, sloc, d, s);
+    record(arm64,
+           "binop_local%+s [%u]=[%u] reg %u=%u",
+           opcode_name(op),
+           dloc,
+           sloc,
+           d,
+           s);
 
     switch (op)
     {
-    case op_add:
-        emit32le(add_rrr(xn(d), xn(d), xn(s)));
-        break;
-    case op_sub:
-        emit32le(sub_rrr(xn(d), xn(d), xn(s)));
-        break;
+    case op_add: emit32le(add_rrr(xn(d), xn(d), xn(s))); break;
+    case op_sub: emit32le(sub_rrr(xn(d), xn(d), xn(s))); break;
     case op_mul:
-    case op_umul:
-        emit32le(mul_rrr(xn(d), xn(d), xn(s)));
-        break;
-    case op_div:
-        emit32le(sdiv_rrr(xn(d), xn(d), xn(s)));
-        break;
-    case op_udiv:
-        emit32le(udiv_rrr(xn(d), xn(d), xn(s)));
-        break;
+    case op_umul: emit32le(mul_rrr(xn(d), xn(d), xn(s))); break;
+    case op_div: emit32le(sdiv_rrr(xn(d), xn(d), xn(s))); break;
+    case op_udiv: emit32le(udiv_rrr(xn(d), xn(d), xn(s))); break;
     case op_mod:
         emit32le(sdiv_rrr(xn(HW_SCRATCH), xn(d), xn(s)));
         emit32le(msub_rrr(xn(d), xn(HW_SCRATCH), xn(s), xn(d)));
@@ -830,51 +805,21 @@ void arm64::binop_local(local_t dloc, local_t sloc, op_t op, byte fp)
         emit32le(udiv_rrr(xn(HW_SCRATCH), xn(d), xn(s)));
         emit32le(msub_rrr(xn(d), xn(HW_SCRATCH), xn(s), xn(d)));
         break;
-    case op_and:
-        emit32le(and_rrr(xn(d), xn(d), xn(s)));
-        break;
-    case op_or:
-        emit32le(orr_rrr(xn(d), xn(d), xn(s)));
-        break;
-    case op_xor:
-        emit32le(eor_rrr(xn(d), xn(d), xn(s)));
-        break;
-    case op_shl:
-        emit32le(lsl_rrr(xn(d), xn(d), xn(s)));
-        break;
-    case op_shr:
-        emit32le(asr_rrr(xn(d), xn(d), xn(s)));
-        break;
-    case op_ushr:
-        emit32le(lsr_rrr(xn(d), xn(d), xn(s)));
-        break;
-    case op_fadd:
-        emit32le(fop_ss(FOP_ADD, vn(d), vn(d), vn(s)));
-        break;
-    case op_fsub:
-        emit32le(fop_ss(FOP_SUB, vn(d), vn(d), vn(s)));
-        break;
-    case op_fmul:
-        emit32le(fop_ss(FOP_MUL, vn(d), vn(d), vn(s)));
-        break;
-    case op_fdiv:
-        emit32le(fop_ss(FOP_DIV, vn(d), vn(d), vn(s)));
-        break;
-    case op_dadd:
-        emit32le(fop_dd(FOP_ADD, vn(d), vn(d), vn(s)));
-        break;
-    case op_dsub:
-        emit32le(fop_dd(FOP_SUB, vn(d), vn(d), vn(s)));
-        break;
-    case op_dmul:
-        emit32le(fop_dd(FOP_MUL, vn(d), vn(d), vn(s)));
-        break;
-    case op_ddiv:
-        emit32le(fop_dd(FOP_DIV, vn(d), vn(d), vn(s)));
-        break;
-    default:
-        record(arm64_error, "binop_local called with op %u", op);
-        break;
+    case op_and: emit32le(and_rrr(xn(d), xn(d), xn(s))); break;
+    case op_or: emit32le(orr_rrr(xn(d), xn(d), xn(s))); break;
+    case op_xor: emit32le(eor_rrr(xn(d), xn(d), xn(s))); break;
+    case op_shl: emit32le(lsl_rrr(xn(d), xn(d), xn(s))); break;
+    case op_shr: emit32le(asr_rrr(xn(d), xn(d), xn(s))); break;
+    case op_ushr: emit32le(lsr_rrr(xn(d), xn(d), xn(s))); break;
+    case op_fadd: emit32le(fop_ss(FOP_ADD, vn(d), vn(d), vn(s))); break;
+    case op_fsub: emit32le(fop_ss(FOP_SUB, vn(d), vn(d), vn(s))); break;
+    case op_fmul: emit32le(fop_ss(FOP_MUL, vn(d), vn(d), vn(s))); break;
+    case op_fdiv: emit32le(fop_ss(FOP_DIV, vn(d), vn(d), vn(s))); break;
+    case op_dadd: emit32le(fop_dd(FOP_ADD, vn(d), vn(d), vn(s))); break;
+    case op_dsub: emit32le(fop_dd(FOP_SUB, vn(d), vn(d), vn(s))); break;
+    case op_dmul: emit32le(fop_dd(FOP_MUL, vn(d), vn(d), vn(s))); break;
+    case op_ddiv: emit32le(fop_dd(FOP_DIV, vn(d), vn(d), vn(s))); break;
+    default: record(arm64_error, "binop_local called with op %u", op); break;
     }
 }
 
@@ -885,8 +830,7 @@ void arm64::binop_imm(local_t dloc, value_t v, op_t op)
 // ----------------------------------------------------------------------------
 {
     arm64reg_t d = hw_local(dloc);
-    record(arm64, "binop_imm%+s [%u] %lld reg %u",
-           opcode_name(op), dloc, v, d);
+    record(arm64, "binop_imm%+s [%u] %lld reg %u", opcode_name(op), dloc, v, d);
 
     switch (op)
     {
@@ -949,18 +893,10 @@ void arm64::binop_imm(local_t dloc, value_t v, op_t op)
         set_imm(HW_SCRATCH, uint64_t(v));
         emit32le(eor_rrr(xn(d), xn(d), xn(HW_SCRATCH)));
         break;
-    case op_shlu:
-        emit32le(lsl_imm64(xn(d), xn(d), uint(v) & 63u));
-        break;
-    case op_shru:
-        emit32le(asr_imm64(xn(d), xn(d), uint(v) & 63u));
-        break;
-    case op_ushru:
-        emit32le(lsr_imm64(xn(d), xn(d), uint(v) & 63u));
-        break;
-    default:
-        record(arm64_error, "binop_imm called with op %u", op);
-        break;
+    case op_shlu: emit32le(lsl_imm64(xn(d), xn(d), uint(v) & 63u)); break;
+    case op_shru: emit32le(asr_imm64(xn(d), xn(d), uint(v) & 63u)); break;
+    case op_ushru: emit32le(lsr_imm64(xn(d), xn(d), uint(v) & 63u)); break;
+    default: record(arm64_error, "binop_imm called with op %u", op); break;
     }
 }
 
@@ -1007,8 +943,14 @@ void arm64::cmp_local(byte p, local_t d, local_t s, byte cond)
 {
     arm64reg_t dr = hw_local(d);
     arm64reg_t sr = hw_local(s);
-    record(arm64, "cmp_local cc=%u p=%u d=%u r%u s=%u r%u",
-           cond, p, d, dr, s, sr);
+    record(arm64,
+           "cmp_local cc=%u p=%u d=%u r%u s=%u r%u",
+           cond,
+           p,
+           d,
+           dr,
+           s,
+           sr);
     emit32le(cmp_rr(xn(dr), xn(sr)));
     set_pred_cmp(p, cond);
 }
@@ -1216,7 +1158,7 @@ void arm64::load_sext(local_t d, local_t s, byte w, value_t offs)
 {
     arm64reg_t dr = hw_local(d);
     arm64reg_t sr = hw_local(s);
-    size_t sz = (w + 7) / 8;
+    size_t     sz = (w + 7) / 8;
     record(arm64, "load_sext%u %u=[%u] sz %zu", w, d, s, sz);
 
     arm64reg_t addr = sr;
@@ -1248,8 +1190,8 @@ void arm64::bra_pred(byte p, byte_p target, bool sense)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "bra_%+s %u, %p", sense ? "true" : "false", p, target);
-    hwcode_t pos = sense ? emit_tbnz_rel(HW_FLAGS, p)
-                         : emit_tbz_rel(HW_FLAGS, p);
+    hwcode_t pos =
+        sense ? emit_tbnz_rel(HW_FLAGS, p) : emit_tbz_rel(HW_FLAGS, p);
     rel_branch(target, pos);
 }
 
@@ -1260,6 +1202,7 @@ void arm64::bra_test(local_t s, byte_p target, byte cond)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "bra_test %u, %p cc=%u", s, target, cond);
+    hw_sys_arg_reload();
     arm64reg_t r = hw_local(s);
     if (cond == COND_EQ)
     {
@@ -1311,7 +1254,8 @@ void arm64::call_ptr(void (*fn)())
     if (!local_frame_size)
     {
         record(arm64_warning,
-               "Calling %p without a frame size, saving LR/FP", fn);
+               "Calling %p without a frame size, saving LR/FP",
+               fn);
         emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
     }
     set_imm(HW_SCRATCH, uint64_t(fn));
@@ -1328,8 +1272,8 @@ void arm64::invoke(runtime &rt, void *code)
 {
 #if defined(__aarch64__)
     alignas(16) ularge_t initial_frame[DEFAULT_FRAME_SIZE + 2];
-    stack_p  frame = initial_jit_fp(initial_frame);
-    uint64_t flags = rt.flags;
+    stack_p              frame = initial_jit_fp(initial_frame);
+    uint64_t             flags = rt.flags;
     // x29 is a reserved register on Darwin — save/restore it in the asm
     // rather than listing it as a clobber.
     asm volatile(
@@ -1354,8 +1298,9 @@ void arm64::dispatch(local_t loc, byte_p &pc, byte cond)
 //   Dispatch a branch table
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t ref = hw_local(loc);
-    size_t ncases = leb128<size_t>(pc);
+    hw_sys_arg_reload();
+    arm64reg_t ref    = hw_local(loc);
+    size_t     ncases = leb128<size_t>(pc);
     for (size_t n = 0; n < ncases; n++)
     {
         value_t test = leb128<value_t>(pc);
@@ -1370,6 +1315,6 @@ void arm64::dispatch(local_t loc, byte_p &pc, byte cond)
 }
 
 
-#define EMIT(op)        void arm64::emit_##op(emit_args &e)
+#define EMIT(op) void arm64::emit_##op(emit_args &e)
 
 #include "arm64-emit.cpp"
