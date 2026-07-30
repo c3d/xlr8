@@ -291,27 +291,6 @@ void arm64::syscall(void (*target)())
 // ----------------------------------------------------------------------------
 {
     record(arm64, "syscall %p", target);
-    if (spilled_args)
-    {
-        uint frame = local_frame_size;
-        if (frame > HW_CLOBBERED)
-            frame = HW_CLOBBERED;
-        for (uint r = 0; r < frame; r += 2)
-        {
-            arm64reg_t r1   = arm64reg_t(r);
-            arm64reg_t r2   = arm64reg_t(r + 1);
-            size_t     offs = r * sizeof(ularge_t);
-            switch ((spilled_args >> r) & 3)
-            {
-            case 0: emit32le(ldp_off(r1, r2, HW_SP, offs)); break;
-            case 1: emit_store_off(HW_SP, r2, offs+8); break;
-            case 2: emit_store_off(HW_SP, r1, offs); break;
-            case 3: break;
-            }
-            spilled_args |= 3 << r;
-        }
-    }
-
     call_ptr(target);
 }
 
@@ -692,7 +671,7 @@ arm64::arm64reg_t arm64::load_fp(local_t loc, byte sz)
 // ----------------------------------------------------------------------------
 {
     hwspec_t   spec = sz == 64 ? RSPEC_DBL : RSPEC_FLT;
-    arm64reg_t r    = hw(local(loc, spec, true));
+    arm64reg_t r    = hw_local(loc, spec);
     record(arm64, "load_fp%u [%u]=%u", sz, loc, r);
     return r;
 }
@@ -771,7 +750,7 @@ void arm64::store_float(local_t d, float v)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "store_flt [%u] = %g", d, v);
-    arm64reg_t dreg = hw(local(d, RSPEC_FLT, false));
+    arm64reg_t dreg = hw_dst_local(d, RSPEC_FLT);
     uint32_t   bits = 0;
     memcpy(&bits, &v, sizeof(bits));
     set_imm(HW_SCRATCH, bits);
@@ -785,7 +764,7 @@ void arm64::store_double(local_t d, double v)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "store_dbl [%u] = %g", d, v);
-    arm64reg_t dreg = hw(local(d, RSPEC_DBL, false));
+    arm64reg_t dreg = hw_dst_local(d, RSPEC_DBL);
     uint64_t   bits = 0;
     memcpy(&bits, &v, sizeof(bits));
     set_imm(HW_SCRATCH, bits);
@@ -799,8 +778,8 @@ void arm64::binop_local(local_t dloc, local_t sloc, op_t op, byte fp)
 // ----------------------------------------------------------------------------
 {
     hwspec_t   spec = fp == 64 ? RSPEC_DBL : fp == 32 ? RSPEC_FLT : RSPEC_INT;
-    arm64reg_t s    = hw(local(sloc, spec, true));
-    arm64reg_t d    = hw(local(dloc, spec, false));
+    arm64reg_t s    = hw_local(sloc, spec);
+    arm64reg_t d    = hw_dst_local(dloc, spec);
 
     record(arm64,
            "binop_local%+s [%u]=[%u] reg %u=%u",
@@ -850,8 +829,10 @@ void arm64::binop_imm(local_t dloc, value_t v, op_t op)
 //   Apply binary operator with immediate to local
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t d = hw_local(dloc);
+    arm64reg_t s = hw_local(dloc);
+    arm64reg_t d = hw_dst_local(dloc);
     record(arm64, "binop_imm%+s [%u] %lld reg %u", opcode_name(op), dloc, v, d);
+    assert (s==d);
 
     switch (op)
     {

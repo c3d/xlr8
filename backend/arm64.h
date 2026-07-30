@@ -230,7 +230,7 @@ protected:
         return r < HW_X8;
     }
 
-    arm64reg_t hw_local(local_t loc)
+    arm64reg_t hw_local(local_t loc, hwspec_t spec = RSPEC_INT)
     // ------------------------------------------------------------------------
     //   Return hardware register associated with a local
     // ------------------------------------------------------------------------
@@ -241,10 +241,10 @@ protected:
                    loc,
                    local_frame_size);
         hw_sys_arg_reload(loc, true);
-        return hw(local(loc, RSPEC_INT, true));
+        return hw(local(loc, spec, true));
     }
 
-    arm64reg_t hw_dst_local(local_t loc)
+    arm64reg_t hw_dst_local(local_t loc, hwspec_t spec = RSPEC_INT)
     // ------------------------------------------------------------------------
     //   Return hardware register associated with a local
     // ------------------------------------------------------------------------
@@ -253,7 +253,7 @@ protected:
             record(arm64_warning, "Writing local %u outside of frame %u",
                    loc, local_frame_size);
         hw_sys_arg_reload(loc, false);
-        return hw(local(loc, RSPEC_INT, false));
+        return hw(local(loc, spec, false));
     }
 
     arm64reg_t hw_sys_arg(uint arg, local_t loc)
@@ -266,7 +266,7 @@ protected:
         arm64reg_t dst = arm64reg_t(HW_X0 + arg);
         hw_sys_arg_spill(dst);
         if (src < HW_CLOBBERED && (spilled_args & (1<<src)))
-            emit_load_off(dst, HW_SP, src*sizeof(ularge_t));
+            emit_load_off(dst, HW_SP, int(src)*sizeof(ularge_t));
         else if (dst != src)
             move(dst, src);
         return dst;
@@ -329,6 +329,33 @@ protected:
     }
 
 
+    void hw_sys_arg_respill()
+    // ------------------------------------------------------------------------
+    //   Respill clobbered registers before overwriting them for syscall
+    // ------------------------------------------------------------------------
+    {
+        if (spilled_args)
+        {
+            uint frame = local_frame_size;
+            if (frame > HW_CLOBBERED)
+                frame = HW_CLOBBERED;
+            for (uint r = 0; r < frame; r += 2)
+            {
+                arm64reg_t r1   = arm64reg_t(r);
+                arm64reg_t r2   = arm64reg_t(r + 1);
+                size_t     offs = r * sizeof(ularge_t);
+                switch ((spilled_args >> r) & 3)
+                {
+                case 0: emit32le(ldp_off(r1, r2, HW_SP, offs)); break;
+                case 1: emit_store_off(HW_SP, r2, offs+8); break;
+                case 2: emit_store_off(HW_SP, r1, offs); break;
+                case 3: break;
+                }
+                spilled_args |= 3 << r;
+            }
+        }
+    }
+
     void hw_sys_arg_reload(hwreg_t r, bool load)
     // ------------------------------------------------------------------------
     //   Reload argument from the sysargs if needed
@@ -338,15 +365,10 @@ protected:
         {
             arm64reg_t dst = arm64reg_t(HW_X0 + r);
             if (load)
-            {
-                uint index = r < HW_ARGS ? r : r - HW_FRAME + 8;
-                emit_load_off(dst, HW_SP, index * sizeof(ularge_t));
-            }
+                emit_load_off(dst, HW_SP, r * sizeof(ularge_t));
             else
-            {
                 // We are going to write into a a register, mark respill needed
                 spilled_args &= ~(1 << r);
-            }
         }
     }
 

@@ -1423,6 +1423,7 @@ EMIT(ddiv)
 #define CALL(fn, inputs, outputs)                   \
     do                                              \
     {                                               \
+        hw_sys_arg_respill();                       \
         inputs;                                     \
         syscall(reinterpret_cast<void (*)()>(fn));  \
         outputs;                                    \
