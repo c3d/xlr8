@@ -165,7 +165,7 @@ protected:
         HW_COUNT,
 
         HW_ARGS      = 8,
-        HW_CLOBBERED = 19, // Call-cloberred registers in AAPCS64
+        HW_CLOBBERED = 19, // X0-X18 are call-cloberred registers in AAPCS64
         HW_SHADOWS   = 24,
         HW_FSHADOWS  = 12,
         HW_TEMPS     = 4,
@@ -265,13 +265,10 @@ protected:
         arm64reg_t src = hw(local(loc, RSPEC_INT, false));
         arm64reg_t dst = arm64reg_t(HW_X0 + arg);
         hw_sys_arg_spill(dst);
-        if (src != dst)
-        {
-            if (src < HW_ARGS && (spilled_args & (1<<src)))
-                emit_load_off(dst, HW_SP, src*sizeof(ularge_t));
-            else
-                move(dst, src);
-        }
+        if (src < HW_CLOBBERED && (spilled_args & (1<<src)))
+            emit_load_off(dst, HW_SP, src*sizeof(ularge_t));
+        else if (dst != src)
+            move(dst, src);
         return dst;
     }
 
@@ -327,7 +324,7 @@ protected:
         for (uint r = 0; r < frame; r += 2)
             emit32le(stp_off(r, r + 1, HW_SP, r * sizeof(ularge_t)));
         emit32le(stp_off(HW_FRAME, HW_LR, HW_SP, HW_FRAME * sizeof(ularge_t)));
-        spilled_args |= (1 << frame) - 1;
+        spilled_args |= (1 << ((frame+1) & ~1)) - 1;
         spilled_args |= (3 << HW_FRAME);
     }
 
@@ -345,9 +342,11 @@ protected:
                 uint index = r < HW_ARGS ? r : r - HW_FRAME + 8;
                 emit_load_off(dst, HW_SP, index * sizeof(ularge_t));
             }
-            spilled_args &= ~(1 << r);
-            if (!spilled_args)
-                emit32le(add_imm(HW_SP, HW_SP, 32 * sizeof(ularge_t)));
+            else
+            {
+                // We are going to write into a a register, mark respill needed
+                spilled_args &= ~(1 << r);
+            }
         }
     }
 
@@ -369,8 +368,8 @@ protected:
                 switch ((spilled_args >> r) & 3)
                 {
                 case 0: break;
-                case 1: emit_store_off(HW_SP, r1, offs); break;
-                case 2: emit_store_off(HW_SP, r2, offs); break;
+                case 1: emit_load_off(r1, HW_SP, offs); break;
+                case 2: emit_load_off(r2, HW_SP, offs+8); break;
                 case 3: emit32le(ldp_off(r1, r2, HW_SP, offs)); break;
                 }
             }

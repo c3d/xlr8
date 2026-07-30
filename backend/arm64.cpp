@@ -291,6 +291,27 @@ void arm64::syscall(void (*target)())
 // ----------------------------------------------------------------------------
 {
     record(arm64, "syscall %p", target);
+    if (spilled_args)
+    {
+        uint frame = local_frame_size;
+        if (frame > HW_CLOBBERED)
+            frame = HW_CLOBBERED;
+        for (uint r = 0; r < frame; r += 2)
+        {
+            arm64reg_t r1   = arm64reg_t(r);
+            arm64reg_t r2   = arm64reg_t(r + 1);
+            size_t     offs = r * sizeof(ularge_t);
+            switch ((spilled_args >> r) & 3)
+            {
+            case 0: emit32le(ldp_off(r1, r2, HW_SP, offs)); break;
+            case 1: emit_store_off(HW_SP, r2, offs+8); break;
+            case 2: emit_store_off(HW_SP, r1, offs); break;
+            case 3: break;
+            }
+            spilled_args |= 3 << r;
+        }
+    }
+
     call_ptr(target);
 }
 
