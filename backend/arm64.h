@@ -256,6 +256,20 @@ protected:
         return hw(local(loc, spec, false));
     }
 
+    arm64reg_t hw_rw_local(local_t loc, hwspec_t spec = RSPEC_INT)
+    // ------------------------------------------------------------------------
+    //   Return hardware register associated with a local that is read/written
+    // ------------------------------------------------------------------------
+    {
+        if (loc > local_frame_size)
+            record(arm64_warning, "Updating local %u outside of frame %u",
+                   loc, local_frame_size);
+        hw_sys_arg_reload(loc, true);
+        arm64reg_t result = hw(local(loc, spec, true));
+        hw_sys_arg_reload(loc, false);
+        return result;
+    }
+
     arm64reg_t hw_sys_arg(uint arg, local_t loc)
     // ------------------------------------------------------------------------
     //   Load a local into the corresponding ABI argument register (x0–x7)

@@ -725,8 +725,8 @@ void arm64::swap_locals(local_t d, local_t s)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "swap_locals %u and %u", d, s);
-    arm64reg_t sr = hw_local(s);
-    arm64reg_t dr = hw_local(d); // WARNING: No dst_local, we read it
+    arm64reg_t sr = hw_rw_local(s);
+    arm64reg_t dr = hw_rw_local(d);
     emit32le(mov_rr(xn(HW_SCRATCH), xn(dr)));
     emit32le(mov_rr(xn(dr), xn(sr)));
     emit32le(mov_rr(xn(sr), xn(HW_SCRATCH)));
@@ -829,10 +829,8 @@ void arm64::binop_imm(local_t dloc, value_t v, op_t op)
 //   Apply binary operator with immediate to local
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t s = hw_local(dloc);
-    arm64reg_t d = hw_dst_local(dloc);
+    arm64reg_t d = hw_rw_local(dloc);
     record(arm64, "binop_imm%+s [%u] %lld reg %u", opcode_name(op), dloc, v, d);
-    assert (s==d);
 
     switch (op)
     {
@@ -1017,7 +1015,7 @@ void arm64::neg_local(local_t d)
 //   Negate bytecode local d
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t r = hw_local(d);
+    arm64reg_t r = hw_rw_local(d);
     emit32le(neg_rr(xn(r), xn(r)));
     record(arm64, "neg_local %u reg %u", d, r);
 }
@@ -1028,7 +1026,7 @@ void arm64::not_local(local_t d)
 //   Bitwise complement of bytecode local d
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t r = hw_local(d);
+    arm64reg_t r = hw_rw_local(d);
     emit32le(not_rr(xn(r), xn(r)));
     record(arm64, "not_local %u reg %u", d, r);
 }
@@ -1039,7 +1037,7 @@ void arm64::incr_local(local_t d)
 //   Increment bytecode local d
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t r = hw_local(d);
+    arm64reg_t r = hw_rw_local(d);
     emit32le(add_imm(xn(r), xn(r), 1));
     record(arm64, "incr_local %u reg %u", d, r);
 }
@@ -1050,7 +1048,7 @@ void arm64::decr_local(local_t d)
 //   Decrement bytecode local d
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t r = hw_local(d);
+    arm64reg_t r = hw_rw_local(d);
     emit32le(sub_imm(xn(r), xn(r), 1));
     record(arm64, "decr_local %u reg %u", d, r);
 }
@@ -1075,7 +1073,7 @@ void arm64::sext_local(local_t d, byte w)
 {
     record(arm64, "sext_local%u %u", w, d);
     if (w < 64)
-        sext_reg(hw_local(d), w);
+        sext_reg(hw_rw_local(d), w);
 }
 
 
@@ -1087,7 +1085,7 @@ void arm64::zext_local(local_t d, byte w)
     record(arm64, "zext_local%u %u", w, d);
     if (w < 64)
     {
-        arm64reg_t r = hw_local(d);
+        arm64reg_t r = hw_rw_local(d);
         emit32le(ubfm_width(xn(r), xn(r), w));
     }
 }
@@ -1128,8 +1126,8 @@ void arm64::load_mem(local_t d, local_t s, size_t sz, value_t offs)
 //   Load from address in local s (+ offs) into local d
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t dr = hw_local(d);
     arm64reg_t sr = hw_local(s);
+    arm64reg_t dr = hw_dst_local(d);
     record(arm64, "load_mem%zu %u=[%u] offs %lld", sz, d, s, offs);
 
     arm64reg_t addr = sr;
@@ -1158,8 +1156,8 @@ void arm64::load_sext(local_t d, local_t s, byte w, value_t offs)
 //   Load from [s+offs] and sign-extend to w bits into d
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t dr = hw_local(d);
     arm64reg_t sr = hw_local(s);
+    arm64reg_t dr = hw_dst_local(d);
     size_t     sz = (w + 7) / 8;
     record(arm64, "load_sext%u %u=[%u] sz %zu", w, d, s, sz);
 
