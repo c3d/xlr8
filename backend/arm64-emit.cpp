@@ -1907,7 +1907,10 @@ SYS(branch_on_eof)
 {
     CALL(xlr8_jit_stream_eof,
          IMM(HW_X0, e.knat),
-         hwcode_t pos = emit_cbnz_rel(HW_X0);
+         // Preserve result: spill reconcile may reload x0 from the slot.
+         emit32le(mov_rr(HW_SCRATCH, HW_X0));
+         hw_sys_arg_reload(e.bpc + e.broff);
+         hwcode_t pos = emit_cbnz_rel(HW_SCRATCH);
          rel_branch(e.bpc + e.broff, pos));
 }
 
@@ -1918,7 +1921,9 @@ SYS(branch_on_bad)
 {
     CALL(xlr8_jit_stream_bad,
          IMM(HW_X0, e.knat),
-         hwcode_t pos = emit_cbnz_rel(HW_X0);
+         emit32le(mov_rr(HW_SCRATCH, HW_X0));
+         hw_sys_arg_reload(e.bpc + e.broff);
+         hwcode_t pos = emit_cbnz_rel(HW_SCRATCH);
          rel_branch(e.bpc + e.broff, pos));
 }
 
@@ -2117,7 +2122,9 @@ SYS(trap_error)
 {
     CALL(xlr8_jit_has_error,
          /* no input */,
-         hwcode_t pos = emit_cbnz_rel(HW_X0);
+         emit32le(mov_rr(HW_SCRATCH, HW_X0));
+         hw_sys_arg_reload(e.bpc + e.broff);
+         hwcode_t pos = emit_cbnz_rel(HW_SCRATCH);
          rel_branch(e.bpc + e.broff, pos));
 }
 
