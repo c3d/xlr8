@@ -49,7 +49,6 @@ arm64::arm64(runtime &rt)
 //   Construct an AArch64 code generator
 // ----------------------------------------------------------------------------
     : backend(rt, ARCH_ARM64),
-      relocations(),
       local_frame_size(0),
       spilled_args(0),
       num_functions(0)
@@ -132,7 +131,74 @@ hwreg_t arm64::register_for(local_t loc, hwspec_t spec, bool ld)
 }
 
 
-void arm64::register_sync()
+
+struct regspill_compare
+// ----------------------------------------------------------------------------
+//   Comparator for regspills based on bytecode, spilled or lexicographic
+// ----------------------------------------------------------------------------
+{
+    bool operator()(const arm64::regspill &t, byte_p bc)
+    {
+        return t.bytecode < bc;
+    }
+    bool operator()(byte_p bc, const arm64::regspill &t)
+    {
+        return bc < t.bytecode;
+    }
+    bool operator()(const arm64::regspill &t, uint mc)
+    {
+        return t.spilled < mc;
+    }
+    bool operator()(uint mc, const arm64::regspill &t)
+    {
+        return mc < t.spilled;
+    }
+    bool operator()(const arm64::regspill &t1,
+                    const arm64::regspill &t2)
+    {
+        return (t1.bytecode < t2.bytecode ||
+                (t1.bytecode == t2.bytecode && t1.spilled < t2.spilled));
+    }
+};
+
+
+template<typename T>
+auto arm64::lower_bound(const regspills &t, T v)
+// ----------------------------------------------------------------------------
+//   Find the lower bound by bytecode
+// ----------------------------------------------------------------------------
+{
+    return std::lower_bound(t.begin(), t.end(), v, regspill_compare{});
+}
+
+
+template<typename T>
+auto arm64::equal_range(const regspills &t, T v)
+// ----------------------------------------------------------------------------
+//   Find the lower bound by bytecode
+// ----------------------------------------------------------------------------
+{
+    return std::equal_range(t.begin(), t.end(), v, regspill_compare{});
+}
+
+
+uint arm64::label(byte_p bytecode)
+// ----------------------------------------------------------------------------
+//   Record the spill status for each bytecode address
+// ----------------------------------------------------------------------------
+{
+    uint brcount = backend::label(bytecode);
+
+    // If already translated, return the offset to the translation
+    auto spill  = lower_bound(spills, bytecode);
+    if (spill == spills.end() || spill->bytecode != bytecode)
+        spills.emplace(spill, regspill{ bytecode, spilled_args });
+
+    return brcount;
+}
+
+
+void arm64::register_sync(byte_p pc)
 // ----------------------------------------------------------------------------
 //   Synchronize the temporaries
 // ----------------------------------------------------------------------------
@@ -157,7 +223,110 @@ void arm64::register_sync()
             }
         }
     }
+
+    // Check if we have a branch pointing here. If so reload everything
+    // before we patch the branches. Forward branches are always unspilled.
+    if (label_branches(pc))
+        hw_sys_arg_reload();
 }
+
+
+uint arm64::hw_spills_at(byte_p target)
+// ----------------------------------------------------------------------------
+//   Return the value of spills at a given known branch
+// ----------------------------------------------------------------------------
+{
+    auto spill = lower_bound(spills, target);
+    if (spill != spills.end() && spill->bytecode == target)
+        return spill->spilled;
+    return 0;
+}
+
+
+void arm64::hw_sys_arg_reload(byte_p target)
+// ----------------------------------------------------------------------------
+//   Reload arguments we spilled before branching to given target
+// ----------------------------------------------------------------------------
+{
+    uint dspill = hw_spills_at(target);
+    uint cspill = spilled_args;
+    uint diffs = dspill ^ cspill;
+    if (diffs)
+    {
+        uint frame = local_frame_size;
+        if (frame > HW_CLOBBERED)
+            frame = HW_CLOBBERED;
+        for (uint r = 0; r < frame; r += 2)
+        {
+            arm64reg_t r1   = arm64reg_t(r);
+            arm64reg_t r2   = arm64reg_t(r + 1);
+            size_t     offs = r * sizeof(ularge_t);
+            uint       ds   = (dspill >> r) & 3;
+            uint       cs   = (cspill >> r) & 3;
+            uint       dd   = (diffs >> r) & 3;
+
+            // Bit set  = value homed in spill slot (may need load after clobber).
+            // Bit clear = value live/dirty in the register (may need store).
+            // When current and destination differ: dest set → store; dest clear → load.
+            switch (dd)
+            {
+            case 0: break;
+            case 1:
+                if (dd == ds)
+                    emit_store_off(HW_SP, r1, offs);
+                else
+                    emit_load_off(r1, HW_SP, offs);
+                break;
+            case 2:
+                if (dd == ds)
+                    emit_store_off(HW_SP, r2, offs+8);
+                else
+                    emit_load_off(r2, HW_SP, offs+8);
+                break;
+            case 3:
+                if (dd == ds)
+                {
+                    emit32le(stp_off(r1, r2, HW_SP, offs));
+                }
+                else if (dd == cs)
+                {
+                    emit32le(ldp_off(r1, r2, HW_SP, offs));
+                }
+                else if (ds & 1)
+                {
+                    emit_store_off(HW_SP, r1, offs);
+                    emit_load_off(r2, HW_SP, offs+8);
+                }
+                else
+                {
+                    emit_load_off(r1, HW_SP, offs);
+                    emit_store_off(HW_SP, r2, offs+8);
+                }
+                break;
+            }
+        }
+
+        if ((diffs >> HW_FRAME) & 3)
+        {
+            if ((dspill >> HW_FRAME) & 3)
+            {
+                emit32le(sub_imm(HW_SP, HW_SP, 32 * sizeof(ularge_t)));
+                emit32le(stp_off(HW_FRAME, HW_LR,
+                                 HW_SP, HW_FRAME * sizeof(ularge_t)));
+
+            }
+            else
+            {
+                emit32le(ldp_off(HW_FRAME,HW_LR,
+                                 HW_SP,HW_FRAME*sizeof(ularge_t)));
+                emit32le(add_imm(HW_SP, HW_SP, 32 * sizeof(ularge_t)));
+            }
+        }
+        spilled_args = dspill;
+    }
+}
+
+
 
 
 uint arm64::pointer_size() const
@@ -299,13 +468,10 @@ uint arm64::relocate(void *base)
 // ----------------------------------------------------------------------------
 //   Relocate absolute addresses after mapping the code
 // ----------------------------------------------------------------------------
+// Arm64 currently emits PC-relative / absolute via movz/movk sequences;
+// no deferred absolute reloc list is required for the smoke path.
 {
-    size_t count = relocations.size();
-    record(arm64, "relocate base=%p count=%zu", base, count);
-    // Arm64 currently emits PC-relative / absolute via movz/movk sequences;
-    // no deferred absolute reloc list is required for the smoke path.
-    relocations.clear();
-    return uint(count);
+    return 0;
 }
 
 
@@ -582,6 +748,9 @@ hwcode_t arm64::emit_bcond_rel(byte cond)
 
 
 hwcode_t arm64::emit_cbz_rel(arm64reg_t rt)
+// ----------------------------------------------------------------------------
+//   Emit placeholder CBZ rt, #0; return site for patch
+// ----------------------------------------------------------------------------
 {
     hwcode_t site = cursor();
     emit32le(cbz_imm(xn(rt), 0));
@@ -590,6 +759,9 @@ hwcode_t arm64::emit_cbz_rel(arm64reg_t rt)
 
 
 hwcode_t arm64::emit_cbnz_rel(arm64reg_t rt)
+// ----------------------------------------------------------------------------
+//   Emit placeholder CBNZ rt, #0; return site for patch
+// ----------------------------------------------------------------------------
 {
     hwcode_t site = cursor();
     emit32le(cbnz_imm(xn(rt), 0));
@@ -598,6 +770,9 @@ hwcode_t arm64::emit_cbnz_rel(arm64reg_t rt)
 
 
 hwcode_t arm64::emit_tbz_rel(arm64reg_t rt, uint bit)
+// ----------------------------------------------------------------------------
+//   Emit placeholder TBZ rt, #bit, #0; return site for patch
+// ----------------------------------------------------------------------------
 {
     hwcode_t site = cursor();
     emit32le(tbz_imm(xn(rt), bit, 0));
@@ -606,6 +781,9 @@ hwcode_t arm64::emit_tbz_rel(arm64reg_t rt, uint bit)
 
 
 hwcode_t arm64::emit_tbnz_rel(arm64reg_t rt, uint bit)
+// ----------------------------------------------------------------------------
+//   Emit placeholder TBNZ rt, #bit, #0; return site for patch
+// ----------------------------------------------------------------------------
 {
     hwcode_t site = cursor();
     emit32le(tbnz_imm(xn(rt), bit, 0));
@@ -1190,6 +1368,7 @@ void arm64::bra_pred(byte p, byte_p target, bool sense)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "bra_%+s %u, %p", sense ? "true" : "false", p, target);
+    hw_sys_arg_reload(target);
     hwcode_t pos =
         sense ? emit_tbnz_rel(HW_FLAGS, p) : emit_tbz_rel(HW_FLAGS, p);
     rel_branch(target, pos);
@@ -1202,7 +1381,7 @@ void arm64::bra_test(local_t s, byte_p target, byte cond)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "bra_test %u, %p cc=%u", s, target, cond);
-    hw_sys_arg_reload();
+    hw_sys_arg_reload(target);
     arm64reg_t r = hw_local(s);
     if (cond == COND_EQ)
     {
@@ -1307,6 +1486,7 @@ void arm64::dispatch(local_t loc, byte_p &pc, byte cond)
         byte_p  bpc  = pc;
         broff_t offs = leb128<broff_t>(pc);
         byte_p  tgt  = bpc + offs;
+        hw_sys_arg_reload(tgt);
         set_imm(HW_SCRATCH, uint64_t(test));
         emit32le(cmp_rr(xn(ref), xn(HW_SCRATCH)));
         hwcode_t pos = emit_bcond_rel(cond);

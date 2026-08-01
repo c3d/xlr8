@@ -50,7 +50,7 @@ void            invoke(runtime &rt, void *code)                 override;
 
 // Hardware registers
 hwreg_t         register_for(local_t l, hwspec_t sp, bool ld)   override;
-void            register_sync()                                 override;
+void            register_sync(byte_p pc)                        override;
 bool            move(hwreg_t to, hwreg_t from)                  override;
 bool            load(hwreg_t hw, local_t loc)                   override;
 bool            store(local_t loc, hwreg_t hw)                  override;

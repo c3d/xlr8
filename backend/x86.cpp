@@ -270,7 +270,7 @@ hwreg_t x86::register_for(local_t loc, hwspec_t spec, bool ld)
 }
 
 
-void x86::register_sync()
+void x86::register_sync(byte_p pc)
 // ----------------------------------------------------------------------------
 //   Synchronize the temporaries
 // ----------------------------------------------------------------------------

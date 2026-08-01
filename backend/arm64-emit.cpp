@@ -454,8 +454,8 @@ EMIT(dbra)
 //   Emit bytecode for the dbra opcode
 // ----------------------------------------------------------------------------
 {
-    hw_sys_arg_reload();
-    arm64reg_t r = hw_dst_local(e.dst);
+    hw_sys_arg_reload(e.bpc + e.broff);
+    arm64reg_t r = hw_rw_local(e.dst);
     record(arm64_ops, "emit_dbra %u, %lld reg %u", e.dst, e.broff, r);
     emit32le(sub_imm(r, r, 1));
     hwcode_t pos = emit_cbnz_rel(r);
@@ -470,7 +470,7 @@ EMIT(bra)
 {
     record(arm64_ops, "emit_bra %lld + %lld -> %lld",
            e.bpc, e.broff, e.bpc+e.broff);
-    hw_sys_arg_reload();
+    hw_sys_arg_reload(e.bpc + e.broff);
     hwcode_t site = emit_b_rel();
     rel_branch(e.bpc + e.broff, site);
     e.pc = e.end;               // Pick up next translation spot

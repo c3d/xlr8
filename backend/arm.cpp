@@ -242,7 +242,7 @@ hwreg_t arm::register_for(local_t loc, hwspec_t spec, bool ld)
 }
 
 
-void arm::register_sync()
+void arm::register_sync(byte_p pc)
 // ----------------------------------------------------------------------------
 //   Synchronize the temporaries
 // ----------------------------------------------------------------------------

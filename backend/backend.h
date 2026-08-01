@@ -143,7 +143,8 @@ struct backend
     intptr_t         branch(byte_p tgt)  { return branch(tgt, cursor()); }
 
     // Resolving labels
-    uint             label(byte_p bytecode);
+    virtual uint     label(byte_p bytecode);
+    uint             label_branches(byte_p bytecode);
     hwcode_t         translated_address(byte_p bytecode);
     const auto      &address_translations() const { return labels; }
 
@@ -198,7 +199,7 @@ struct backend
     struct reginfo { cstring  name; hwspec_t spec; };
 
     virtual hwreg_t  register_for(local_t loc, hwspec_t spec, bool ld) = 0;
-    virtual void     register_sync()                                   = 0;
+    virtual void     register_sync(byte_p pc)                          = 0;
     virtual bool     move(hwreg_t to, hwreg_t from)                    = 0;
     virtual bool     load(hwreg_t, local_t r)                          = 0;
     virtual bool     store(local_t r, hwreg_t)                         = 0;

@@ -349,6 +349,17 @@ uint backend::label(byte_p bytecode)
 }
 
 
+uint backend::label_branches(byte_p bytecode)
+// ----------------------------------------------------------------------------
+//   Return the number of branches pointing to the current bytecode
+// ----------------------------------------------------------------------------
+{
+    // Pending branches and calls are keyed by bytecode target
+    auto brange = equal_range(branches, bytecode);
+    return brange.second - brange.first;
+}
+
+
 hwcode_t backend::translated_address(byte_p pc)
 // ----------------------------------------------------------------------------
 //   Translate bytecode address to native address
@@ -456,7 +467,7 @@ bool backend::translate(byte_p pc, byte_p end)
         end = args.end;
 
         // Make sure we spill what is held in scratch registers
-        register_sync();
+        register_sync(pc);
 
         // If we are done here, pick up the next item to translate
         if (pc >= end)

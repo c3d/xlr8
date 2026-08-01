@@ -88,6 +88,7 @@ struct arm64 : backend
     static backend *make(runtime &rt) { return new arm64(rt); }
 
 #include "backend-iface.h"
+    uint        label(byte_p bytecode) override;
 
 protected:
     enum arm64reg_t : hwreg_t
@@ -360,7 +361,7 @@ protected:
                 size_t     offs = r * sizeof(ularge_t);
                 switch ((spilled_args >> r) & 3)
                 {
-                case 0: emit32le(ldp_off(r1, r2, HW_SP, offs)); break;
+                case 0: emit32le(stp_off(r1, r2, HW_SP, offs)); break;
                 case 1: emit_store_off(HW_SP, r2, offs+8); break;
                 case 2: emit_store_off(HW_SP, r1, offs); break;
                 case 3: break;
@@ -414,6 +415,10 @@ protected:
             spilled_args = 0;
         }
     }
+
+    uint hw_spills_at(byte_p target);
+    void hw_sys_arg_reload(byte_p target);
+
 
     static inline uint xn(arm64reg_t r)
     // ------------------------------------------------------------------------
@@ -1016,13 +1021,17 @@ protected:
     }
 
 protected:
-    // False for nested callees until op_enter (avoids spilling through caller FP).
-    using relocations_t = std::vector<hwcode_t>;
-    relocations_t relocations;
-
     uint          local_frame_size;
     uint          spilled_args;         // Spilled X0..X7, FP, LR, ...
     uint          num_functions;
+
+    struct regspill { byte_p bytecode; uint spilled; };
+    using regspills = std::vector<regspill>;
+    regspills     spills;
+
+    friend struct regspill_compare;
+    template<typename T> static auto lower_bound(const regspills &, T);
+    template<typename T> static auto equal_range(const regspills &, T);
 };
 
 #endif // ARM64_H

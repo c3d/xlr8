@@ -241,7 +241,7 @@ hwreg_t riscv64::register_for(local_t loc, hwspec_t spec, bool ld)
 }
 
 
-void riscv64::register_sync()
+void riscv64::register_sync(byte_p pc)
 // ----------------------------------------------------------------------------
 //   Synchronize the temporaries
 // ----------------------------------------------------------------------------
