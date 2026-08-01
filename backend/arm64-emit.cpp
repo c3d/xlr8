@@ -454,10 +454,10 @@ EMIT(dbra)
 //   Emit bytecode for the dbra opcode
 // ----------------------------------------------------------------------------
 {
-    hw_sys_arg_reload(e.bpc + e.broff);
     arm64reg_t r = hw_rw_local(e.dst);
     record(arm64_ops, "emit_dbra %u, %lld reg %u", e.dst, e.broff, r);
     emit32le(sub_imm(r, r, 1));
+    hw_sys_arg_reload(e.bpc + e.broff);
     hwcode_t pos = emit_cbnz_rel(r);
     rel_branch(e.bpc + e.broff, pos);
 }
@@ -1411,12 +1411,13 @@ EMIT(ddiv)
 #define RET(loc)      hw_sys_ret(loc);
 #define NORET         /* no output */
 
-#define XI(loc)       hw(local((loc), RSPEC_INT, true))
-#define FI(loc)       hw(local((loc), RSPEC_FLT, true))
-#define DI(loc)       hw(local((loc), RSPEC_DBL, true))
-#define XO(loc)       hw(local((loc), RSPEC_INT, false))
-#define FO(loc)       hw(local((loc), RSPEC_FLT, false))
-#define DO(loc)       hw(local((loc), RSPEC_DBL, false))
+// XI/XO must go through spill protocol around C calls
+#define XI(loc)       hw_local(loc)
+#define FI(loc)       hw_local(loc, RSPEC_FLT)
+#define DI(loc)       hw_local(loc, RSPEC_DBL)
+#define XO(loc)       hw_dst_local(loc)
+#define FO(loc)       hw_dst_local(loc, RSPEC_FLT)
+#define DO(loc)       hw_dst_local(loc, RSPEC_DBL)
 #define MOVX(d, s)    emit32le(mov_rr((d), (s)))
 
 // Cast through uintptr_t so overloaded C++ libc/math symbols resolve
@@ -2879,7 +2880,7 @@ SYS(leb2i)
     CALL(xlr8_jit_leb2i,
          ARG(0, e.src),
          MOVX(XO(e.dst), HW_X0);
-         MOVX(XI(e.src), HW_X1));
+         MOVX(XO(e.src), HW_X1));
 }
 
 SYS(leb2u)
@@ -2890,7 +2891,7 @@ SYS(leb2u)
     CALL(xlr8_jit_leb2u,
          ARG(0, e.src),
          MOVX(XO(e.dst), HW_X0);
-         MOVX(XI(e.src), HW_X1));
+         MOVX(XO(e.src), HW_X1));
 }
 
 SYS(i2leb)

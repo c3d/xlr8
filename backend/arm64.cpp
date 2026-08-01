@@ -265,30 +265,31 @@ void arm64::hw_sys_arg_reload(byte_p target)
             uint       cs   = (cspill >> r) & 3;
             uint       dd   = (diffs >> r) & 3;
 
-            // Bit set  = value homed in spill slot (may need load after clobber).
+            // Bit set  = value is in spill slot (may need load after clobber).
             // Bit clear = value live/dirty in the register (may need store).
-            // When current and destination differ: dest set → store; dest clear → load.
+            // When bits differ: dest has the bit → store; else load.
+            // Deal with mixed cases, e.g. one load and one store
             switch (dd)
             {
             case 0: break;
             case 1:
-                if (dd == ds)
+                if (ds & dd)
                     emit_store_off(HW_SP, r1, offs);
                 else
                     emit_load_off(r1, HW_SP, offs);
                 break;
             case 2:
-                if (dd == ds)
+                if (ds & dd)
                     emit_store_off(HW_SP, r2, offs+8);
                 else
                     emit_load_off(r2, HW_SP, offs+8);
                 break;
             case 3:
-                if (dd == ds)
+                if ((ds & dd) == dd)
                 {
                     emit32le(stp_off(r1, r2, HW_SP, offs));
                 }
-                else if (dd == cs)
+                else if ((cs & dd) == dd)
                 {
                     emit32le(ldp_off(r1, r2, HW_SP, offs));
                 }
