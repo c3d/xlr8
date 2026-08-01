@@ -51,7 +51,8 @@ arm64::arm64(runtime &rt)
     : backend(rt, ARCH_ARM64),
       local_frame_size(0),
       spilled_args(0),
-      num_functions(0)
+      num_functions(0),
+      frame_entered(false)
 {
     record(arm64, "New backend arch=%+s", arch_name(ARCH_ARM64));
 }
@@ -346,15 +347,15 @@ void arm64::begin_translation()
 {
     record(arm64, "begin_translation callee=%u", callee_entry);
     backend::begin_translation();
-    local_frame_size = 0;
-    spilled_args     = 0;
+    spilled_args  = 0;
+    frame_entered = false;
 
+    // Logical 8-slot frame for spill/respill until bytecode enter says otherwise.
+    // Top-level also saves FP/LR once for the invoke wrapper; callees keep the
+    // return address in x30 and preserve it via the C-call spill area.
+    local_frame_size = DEFAULT_FRAME_SIZE;
     if (num_functions == 0)
-    {
-        // Assume 8 registers on the stack, save LR/FP
         emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
-        local_frame_size = DEFAULT_FRAME_SIZE;
-    }
 }
 
 
@@ -1431,16 +1432,13 @@ void arm64::call_ptr(void (*fn)())
 // ----------------------------------------------------------------------------
 {
     record(arm64, "call_ptr %p", fn);
-    if (!local_frame_size)
-    {
-        record(arm64_warning,
-               "Calling %p without a frame size, saving LR/FP",
-               fn);
+    // Bytecode enter keeps LR in the frame; the implicit 8-slot frame does not.
+    bool save_lr = !frame_entered;
+    if (save_lr)
         emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
-    }
     set_imm(HW_SCRATCH, uint64_t(fn));
     emit32le(blr(xn(HW_SCRATCH)));
-    if (!local_frame_size)
+    if (save_lr)
         emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
 }
 

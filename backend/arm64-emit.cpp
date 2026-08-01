@@ -66,7 +66,7 @@ EMIT(end)
 {
     record(arm64_ops, "emit_end");
     hw_sys_arg_reload();
-    if (local_frame_size && (num_functions != 0 || local_frame_size != 8))
+    if (frame_entered && local_frame_size)
         record(arm64_error, "Missing 'leave' before 'end', frame size %u",
                local_frame_size);
     if (num_functions == 0)
@@ -183,18 +183,18 @@ EMIT(call)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the call opcode (AAPCS64 / host ABI)
 // ----------------------------------------------------------------------------
-//   Place live locals 0..7 in x0–x7, and preserve local size across call
+//   Place live locals 0..7 in x0–x7, and preserve local size across call.
+//   Without bytecode enter, LR is not saved in a frame — save it around bl.
+//   (Implicit DEFAULT_FRAME_SIZE alone is only for spill/respill.)
 {
     record(arm64_ops, "emit_call %llu", e.tok);
     hw_sys_arg_reload();
-    if (!local_frame_size)
-    {
-        record(arm64, "Calling tok %u  without a frame size", e.tok);
+    bool save_lr = !frame_entered;
+    if (save_lr)
         emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
-    }
     hwcode_t site = emit_bl_rel();
     rel_function(e.tok, site);
-    if (!local_frame_size)
+    if (save_lr)
         emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
 }
 
@@ -221,13 +221,11 @@ EMIT(icall)
     arm64reg_t r = hw_local(e.src);
     record(arm64_ops, "emit_icall %u reg %u", e.src, r);
     // TODO: Translate bytecode address to physical address
-    if (!local_frame_size)
-    {
-        record(arm64, "Calling reg %u without a frame size", e.src);
+    bool save_lr = !frame_entered;
+    if (save_lr)
         emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
-    }
     emit32le(blr(r));
-    if (!local_frame_size)
+    if (save_lr)
         emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
 }
 
@@ -284,9 +282,11 @@ EMIT(enter)
     hw_sys_arg_reload();
 
     uint frame = e.dst + 1;
-    if (local_frame_size && num_functions)
+    // Implicit DEFAULT_FRAME_SIZE from begin_translation may be replaced once.
+    if (frame_entered)
         record(arm64_error, "Enter called twice in a function, %u after %u",
                frame, local_frame_size);
+    frame_entered    = true;
     local_frame_size = frame;
     frame_size(frame);
     emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
@@ -340,8 +340,8 @@ EMIT(leave)
     emit32le(mov_rr(HW_SP, HW_FRAME));
     emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
 
-
     local_frame_size = 0;
+    frame_entered    = false;
 }
 
 
@@ -1429,6 +1429,7 @@ EMIT(ddiv)
         syscall(reinterpret_cast<void (*)()>(fn));  \
         outputs;                                    \
     } while (0)
+
 
 SYS(globals)
 // ----------------------------------------------------------------------------

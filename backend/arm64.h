@@ -1022,6 +1022,7 @@ protected:
     uint          local_frame_size;
     uint          spilled_args;         // Spilled X0..X7, FP, LR, ...
     uint          num_functions;
+    bool          frame_entered;        // true after bytecode enter (not implicit 8)
 
     struct regspill { byte_p bytecode; uint spilled; };
     using regspills = std::vector<regspill>;
