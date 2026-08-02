@@ -33,6 +33,7 @@
 #include "native-bridge.h"
 #include "runtime.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <strings.h> // strcasestr
