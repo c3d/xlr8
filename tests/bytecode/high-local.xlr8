@@ -34,4 +34,5 @@ sys write_newline STDOUT
 sys write_text STDOUT 4
 sys write_double STDOUT 18
 sys write_newline STDOUT
+leave
 end

@@ -20,6 +20,7 @@ Reg "Second execution 1968=" 1
 enter 24
 nat 1 #1999
 Reg "Second execution 1999=" 1
+leave
 end
 ;
 
