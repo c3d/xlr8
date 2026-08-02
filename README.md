@@ -162,10 +162,13 @@ frame. Typically, a recursive function will begin with `enter N` where `N` is
 the number of registers it uses, and finish with `leave ret`, where `leave`
 returns to the previous stack frame and `ret` returns to the caller.
 
-`enter` saves the low **8 predicate flags** (bits 0–7 of the `flags` register)
-in the frame record; `leave` restores them. Predicates 8–63 are not saved across
-calls—use `pushf` / `popf` on the value stack when you need to preserve the
-full flag word. See `enter-leave-flags.xlr8` in the test suite.
+`enter` / `leave` only manage the register frame and stack linkage. They do
+**not** save, restore, or clear the predicate `flags` word. Predicates are
+**sticky across calls**: a callee that sets or clears a bit leaves that change
+visible to the caller after `leave` / `ret`. When a callee must not disturb the
+caller's predicates, it should bracket its work with `pushf` / `popf` (full
+64-bit save on the value stack). See `flags-across-call.xlr8` and
+`enter-leave-flags.xlr8` in the test suite.
 
 ## Calling conventions
 
@@ -173,6 +176,10 @@ By convention, a callee may clobber registers `0`…`7` in the caller's register
 window (`CALL_CLOBBERED_REGS` in `runtime.h`). Values that must survive a call
 should live in registers `8` and above, or be saved on the value stack with
 `push` / `pop`.
+
+Predicate flags are not part of that register window: they are a single process-
+wide `flags` word (in the JIT, a dedicated hardware register such as arm64
+`x28`). Callers that need isolation must use `pushf` / `popf`.
 
 Arguments are accessed using the `get` and `set` opcodes, which access the
 caller's register window. `get 3 0` gets argument 0 and puts it in register 3,
@@ -660,6 +667,12 @@ XLR8 maintains **64 condition flags** in a `flags` register (one bit each, numbe
 opcodes (`ccopy`, `select`, `btrue`, `bfalse`, and the float compares via `sys`) consult
 that bit. Ordinary instructions such as `add` or `copy` always execute—unlike
 architectures where every instruction is predicated.
+
+The `flags` word is **not** tied to `enter` / `leave`. It behaves like a sticky
+global: activations share one predicate state unless they explicitly save it.
+That matches dense JIT codegen (flags stay in one callee-saved GPR for the whole
+run; frame prologue/epilogue need not touch them). Use `pushf` / `popf` to
+isolate a region.
 
 | Opcode | Operands | Effect |
 |--------|----------|--------|

@@ -1,14 +1,15 @@
-// enter saves and leave restores the low 8 predicate flags
+// Sticky flags: enter/leave do not save or restore predicates.
+// Callee updates remain visible after leave.
 
 true 0
 enter 1
 false 0
 leave
-btrue 0 :ok
-txt 0 "FAIL true"
+bfalse 0 :ok_clear
+txt 0 "FAIL sticky clear"
 bra :done
-.ok
-txt 0 "OK true"
+.ok_clear
+txt 0 "OK sticky clear"
 .done
 
 [STDOUT 1]
@@ -20,11 +21,11 @@ false 5
 enter 1
 true 5
 leave
-btrue 5 :bad
-txt 0 "OK false"
+btrue 5 :ok_set
+txt 0 "FAIL sticky set"
 bra :write
-.bad
-txt 0 "FAIL false"
+.ok_set
+txt 0 "OK sticky set"
 .write
 sys write_text STDOUT 0
 sys write_newline STDOUT

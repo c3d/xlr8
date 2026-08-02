@@ -1,4 +1,6 @@
-// This checks that flags are cleared by enter / leave
+// Sticky flags across call: enter/leave do not clear or restore predicates.
+// Callee-set bits (including high preds) remain visible after return.
+// Use pushf/popf in the callee if isolation is required.
 
 =foo
 enter 8
@@ -37,13 +39,13 @@ sys write_newline STDOUT
 call *foo
 
 bfalse 4 :ok2
-  Msg "Flag 2 is set, BAD!"
+  Msg "Flag 4 is set, BAD!"
 .ok2
-bfalse 18 :ok3
-  Msg "Flag 18 has not been cleared, BAD!"
+btrue 18 :ok3
+  Msg "Flag 18 was cleared, BAD!"
 .ok3
-bfalse 17 :ok4
-  Msg "Flag 17 has not been cleared, BAD!"
+btrue 17 :ok4
+  Msg "Flag 17 was cleared, BAD!"
 .ok4
 
 pushf

@@ -149,46 +149,47 @@ Recursion note: `jal ra, func` (or `call`) saves return address in `ra`. Must sa
 **Current cost**: 5-6 C calls per `enter` (set_flags + enter + get_frame +
 reload_shadows + get_flags), plus full spill/reload of all shadow registers.
 
-**What `enter(locals)` actually does** (from `runtime.h:328-352`):
+**Language rule (sticky flags):** `enter` / `leave` do **not** save or restore
+predicates. The `flags` word is sticky across activations; use `pushf` /
+`popf` for isolation. JIT backends keep flags in `HW_FLAGS` for the whole run;
+the interpreter matches (finfo has no flags field).
+
+**What `enter(locals)` should do** (frame only):
 
 ```
 stack -= locals                    // decrement stack pointer
-finfo = (frame-stack)<<16 | (byte(flags)<<8) | locals
+finfo = (frame-stack)<<16 | locals // no flags field
 frame = stack                      // frame = new stack
 push(finfo)                        // frame[-1] = packed info word
 arg_locals = old_frame             // for get/set arg access
 ```
 
-This is 5 pointer/integer operations on runtime fields (`stack`, `frame`,
-`flags`).  In JIT code, the frame pointer and flags register are already in
-hardware registers.  The only runtime fields the JIT does not hold in registers
-are `rt.stack` and `rt.arg_locals`.
+In JIT code, the frame pointer and flags register are already in hardware
+registers. Flags need no prologue work. The only runtime fields the JIT does
+not hold in registers are `rt.stack` and `rt.arg_locals`.
 
-**Proposed inline sequence** (arm64 example, ~12 instructions):
+**Proposed inline sequence** (arm64 example, ~10 instructions):
 
 ```asm
 ; d = locals count (compile-time constant from bytecode)
 mov  x23, x19                     ; save old frame → will become arg_locals
 ldr  x24, [x27, #STACK_OFF]       ; x24 = rt.stack  (x27 = HW_ANCHOR = &rt)
 sub  x24, x24, #(d * 8)           ; stack -= locals  (scaled by slot size)
-; pack finfo: (old_frame - new_stack)<<16 | (flags_byte<<8) | locals
+; pack finfo: (old_frame - new_stack)<<16 | locals  (flags intentionally omitted)
 sub  x25, x19, x24                ; frame - stack (in bytes)
 lsr  x25, x25, #3                 ; convert to slot count
 lsl  x25, x25, #16                ; << 16
-and  x22t, x22, #0xFF             ; extract flags byte
-orr  x25, x25, x22t, lsl #8      ; | (flags << 8)
 orr  x25, x25, #d                 ; | locals
 mov  x19, x24                     ; frame = stack
 sub  x24, x24, #8                 ; push finfo
 str  x25, [x24]                   ;   frame[-1] = finfo
 str  x24, [x27, #STACK_OFF]       ; rt.stack = stack - 1
 str  x23, [x27, #ARGLOCALS_OFF]   ; rt.arg_locals = old frame
-; reload_shadows unnecessary — frame[0..locals-1] are uninitialized
+; HW_FLAGS (e.g. x28) untouched — sticky predicates
 ```
 
-**Savings vs current**: eliminates 2 C calls (`xlr8_set_flags` + `xlr8_enter`),
-the full `spill_frame()` of all shadow registers, `restore_frame_ptr`, and
-`reload_shadows`.  Net savings: **~30-50 instructions** per `enter`.
+**Savings vs a flags-aware enter**: no mask/store of predicates; denser
+prologue on every activation.
 
 **Prerequisite**: The JIT must know the runtime struct offsets of `stack` and
 `arg_locals` at compile time.  These could be exposed via `xlr8_runtime_fn()`
@@ -201,35 +202,32 @@ large enough (e.g., for small `locals` counts after a recent check).
 
 ### 1.2 Inline `leave` in Generated Code
 
-**What `leave()` does** (from `runtime.h:355-371`):
+**What `leave()` should do** (frame only; sticky flags):
 
 ```
 finfo  = frame[-1]                 // read packed info
 locals = byte(finfo)               // extract locals count
-flags  = byte(finfo>>8) | ((flags>>8)<<8)  // restore low flags, keep high
 stack  = frame + locals            // restore stack
 frame += finfo >> 16               // restore frame pointer
-arg_locals = arguments()           // frame + (frame[-1] >> 16)
+arg_locals = arguments()           // caller frame for get/set
+; flags register / HW_FLAGS untouched
 ```
 
-**Proposed inline sequence** (arm64, ~10 instructions):
+**Proposed inline sequence** (arm64, ~8 instructions):
 
 ```asm
 ldr  x25, [x19, #-8]              ; finfo = frame[-1]
 and  x23, x25, #0xFF              ; locals = byte(finfo)
-ubfx x24, x25, #8, #8             ; saved_flags_byte = byte(finfo >> 8)
-bfi  x22, x24, #0, #8             ; flags[7:0] = saved_flags_byte
 add  x24, x19, x23, lsl #3        ; stack = frame + locals * 8
 str  x24, [x27, #STACK_OFF]       ; rt.stack = stack
 lsr  x25, x25, #16                ; frame_offset = finfo >> 16
 add  x19, x19, x25, lsl #3        ; frame += offset * 8
-str  x19, [x27, #ARGLOCALS_OFF]   ; rt.arg_locals = arguments() = frame
-; Note: arg_locals = arguments() = frame + (new_frame[-1] >> 16)
-; but the simpler version is arg_locals = new_frame (caller frame)
+str  x19, [x27, #ARGLOCALS_OFF]   ; rt.arg_locals = new frame
+; HW_FLAGS untouched — callee mutations remain visible to caller
 ```
 
-**Savings**: eliminates 3 C calls (`xlr8_leave` + `xlr8_get_frame` +
-`xlr8_get_flags`), all shadow spill/reload.  Net savings: **~25-40 instructions**.
+**Savings**: no flag reload/clear on epilogue; matches current arm64/x86/arm/riscv
+JIT enter/leave (frame only).
 
 ### 1.3 Inline Known `sys` Opcodes from `native.tbl`
 

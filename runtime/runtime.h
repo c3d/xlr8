@@ -284,6 +284,8 @@ struct runtime
     // ------------------------------------------------------------------------
     //    Set the frame pointer at the current locals
     // ------------------------------------------------------------------------
+    //   Predicates are sticky: finfo does not record flags (matches JIT).
+    // ------------------------------------------------------------------------
     {
         size_t locals = lastreg + 1;
         CHECK(stack > frame,
@@ -291,7 +293,7 @@ struct runtime
         CHECK(stack - locals - 1 <= (stack_p) heap,
               "Out of stack space entering frame", nullptr);
         stack -= locals;
-        size_t finfo = ((frame - stack) << 16) | (byte(flags) << 8) | locals;
+        size_t finfo = ((frame - stack) << 16) | locals;
         frame = stack;
         if (!push(finfo))
         {
@@ -306,11 +308,12 @@ struct runtime
     // ------------------------------------------------------------------------
     //    Free the number of locals and return to previous frame
     // ------------------------------------------------------------------------
+    //   Predicates are sticky: leave does not restore or clear flags.
+    // ------------------------------------------------------------------------
     {
         CHECK (stack + 1 > frame, "Stack is above frame pointer", nullptr);
         size_t finfo  = frame[-1];
         size_t locals = byte(finfo);
-        flags = byte(finfo >> 8);
         stack = frame + locals;
         frame += finfo >> 16;
         return frame;
