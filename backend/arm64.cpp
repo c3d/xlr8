@@ -1089,15 +1089,9 @@ void arm64::set_pred(byte p, bool on)
 {
     record(arm64, "set_pred(%u, %d)", p, on);
     if (on)
-    {
-        set_imm(HW_SCRATCH, 1ULL << p);
-        emit32le(orr_rrr(xn(HW_FLAGS), xn(HW_FLAGS), xn(HW_SCRATCH)));
-    }
+        emit32le(orr_imm64_bit(xn(HW_FLAGS), xn(HW_FLAGS), p));
     else
-    {
-        set_imm(HW_SCRATCH, ~(1ULL << p));
-        emit32le(and_rrr(xn(HW_FLAGS), xn(HW_FLAGS), xn(HW_SCRATCH)));
-    }
+        emit32le(bfc64(xn(HW_FLAGS), p, 1));
 }
 
 
@@ -1107,13 +1101,8 @@ void arm64::set_pred_cmp(byte p, byte cond)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "set_pred_cmp(%u, %u)", p, cond);
-    set_imm(HW_SCRATCH, ~(1ULL << p));
-    emit32le(and_rrr(xn(HW_FLAGS), xn(HW_FLAGS), xn(HW_SCRATCH)));
     emit32le(cset_x(xn(HW_SCRATCH), cond));
-    hwcode_t cbz_pos = emit_cbz_rel(HW_SCRATCH);
-    set_imm(HW_SCRATCH, 1ULL << p);
-    emit32le(orr_rrr(xn(HW_FLAGS), xn(HW_FLAGS), xn(HW_SCRATCH)));
-    patch(cbz_pos, cursor());
+    emit32le(bfi64(xn(HW_FLAGS), xn(HW_SCRATCH), p, 1));
 }
 
 
