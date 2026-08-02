@@ -227,36 +227,28 @@ EMIT(ret)
 }
 
 
-EMIT(ppc)
-// ----------------------------------------------------------------------------
-//   Emit bytecode for the ppc opcode (push the source bytecode pc)
-// ----------------------------------------------------------------------------
-{
-    record(riscv64_ops, "emit_ppc");
-    load_ptr_imm(HW_IP, uint64_t(uintptr_t(e.pc)));
-    emit_push(HW_IP);
-}
-
-
-EMIT(pc)
-// ----------------------------------------------------------------------------
-//   Emit bytecode for the pc opcode (load bytecode pc)
-// ----------------------------------------------------------------------------
-{
-    riscv64reg_t r = hw_local(e.dst);
-    record(riscv64_ops, "emit_pc %u reg %u", e.dst, r);
-    load_ptr_imm(r, uint64_t(uintptr_t(e.pc)));
-}
-
-
 EMIT(pca)
 // ----------------------------------------------------------------------------
-//   Emit bytecode for the pca opcode (PC-relative offset of the bytecode)
+//   Emit PC-relative code address; queue target for JIT translation
 // ----------------------------------------------------------------------------
 {
-    riscv64reg_t r = hw_local(e.dst);
-    record(riscv64_ops, "emit_pca %u reg %u = %lld)", e.dst, e.broff);
-    load_ptr_imm(r, uint64_t(uintptr_t(e.ppc + e.broff)));
+    byte_p       target = e.bpc + e.broff;
+    riscv64reg_t r      = hw_local(e.dst);
+    record(riscv64_ops, "emit_pca %u = %p", e.dst, target);
+    branch(target, hwcode_t(-1));
+    load_ptr_imm(r, uint64_t(uintptr_t(target)));
+}
+
+
+EMIT(pcd)
+// ----------------------------------------------------------------------------
+//   Emit PC-relative data address; do not translate the target as code
+// ----------------------------------------------------------------------------
+{
+    byte_p       target = e.bpc + e.broff;
+    riscv64reg_t r      = hw_local(e.dst);
+    record(riscv64_ops, "emit_pcd %u = %p", e.dst, target);
+    load_ptr_imm(r, uint64_t(uintptr_t(target)));
 }
 
 

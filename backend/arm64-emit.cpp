@@ -245,39 +245,27 @@ EMIT(ret)
 }
 
 
-EMIT(ppc)
-// ----------------------------------------------------------------------------
-//   Emit bytecode for the ppc opcode (push the source bytecode pc)
-// ----------------------------------------------------------------------------
-{
-    record(arm64_ops, "emit_ppc");
-    set_imm(HW_SCRATCH, uint64_t(e.pc));
-    emit_push(HW_SCRATCH);
-}
-
-
-EMIT(pc)
-// ----------------------------------------------------------------------------
-//   Emit bytecode for the pc opcode (load bytecode pc)
-// ----------------------------------------------------------------------------
-{
-    arm64reg_t r = hw_dst_local(e.dst);
-    record(arm64_ops, "emit_pc %u reg %u", e.dst, r);
-    set_imm(r, uint64_t(e.pc));
-}
-
-
 EMIT(pca)
 // ----------------------------------------------------------------------------
-//   Emit bytecode for the pca opcode (PC-relative bytecode address)
+//   Emit PC-relative code address; queue target for JIT translation
 // ----------------------------------------------------------------------------
 {
     byte_p     target = e.bpc + e.broff;
     arm64reg_t r      = hw_dst_local(e.dst);
-    record(arm64_ops, "emit_pca %u = %p (bpc=%p broff=%lld)",
-           e.dst, target, e.bpc, long(e.broff));
-    // Queue target for translation so ijmp/icall can resolve it at runtime.
+    record(arm64_ops, "emit_pca %u = %p", e.dst, target);
     branch(target, hwcode_t(-1));
+    set_imm(r, uint64_t(target));
+}
+
+
+EMIT(pcd)
+// ----------------------------------------------------------------------------
+//   Emit PC-relative data address; do not translate the target as code
+// ----------------------------------------------------------------------------
+{
+    byte_p     target = e.bpc + e.broff;
+    arm64reg_t r      = hw_dst_local(e.dst);
+    record(arm64_ops, "emit_pcd %u = %p", e.dst, target);
     set_imm(r, uint64_t(target));
 }
 

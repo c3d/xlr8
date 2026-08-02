@@ -56,8 +56,8 @@ Reg 7
 nat 6 '▶'
 Reg 6
 
-pca 4 :text
-pca 5 :textend
+pcd 4 :text
+pcd 5 :textend
 sub 5 4
 .loop
   ld1 0 4

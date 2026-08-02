@@ -66,20 +66,19 @@ Below a commented example of bytecode that writes a null-terminated string:
 ```xlr8
 [STDOUT 1]
 
-    pca 1 :mytext                       // R1 = PC-relative address of [mytext]
+    pcd 1 :mytext                       // R1 = PC-relative data address of [mytext]
 .chars                                  // Symbolic label [chars]
     ld1 0 1                             // R0 = byte at address R1
     beq 0 :done                         // Branch to [done] if R0==0
     sys write_char STDOUT 0             // Write R0 to stdout
     incr 1                              // Increment R1 (next character)
     bra :chars                          // Loop back to [chars]
-.done
-end
-.mytext                                 // Label [mytext] used in pca above
+.mytext                                 // Data label [mytext] (not translated as code)
     #"Hello world!" 10                  // Insert raw bytes in stream
     #"This is a C-style null-terminated string"
     16#0A 0                             // Based-number notation and trailing 0
 .done
+end
 ```
 
 # Virtual machine model
@@ -597,7 +596,7 @@ register 0.
 
 ### Built-in opcodes (overview)
 
-There are **121 built-in opcodes** (byte values `0`…`120`). The count is shown
+There are **120 built-in opcodes** (byte values `0`…`119`). The count is shown
 at startup with `xlr8 -tmain`. Definitions and semantics are in
 `runtime/opcodes.tbl`. Most instructions use `op dst src`; immediate forms
 append a LEB128 constant; several groups use additional operands as described
@@ -608,7 +607,7 @@ below.
 | Meta | `null`, `undef`, `end` | `null` traps zero-filled regions; `undef` resolves forward `*name` references; `end` terminates execution |
 | Constants | `int`, `nat`, `flt`, `dbl`, `txt` | Load a signed integer, natural, float, double, or text token into a register |
 | Data movement | `copy`, `swap`, `ccopy`, `select` | Register copy; `ccopy`/`select` are predicate-guarded (see below) |
-| Control flow | `jmp`, `call`, `ijmp`, `icall`, `ret`, `ppc`, `pc`, `pca`, `enter`, `leave`, `get`, `set`, `push`, `pop`, `switch`, `dispatch` | Calls, returns, PC access, frames, argument access, multi-way dispatch |
+| Control flow | `jmp`, `call`, `ijmp`, `icall`, `ret`, `pca`, `pcd`, `enter`, `leave`, `get`, `set`, `push`, `pop`, `switch`, `dispatch` | Calls, returns, PC-relative addresses, frames, argument access, multi-way dispatch |
 | Globals | `sto`, `rcl` | Store to / recall from the global array (resize with `sys globals`) |
 | System | `sys` | Invoke a native operation (see [Native operations](#native-operations-sys)) |
 | Branches | `dbra`, `bra`, `btrue`, `bfalse`, `beq`, `bne`, `blt`, `bgt`, `ble`, `bge` | PC-relative branches; `btrue`/`bfalse` test a predicate; others test a **signed** register |
@@ -642,6 +641,11 @@ integer. There are no unsigned branch variants; use predicate compares (`cmpult`
 offsets. `jmp *name` and `call *name` jump to the bytecode bound to token
 `*name`. `ijmp` / `icall` take an address from a register (often loaded with
 `pca` or `sys tok`).
+
+**PC-relative addresses.** `pca dst :label` loads the bytecode address of a
+**code** label (the JIT queues that target for translation). `pcd dst :label`
+loads the address of a **data** label (raw bytes, string tables, etc.) and does
+not treat the target as executable code.
 
 **Dispatch.** `dispatch reg N v1 :lab1 v2 :lab2 …` compares the signed value in
 `reg` against each threshold `v1`, `v2`, … (use `+v` or `#v` when `v` would
