@@ -1054,13 +1054,13 @@ void arm64::binop_imm(local_t dloc, value_t v, op_t op)
         break;
     case op_modi:
         set_imm(HW_SCRATCH, uint64_t(v));
-        emit32le(sdiv_rrr(xn(HW_X17), xn(d), xn(HW_SCRATCH)));
-        emit32le(msub_rrr(xn(d), xn(HW_X17), xn(HW_SCRATCH), xn(d)));
+        emit32le(sdiv_rrr(xn(HW_TEMP0), xn(d), xn(HW_SCRATCH)));
+        emit32le(msub_rrr(xn(d), xn(HW_TEMP0), xn(HW_SCRATCH), xn(d)));
         break;
     case op_modu:
         set_imm(HW_SCRATCH, uint64_t(v));
-        emit32le(udiv_rrr(xn(HW_X17), xn(d), xn(HW_SCRATCH)));
-        emit32le(msub_rrr(xn(d), xn(HW_X17), xn(HW_SCRATCH), xn(d)));
+        emit32le(udiv_rrr(xn(HW_TEMP0), xn(d), xn(HW_SCRATCH)));
+        emit32le(msub_rrr(xn(d), xn(HW_TEMP0), xn(HW_SCRATCH), xn(d)));
         break;
     case op_andu:
         set_imm(HW_SCRATCH, uint64_t(v));
@@ -1107,12 +1107,12 @@ void arm64::set_pred_cmp(byte p, byte cond)
 // ----------------------------------------------------------------------------
 {
     record(arm64, "set_pred_cmp(%u, %u)", p, cond);
-    set_imm(HW_X17, ~(1ULL << p));
-    emit32le(and_rrr(xn(HW_FLAGS), xn(HW_FLAGS), xn(HW_X17)));
+    set_imm(HW_SCRATCH, ~(1ULL << p));
+    emit32le(and_rrr(xn(HW_FLAGS), xn(HW_FLAGS), xn(HW_SCRATCH)));
     emit32le(cset_x(xn(HW_SCRATCH), cond));
     hwcode_t cbz_pos = emit_cbz_rel(HW_SCRATCH);
-    set_imm(HW_X17, 1ULL << p);
-    emit32le(orr_rrr(xn(HW_FLAGS), xn(HW_FLAGS), xn(HW_X17)));
+    set_imm(HW_SCRATCH, 1ULL << p);
+    emit32le(orr_rrr(xn(HW_FLAGS), xn(HW_FLAGS), xn(HW_SCRATCH)));
     patch(cbz_pos, cursor());
 }
 
