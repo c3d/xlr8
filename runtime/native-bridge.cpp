@@ -1,4 +1,4 @@
-// ****************************************************************************
+ // ****************************************************************************
 //  native-bridge.cpp                                              XLR8 project
 // ****************************************************************************
 //
@@ -38,7 +38,8 @@
 
 
 static runtime *xlr8_current_rt = nullptr;
-
+value_t *xlr8_globals = nullptr;
+size_t xlr8_globals_count = 0;
 
 void xlr8_set_runtime(runtime *rt)
 {
@@ -50,7 +51,6 @@ runtime *xlr8_get_runtime()
 {
     return xlr8_current_rt;
 }
-
 
 void xlr8_null_opcode()
 {
@@ -280,7 +280,11 @@ int xlr8_jit_stream_bad(uvalue_t stream)
 void xlr8_jit_globals(size_t n)
 {
     if (xlr8_current_rt)
+    {
         xlr8_current_rt->globals.resize(n);
+        xlr8_globals = &xlr8_current_rt->globals[0];
+        xlr8_globals_count = n;
+    }
 }
 
 

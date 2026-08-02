@@ -38,6 +38,9 @@ struct runtime;
 extern "C" {
 #endif
 
+extern value_t * xlr8_globals;
+extern size_t    xlr8_globals_count;
+
 void      xlr8_set_runtime(runtime *rt);
 runtime  *xlr8_get_runtime();
 uintptr_t xlr8_jit_addr(uintptr_t bytecode_pc);

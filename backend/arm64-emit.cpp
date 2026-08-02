@@ -426,12 +426,13 @@ EMIT(sto)
 //   Emit bytecode for the sto opcode
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t r     = hw_local(e.src);
-    uintptr_t  gaddr = uintptr_t(&rt.globals[e.dst]);
-    set_imm(HW_SCRATCH, gaddr);
-    emit_store_off(HW_SCRATCH, r, 0);
-    record(arm64_ops, "store_global g[%u]=%u addr %p reg %u",
-           e.dst, e.src, gaddr, r);
+    arm64reg_t r   = hw_local(e.src);
+    size_t     off = e.dst * sizeof(value_t);
+    set_imm(HW_SCRATCH, uintptr_t(&xlr8_globals));
+    emit_load_off(HW_SCRATCH, HW_SCRATCH, 0);
+    emit_store_off(HW_SCRATCH, r, off);
+    record(arm64_ops, "store_global g[%u]=%u off %u reg %u",
+           e.dst, e.src, off, r);
 }
 
 
@@ -440,12 +441,13 @@ EMIT(rcl)
 //   Emit bytecode for the rcl opcode
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t r = hw_dst_local(e.dst);
-    uintptr_t  gaddr = uintptr_t(&rt.globals[e.src]);
-    set_imm(HW_SCRATCH, gaddr);
-    emit_load_off(r, HW_SCRATCH, 0);
-    record(arm64_ops, "load_global g[%u]=%u addr %p reg %u",
-           e.dst, e.src, gaddr, r);
+    arm64reg_t r   = hw_dst_local(e.dst);
+    size_t     off = e.src * sizeof(value_t);
+    set_imm(HW_SCRATCH, uintptr_t(&xlr8_globals));
+    emit_load_off(HW_SCRATCH, HW_SCRATCH, 0);
+    emit_load_off(r, HW_SCRATCH, off);
+    record(arm64_ops, "load_global g[%u]=%u off %u reg %u",
+           e.dst, e.src, off, r);
 }
 
 
