@@ -205,11 +205,13 @@ EMIT(ijmp)
 //   Emit bytecode for the ijmp opcode
 // ----------------------------------------------------------------------------
 {
+    record(arm64_ops, "emit_ijmp %u", e.src);
     hw_sys_arg_reload();
-    arm64reg_t r = hw_local(e.src);
-    record(arm64_ops, "emit_ijmp %u reg %u", e.src, r);
-    // TODO: Translate bytecode address to physical address
-    emit32le(br(r));
+    hw_sys_arg(0, e.src);
+    syscall(reinterpret_cast<void (*)()>(xlr8_jit_addr));
+    emit32le(mov_rr(HW_SCRATCH, HW_X0));
+    hw_sys_arg_reload();
+    emit32le(br(xn(HW_SCRATCH)));
 }
 
 
@@ -218,13 +220,16 @@ EMIT(icall)
 //   Emit bytecode for the icall opcode
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t r = hw_local(e.src);
-    record(arm64_ops, "emit_icall %u reg %u", e.src, r);
-    // TODO: Translate bytecode address to physical address
+    record(arm64_ops, "emit_icall %u", e.src);
+    hw_sys_arg_reload();
+    hw_sys_arg(0, e.src);
+    syscall(reinterpret_cast<void (*)()>(xlr8_jit_addr));
+    emit32le(mov_rr(HW_SCRATCH, HW_X0));
+    hw_sys_arg_reload();
     bool save_lr = !frame_entered;
     if (save_lr)
         emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
-    emit32le(blr(r));
+    emit32le(blr(xn(HW_SCRATCH)));
     if (save_lr)
         emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
 }
@@ -264,12 +269,16 @@ EMIT(pc)
 
 EMIT(pca)
 // ----------------------------------------------------------------------------
-//   Emit bytecode for the pca opcode (PC-relative offset of the bytecode
+//   Emit bytecode for the pca opcode (PC-relative bytecode address)
 // ----------------------------------------------------------------------------
 {
-    arm64reg_t r = hw_dst_local(e.dst);
-    record(arm64_ops, "emit_pca %u reg %u = %lld)", e.dst, e.broff);
-    set_imm(r, uint64_t(e.ppc + e.broff));
+    byte_p     target = e.bpc + e.broff;
+    arm64reg_t r      = hw_dst_local(e.dst);
+    record(arm64_ops, "emit_pca %u = %p (bpc=%p broff=%lld)",
+           e.dst, target, e.bpc, long(e.broff));
+    // Queue target for translation so ijmp/icall can resolve it at runtime.
+    branch(target, hwcode_t(-1));
+    set_imm(r, uint64_t(target));
 }
 
 

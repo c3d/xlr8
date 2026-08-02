@@ -323,10 +323,12 @@ uint backend::label(byte_p bytecode)
     // Pending branches and calls are keyed by bytecode target
     auto brange = equal_range(branches, bytecode);
 
-    // Pending branches are keyed by bytecode target, not by the patch site
+    // Pending branches are keyed by bytecode target, not by the patch site.
+    // hwcode_t(-1) means "ensure translated" with no patch site (e.g. pca).
     for (auto b = brange.first; b != brange.second; ++b)
     {
-        patch(b->hwcode, hwcode);
+        if (b->hwcode != hwcode_t(-1))
+            patch(b->hwcode, hwcode);
         count++;
     }
     branches.erase(brange.first, brange.second);
