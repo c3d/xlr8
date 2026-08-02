@@ -590,7 +590,7 @@ register 0.
 
 ### Built-in opcodes (overview)
 
-There are **120 built-in opcodes** (byte values `0`…`119`). The count is shown
+There are **121 built-in opcodes** (byte values `0`…`120`). The count is shown
 at startup with `xlr8 -tmain`. Definitions and semantics are in
 `runtime/opcodes.tbl`. Most instructions use `op dst src`; immediate forms
 append a LEB128 constant; several groups use additional operands as described
@@ -609,7 +609,6 @@ below.
 | Integer math | `add`, `sub`, `mul`, `div`, `mod`, `neg`, `incr`, `decr`, `umul`, `udiv`, `umod` | Two-address register arithmetic |
 | Immediate math | `addi`, `subi`, `muli`, `divi`, `modi`, `addu`, `subu`, `mulu`, `divu`, `modu` | Same, with an inline LEB128 constant |
 | Bitwise | `and`, `or`, `xor`, `shl`, `shr`, `ushr`, `not`, `andu`, `oru`, `xoru`, `shlu`, `shru`, `ushru` | Bit operations; `shru`/`ushru` use an inline shift count |
-| Addressing | `frame` | `frame dst src` stores the address of register `src` in `dst` (`frame 1 0`) |
 | Memory | `ld8`…`ld1`, `st8`…`st1`, `ld8o`…`ld1o`, `st8o`…`st1o`, `lds`, `ldos` | Load/store through an address in a register; `*o` forms add a signed LEB128 byte offset (`ld1o dst ptr +0`); `lds` sign-extends a register; `ldos` loads at offset and sign-extends |
 | Extension | `sext`, `zext` | Sign- or zero-extend a register to `kshift` bits (`sext dst +8`, `zext dst +32`) |
 | Float / double | `fadd`, `fsub`, `fmul`, `fdiv`, `dadd`, `dsub`, `dmul`, `ddiv` | In-register IEEE-754 add/sub/mul/div |

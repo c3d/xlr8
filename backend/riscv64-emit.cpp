@@ -1046,25 +1046,6 @@ EMIT(ushru)
 }
 
 
-EMIT(frame)
-// ----------------------------------------------------------------------------
-//   Emit bytecode for the frame opcode
-// ----------------------------------------------------------------------------
-{
-    record(riscv64_ops, "emit_frame(%u, %u)", e.dst, e.src);
-    riscv64reg_t dr = hw_local(e.dst);
-    int        offs = local_disp(e.src);
-    if (offs >= -2048 && offs <= 2047)
-        emit32le(addi(xn(dr), xn(HW_FRAME), offs));
-    else
-    {
-        load_imm64(dr, uint64_t(int64_t(offs)));
-        emit32le(add_rr(xn(dr), xn(HW_FRAME), xn(dr)));
-    }
-    spill_all();
-}
-
-
 EMIT(st8)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the st8 opcode

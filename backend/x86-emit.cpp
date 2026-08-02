@@ -1038,19 +1038,6 @@ EMIT(ushru)
 }
 
 
-EMIT(frame)
-// ----------------------------------------------------------------------------
-//   Emit bytecode for the frame opcode
-// ----------------------------------------------------------------------------
-{
-    record(x86_ops, "emit_frame(%u, %u)", e.dst, e.src);
-    x86reg_t dr = hw_local(e.dst);
-    int      offs = local_disp(e.src);
-    emit_lea(dr, HW_FRAME, offs);
-    spill_all();                // So that we can use the result
-}
-
-
 EMIT(st8)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the st8 opcode

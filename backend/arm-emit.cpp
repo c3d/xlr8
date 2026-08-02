@@ -1034,27 +1034,6 @@ EMIT(ushru)
 }
 
 
-EMIT(frame)
-// ----------------------------------------------------------------------------
-//   Emit bytecode for the frame opcode
-// ----------------------------------------------------------------------------
-{
-    record(arm_ops, "emit_frame(%u, %u)", e.dst, e.src);
-    armreg_t dr = hw_local(e.dst);
-    int      offs = local_disp(e.src);
-    if (offs >= 0 && offs <= 255)
-        emit32le(add_imm(rn(dr), rn(HW_FRAME), uint(offs)));
-    else if (offs < 0 && offs >= -255)
-        emit32le(sub_imm(rn(dr), rn(HW_FRAME), uint(-offs)));
-    else
-    {
-        load_imm32(HW_IP, uint32_t(int32_t(offs)));
-        emit32le(add_rrr(rn(dr), rn(HW_FRAME), rn(HW_IP)));
-    }
-    spill_all();
-}
-
-
 EMIT(st8)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the st8 opcode

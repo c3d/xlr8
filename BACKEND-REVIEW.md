@@ -627,16 +627,18 @@ turbo-arm `-O`: `st1`/`st2`/`st4`/`st8`/`ld1s`/`ld2s`/`ld1o` exit 0.
 aliasing; §6.11 now uses dedicated r4/r5 scratches, so memops use
 `load_local` again.)
 
-### 6.8 [P1] ~~`frame_addr` uses wrong shift for slot calculation~~ ✅ FIXED
+### 6.8 [P1] ~~`frame_addr` uses wrong shift for slot calculation~~ ✅ FIXED / obsolete
 
 **File**: `arm.cpp` (`frame_addr`)
 
 Was: treated `s` as a runtime local value and did `frame + val<<3` (and
-earlier review noted a wrong LSL for 4-byte slots).  `frame d s` must take the
-address of **slot** `s` (`frame + s*8`).
+earlier review noted a wrong LSL for 4-byte slots).  The removed `frame d s`
+opcode was meant to take the address of **slot** `s` (`frame + s*8`).
 
 **Fix**: immediate `add` of `slot_off(s)` to `HW_FRAME` (or `mov` when `s==0`),
-matching arm64/x86.
+matching arm64/x86. The `frame` opcode (address-of-local) was later removed
+because it forces an “address taken” on virtual registers and complicates JIT
+register allocation.
 
 ### 6.9 [P1] ~~Missing callee-saved register save/restore~~ ✅ FIXED
 

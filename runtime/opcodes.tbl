@@ -132,8 +132,6 @@ OP(shlu,    DST KSHIFT, DNAT <<= kshift)
 OP(shru,    DST KSHIFT, DINT >>= kshift)
 OP(ushru,   DST KSHIFT, DNAT >>= kshift)
 
-OP(frame,   DST SRC,    DNAT = (uintptr_t) &SNAT)
-
 OP(st8,     DST SRC,    OTYPE(u64, DNAT, 0) = SNAT)
 OP(st4,     DST SRC,    OTYPE(u32, DNAT, 0) = SNAT)
 OP(st2,     DST SRC,    OTYPE(u16, DNAT, 0) = SNAT)

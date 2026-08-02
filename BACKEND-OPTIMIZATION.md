@@ -526,7 +526,7 @@ Fine for correctness; heavy for hot paths (`xlr8_jit_write_*`, sys helpers).
 **Savings**: ~1–3 instructions and a cheaper call pattern per helper site;
 tens of bytes per translated function that prints or calls sys helpers.
 
-Cross-platform twin: x86-64 §4.7 (`call [rip+disp32]`), riscv64 AUIPC+LD
+Cross-platform twin: x86-64 §4.6 (`call [rip+disp32]`), riscv64 AUIPC+LD
 (§7.4).
 
 ---
@@ -576,13 +576,7 @@ w=16, `mov eax,eax` (2 bytes, zero-extends on x86-64) for w=32.
 
 **Savings**: 5-6 bytes per `zext_local`.
 
-### 4.5 LEA for `frame_addr`
-
-**Current**: `mov eax,disp; add rax,r12` = 8 bytes.
-
-**Proposed**: `lea rax, [r12+disp8]` = 5 bytes.  **Saves 3 bytes**.
-
-### 4.6 Redundant Push/Pop Around Final `reload_shadows`
+### 4.5 Redundant Push/Pop Around Final `reload_shadows`
 
 In `emit_sys` (line 327-331), `push rax; reload_rt_regs(); reload_shadows();
 pop rax` — on x86-64, `reload_rt_regs()` is a no-op, and `reload_shadows()`
@@ -590,7 +584,7 @@ generates pure loads that don't touch rax.  The push/pop is unnecessary.
 
 **Savings**: 2 bytes per sys opcode.
 
-### 4.7 RIP-Relative Function Pointer Table
+### 4.6 RIP-Relative Function Pointer Table
 
 **Current**: every C helper call uses `movabs rax, imm64; call rax` (12 bytes).
 
@@ -907,7 +901,7 @@ or direct BL).
 |---|------|-----------|---------|
 | A1 | Remove redundant `reload_shadows` in `emit_sys` (§2.1, §6.10) | All 4 | 4-16 insns/sys |
 | A2 | Remove redundant `restore_frame_ptr` in `emit_sys` (§2.2) | arm64 | 1 insn/sys |
-| A3 | Remove redundant push/pop in `emit_sys` (§4.6) | x86-64 | 2 bytes/sys |
+| A3 | Remove redundant push/pop in `emit_sys` (§4.5) | x86-64 | 2 bytes/sys |
 | A4 | `store_imm(d, 0)`: reuse zero register (§6.12) | arm32 | 1 insn/zero-store |
 
 ### Phase B — Shadow Register Direct Operations (moderate, high ROI)
@@ -942,13 +936,12 @@ or direct BL).
 | D2 | Memory-dest AND/OR/XOR (§4.3) | x86-64 | 8-14 bytes |
 | D3 | MOVZX for zext_local (§4.4) | x86-64 | 5-6 bytes |
 | D4 | SLLI+SRLI for zext_local (§5.5) | riscv64 | 1-3 insns |
-| D5 | LEA for frame_addr (§4.5) | x86-64 | 3 bytes |
-| D6 | Logical immediates (§3.4) | arm64 | 1-3 insns |
-| D7 | AUIPC-relative calls (§5.4) | riscv64 | 4-8 insns/call |
-| D8 | LDR/STR offset folding (§3.6) | arm64 | 2 insns |
-| D9 | VLDR/VSTR for float ops (§6.6) | arm32 | 3 insns/float binop |
-| D10 | UXTB/UXTH for zext_local (§6.7) | arm32 | 1-3 insns |
-| D11 | Rotated imm for AND/OR/XOR (§6.9) | arm32 | 1 insn each |
+| D5 | Logical immediates (§3.4) | arm64 | 1-3 insns |
+| D6 | AUIPC-relative calls (§5.4) | riscv64 | 4-8 insns/call |
+| D7 | LDR/STR offset folding (§3.6) | arm64 | 2 insns |
+| D8 | VLDR/VSTR for float ops (§6.6) | arm32 | 3 insns/float binop |
+| D9 | UXTB/UXTH for zext_local (§6.7) | arm32 | 1-3 insns |
+| D10 | Rotated imm for AND/OR/XOR (§6.9) | arm32 | 1 insn each |
 
 ### Phase E — Architectural Changes (high effort, highest total impact)
 
@@ -963,7 +956,7 @@ or direct BL).
 | E7 | Dirty tracking (§7.1) | All 4 | 1-4 insns/op |
 | E8 | Code caching (§7.2) | All | eliminates re-JIT |
 | E9 | Compare-and-branch fusion (§5.7) | riscv64 | 9-11 insns |
-| E10 | Helper call PC-relative / BL (§3.8, §4.7, §7.4) | arm64, x86-64, riscv64 | 1-3 insns/call |
+| E10 | Helper call PC-relative / BL (§3.8, §4.6, §7.4) | arm64, x86-64, riscv64 | 1-3 insns/call |
 
 ---
 

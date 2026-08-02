@@ -1097,27 +1097,6 @@ EMIT(ushru)
 }
 
 
-EMIT(frame)
-// ----------------------------------------------------------------------------
-//   Emit bytecode for the frame opcode
-// ----------------------------------------------------------------------------
-{
-    record(arm64_ops, "emit_frame(%u, %u)", e.dst, e.src);
-    arm64reg_t dr = hw_dst_local(e.dst);
-    int      offs = local_disp(e.src);
-    // lea dr, [x29 + offs]
-    if (offs >= 0 && offs <= 0xfff)
-        emit32le(add_imm(xn(dr), xn(HW_FRAME), uint(offs)));
-    else if (offs < 0 && offs >= -0xfff)
-        emit32le(sub_imm(xn(dr), xn(HW_FRAME), uint(-offs)));
-    else
-    {
-        set_imm(dr, uint64_t(int64_t(offs)));
-        emit32le(add_rrr(xn(dr), xn(HW_FRAME), xn(dr)));
-    }
-}
-
-
 EMIT(st8)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the st8 opcode
