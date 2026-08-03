@@ -7,7 +7,6 @@
 // llvm: fact:
 =fact
 .entry
-get 0 0
 cmplei 8 0 +1
 bfalse 8 :L0_2
 bra :L0_1
