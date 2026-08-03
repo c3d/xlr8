@@ -1947,7 +1947,7 @@ SYS(read_double)
 {
     CALL(xlr8_jit_read_double,
          IMM(HW_X0, e.knat),
-         emit32le(fmov_dd(vn(DI(e.dst)), 0)));
+         emit32le(fmov_dd(vn(DO(e.dst)), 0)));
 }
 
 SYS(write_char)
