@@ -276,9 +276,9 @@ struct backend
     virtual bool dispatch_sys(emit_args &args);
 
 protected:
-    backend(runtime &r, arch_t arch);       // Only create backends through the factory
+    backend(runtime &r, arch_t arch);
 
-    // Caller-provided JIT frame: locals 0..7 at [FP+local_disp]; FP = &slots[8].
+    // Caller-provided JIT frame
     // Two words at/above FP mirror an enter FP+LR pad.  After a real enter,
     // arg_disp also skips the JIT prologue callee-save area above that pad.
     static stack_p initial_jit_fp(ularge_t slots[DEFAULT_FRAME_SIZE + 2]);

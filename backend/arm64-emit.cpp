@@ -44,6 +44,22 @@ EMIT(user)
 // ----------------------------------------------------------------------------
 {
     record(arm64_ops, "emit_user(%lld, %p)", e.op, &e.pc);
+    if (runtime::user_fn user = rt.user_opcode(e.op))
+    {
+        uintptr_t pc = uintptr_t(e.pc);
+        if (uintptr_t fnaddr = user(rt, &e))
+        {
+            hw_sys_arg_respill();
+            hw_sys_imm(0, pc);
+            call_ptr(xlr8_get_runtime_with_pc);
+            hw_sys_imm(1, 0);
+
+            user = runtime::user_fn(fnaddr);
+            call_ptr(user);
+            return;
+        }
+    }
+    record(arm64_error, "No user opcode for %u", e.op);
     syscall(xlr8_user_opcode);
 }
 

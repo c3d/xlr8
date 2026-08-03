@@ -456,13 +456,14 @@ struct runtime
     }
 
 
-    native_fn user_opcode(byte op, native_fn fn = nullptr)
+    typedef uintptr_t (*user_fn)(runtime &rt, void *emit_args);
+    user_fn user_opcode(byte op, user_fn fn = nullptr)
     // ------------------------------------------------------------------------
     //   Set / replace a user-defined opcode
     // ------------------------------------------------------------------------
     {
         op -= 128;
-        native_fn old = nullptr;
+        user_fn old = nullptr;
         if (op < user_ops.size())
           old = user_ops[op];
         else if (fn)
@@ -480,8 +481,8 @@ struct runtime
     {
         if (byte(op - 128) < user_ops.size())
         {
-            native_fn user = user_ops[byte(op - 128)];
-            return user(*this);
+            user_fn user = user_ops[byte(op - 128)];
+            return user(*this, nullptr);
         }
         error("Invalid opcode");
         return false;
@@ -608,8 +609,8 @@ public:
     using native_map = std::map<tok_t, native_fn>;
     native_map          natives;        // Native functions
 
-    using native_list = std::vector<native_fn>;
-    native_list         user_ops;       // User-defined opcodes
+    using user_ops_list = std::vector<user_fn>;
+    user_ops_list       user_ops;       // User-defined opcodes
 
     using globals_list = std::vector<value_t>;
     globals_list        globals;        // Global environment

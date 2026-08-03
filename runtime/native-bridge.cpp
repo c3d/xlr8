@@ -52,6 +52,13 @@ runtime *xlr8_get_runtime()
     return xlr8_current_rt;
 }
 
+runtime *xlr8_get_runtime_with_pc(uintptr_t pc)
+{
+    if (xlr8_current_rt)
+        xlr8_current_rt->pc = byte_p(pc);
+    return xlr8_current_rt;
+}
+
 void xlr8_null_opcode()
 {
     record(runtime_error, "Hit null opcode at runtime");

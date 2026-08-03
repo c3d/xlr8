@@ -27,14 +27,15 @@
 //   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // ****************************************************************************
 
+#include "backend.h"
 #include "recorder.h"
 #include "runtime.h"
+#include "save.h"
 #include "scanner.h"
 #include "types.h"
-#include "save.h"
 
-#include <iostream>
 #include <fstream>
+#include <iostream>
 
 
 RECORDER(main,          16, "XLR8 main command-line options");
@@ -54,16 +55,26 @@ void help(char *progname)
 }
 
 
-static bool debug_message(runtime &rt)
+static uintptr_t debug_message(runtime &rt, void *emit_args)
 // ----------------------------------------------------------------------------
 //   This is an example opcode extension
 // ----------------------------------------------------------------------------
 {
-    byte_p text = rt.pc;
-    while (char c = *text++)
-        std::cout << c;
-    rt.pc = text;
-    return true;
+    if (emit_args)
+    {
+        backend::emit_args &e = *((backend::emit_args *) emit_args);
+        byte_p text = e.pc;
+        while (*text++) /* skip */;
+        e.pc = text;
+    }
+    else
+    {
+        byte_p text = rt.pc;
+        while (char c = *text++)
+            std::cout << c;
+        rt.pc = text;
+    }
+    return uintptr_t(debug_message);
 }
 
 

@@ -43,6 +43,7 @@ extern size_t    xlr8_globals_count;
 
 void      xlr8_set_runtime(runtime *rt);
 runtime  *xlr8_get_runtime();
+runtime  *xlr8_get_runtime_with_pc(uintptr_t pc);
 uintptr_t xlr8_jit_addr(uintptr_t bytecode_pc);
 
 void      xlr8_null_opcode();
