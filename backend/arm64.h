@@ -1270,17 +1270,17 @@ protected:
 
 protected:
     uint          local_frame_size;
-    uint          spilled_args;         // Spilled X0..X7, FP, LR, ...
+    uint          spilled_args;
     uint          num_functions;
-    bool          frame_entered;        // true after bytecode enter (not implicit 8)
+    uint          pre_enter_frame_size;
 
     struct regspill { byte_p bytecode; uint spilled; };
     using regspills = std::vector<regspill>;
     regspills     spills;
 
     friend struct regspill_compare;
-    template<typename T> static auto lower_bound(const regspills &, T); // Spill map lower_bound
-    template<typename T> static auto equal_range(const regspills &, T); // Spill map equal_range
+    template<typename T> static auto lower_bound(const regspills &, T);
+    template<typename T> static auto equal_range(const regspills &, T);
 };
 
 #endif // ARM64_H

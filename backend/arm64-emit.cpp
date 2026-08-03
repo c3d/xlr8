@@ -66,9 +66,9 @@ EMIT(end)
 {
     record(arm64_ops, "emit_end");
     hw_sys_arg_reload();
-    if (frame_entered && local_frame_size)
-        record(arm64_error, "Missing 'leave' before 'end', frame size %u",
-               local_frame_size);
+    if (pre_enter_frame_size)
+        record(arm64_error, "Missing 'leave' before 'end', frame sizes %u / %u",
+               local_frame_size, pre_enter_frame_size);
     if (num_functions == 0)
         emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
     emit32le(ret_insn());
@@ -189,7 +189,7 @@ EMIT(call)
 {
     record(arm64_ops, "emit_call %llu", e.tok);
     hw_sys_arg_reload();
-    bool save_lr = !frame_entered;
+    bool save_lr = !pre_enter_frame_size;
     if (save_lr)
         emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
     hwcode_t site = emit_bl_rel();
@@ -226,7 +226,7 @@ EMIT(icall)
     syscall(reinterpret_cast<void (*)()>(xlr8_jit_addr));
     emit32le(mov_rr(HW_SCRATCH, HW_X0));
     hw_sys_arg_reload();
-    bool save_lr = !frame_entered;
+    bool save_lr = !pre_enter_frame_size;
     if (save_lr)
         emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
     emit32le(blr(xn(HW_SCRATCH)));
@@ -280,11 +280,11 @@ EMIT(enter)
 
     uint frame = e.dst + 1;
     // Implicit DEFAULT_FRAME_SIZE from begin_translation may be replaced once.
-    if (frame_entered)
+    if (pre_enter_frame_size)
         record(arm64_error, "Enter called twice in a function, %u after %u",
                frame, local_frame_size);
-    frame_entered    = true;
-    local_frame_size = frame;
+    pre_enter_frame_size = local_frame_size;
+    local_frame_size     = frame;
     frame_size(frame);
     emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
     emit32le(mov_rr(HW_FRAME, HW_SP));
@@ -337,8 +337,8 @@ EMIT(leave)
     emit32le(mov_rr(HW_SP, HW_FRAME));
     emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
 
-    local_frame_size = 0;
-    frame_entered    = false;
+    local_frame_size     = pre_enter_frame_size;
+    pre_enter_frame_size = 0;
 }
 
 
@@ -391,6 +391,7 @@ EMIT(push)
 //   Emit bytecode for the push opcode
 // ----------------------------------------------------------------------------
 {
+    hw_sys_arg_reload();
     arm64reg_t sr  = hw_local(e.src);
     record(arm64_ops, "emit_push %u reg %u", e.src, sr);
     emit_push(sr);
@@ -402,6 +403,7 @@ EMIT(pop)
 //   Emit bytecode for the pop opcode
 // ----------------------------------------------------------------------------
 {
+    hw_sys_arg_reload();
     arm64reg_t dr  = hw_dst_local(e.dst);
     record(arm64_ops, "emit_pop %u reg %u", e.dst, dr);
     emit_pop(dr);
@@ -1454,6 +1456,8 @@ SYS(alloca)
 //   Allocate stack space and return pointer
 // ----------------------------------------------------------------------------
 {
+    hw_sys_arg_reload();
+
     int64_t bytes = int64_t(e.kint);
     if (bytes > 0)
         bytes = (bytes + 15) & ~int64_t(15);
@@ -1473,7 +1477,7 @@ SYS(alloca)
         set_imm(HW_SCRATCH, uint64_t(bytes));
         emit32le(mov_rr(HW_X24, HW_SP));
         emit32le(sub_rrr(xn(HW_X24), xn(HW_X24), xn(HW_SCRATCH)));
-        emit32le(mov_rr(HW_SP, HW_X17));
+        emit32le(mov_rr(HW_SP, HW_X24));
     }
     MOVX(XO(e.dst), HW_SP);
 }
@@ -1483,6 +1487,8 @@ SYS(valloca)
 //   Allocate variable-size stack space, return pointer
 // ----------------------------------------------------------------------------
 {
+    hw_sys_arg_reload();
+
     // size = (size > 0 ? size + 15 : size) & ~15
     arm64reg_t a = HW_SCRATCH;
     arm64reg_t b = HW_X26;

@@ -53,7 +53,7 @@ arm64::arm64(runtime &rt)
       local_frame_size(0),
       spilled_args(0),
       num_functions(0),
-      frame_entered(false)
+      pre_enter_frame_size(0)
 {
     record(arm64, "New backend arch=%+s", arch_name(ARCH_ARM64));
 }
@@ -349,14 +349,16 @@ void arm64::begin_translation()
     record(arm64, "begin_translation callee=%u", callee_entry);
     backend::begin_translation();
     spilled_args  = 0;
-    frame_entered = false;
+    pre_enter_frame_size = 0;
 
-    // Logical 8-slot frame for spill/respill until bytecode enter says otherwise.
+    // Logical 8-slot frame for spill/respill until 'enter' says otherwise.
     // Top-level also saves FP/LR once for the invoke wrapper; callees keep the
     // return address in x30 and preserve it via the C-call spill area.
-    local_frame_size = DEFAULT_FRAME_SIZE;
     if (num_functions == 0)
+    {
+        local_frame_size = DEFAULT_FRAME_SIZE;
         emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
+    }
 }
 
 
@@ -1423,7 +1425,7 @@ void arm64::call_ptr(void (*fn)())
 {
     record(arm64, "call_ptr %p", fn);
     // Bytecode enter keeps LR in the frame; the implicit 8-slot frame does not.
-    bool save_lr = !frame_entered;
+    bool save_lr = !pre_enter_frame_size;
     if (save_lr)
         emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
     set_imm(HW_SCRATCH, uint64_t(fn));
