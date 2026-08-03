@@ -1437,25 +1437,59 @@ void arm64::call_ptr(void (*fn)())
 
 void arm64::invoke(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
-//   Jump to generated AArch64 code; x29 = initial frame, x22 = flags
+//   Jump to generated AArch64 code; x29 = initial frame, x28 = flags
 // ----------------------------------------------------------------------------
+//   Direct-mapped locals live in x0–x7.  Copy them from rt.frame on entry and
+//   write them back on exit so successive run_native() calls share the outer
+//   interpreter frame (see tests/bytecode/repeated-execution.xlr8).  x29 still
+//   points at a scratch JIT frame — interpreter locals grow up from rt.frame,
+//   while local_disp grows down from FP.
 {
 #if defined(__aarch64__)
     alignas(16) ularge_t initial_frame[DEFAULT_FRAME_SIZE + 2];
-    stack_p              frame = initial_jit_fp(initial_frame);
-    uint64_t             flags = rt.flags;
-    // x29 is a reserved register on Darwin — save/restore it in the asm
-    // rather than listing it as a clobber.
+    stack_p              frame     = initial_jit_fp(initial_frame);
+    ularge_t            *locals    = rt.frame;
+    uint64_t            *flags_ptr = &rt.flags;
+
+    // Keep locals / flags / code in x19–x21 across blr.  Those are saved on
+    // the stack first so we do not depend on the compiler's clobber set (which
+    // ran out of registers when every call-clobbered GPR was listed).
+    // Spill every input to the stack before loading x19–x21/x29.  Otherwise the
+    // compiler may allocate %[code]/%[frame] onto those same registers and our
+    // movs destroy them (blr then jumps at rt.frame).
     asm volatile(
-        "stp x29, lr, [sp, #-16]!\n\t"
-        "mov x29, %0\n\t"
-        "mov x28, %1\n\t"
-        "mov x16, %2\n\t"
-        "blr x16\n\t"
-        "ldp x29, lr, [sp], #16"
+        "stp x29, lr, [sp, #-80]!\n\t"
+        "stp x19, x20, [sp, #16]\n\t"
+        "stp x21, x28, [sp, #32]\n\t"
+        "str %[locals], [sp, #48]\n\t"
+        "str %[flags_ptr], [sp, #56]\n\t"
+        "str %[code], [sp, #64]\n\t"
+        "str %[frame], [sp, #72]\n\t"
+        "ldp x19, x20, [sp, #48]\n\t"
+        "ldp x21, x29, [sp, #64]\n\t"
+        "ldp x0, x1, [x19]\n\t"
+        "ldp x2, x3, [x19, #16]\n\t"
+        "ldp x4, x5, [x19, #32]\n\t"
+        "ldp x6, x7, [x19, #48]\n\t"
+        "ldr x28, [x20]\n\t"
+        "blr x21\n\t"
+        "ldp x19, x20, [sp, #48]\n\t"
+        "stp x0, x1, [x19]\n\t"
+        "stp x2, x3, [x19, #16]\n\t"
+        "stp x4, x5, [x19, #32]\n\t"
+        "stp x6, x7, [x19, #48]\n\t"
+        "str x28, [x20]\n\t"
+        "ldp x21, x28, [sp, #32]\n\t"
+        "ldp x19, x20, [sp, #16]\n\t"
+        "ldp x29, lr, [sp], #80"
         :
-        : "r"(frame), "r"(flags), "r"(code)
-        : "x16", "x22", "x30", "memory", "cc");
+        : [frame] "r"(frame),
+          [locals] "r"(locals),
+          [flags_ptr] "r"(flags_ptr),
+          [code] "r"(code)
+        : "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7",
+          "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15",
+          "x16", "x17", "memory", "cc");
 #else
     (void) code;
     rt.error("Cannot invoke AArch64 JIT on this host");
