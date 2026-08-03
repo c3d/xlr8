@@ -65,9 +65,10 @@ declarations.  This is clean and prevents signature drift.
 
 **ABI / shadow overlap (important for sys and C helpers):**
 
-- **arm64**: locals 0–1 are also AAPCS argument registers (x0–x1).  Locals
-  0–15 are caller-saved; every `rtcall` must spill/reload (or otherwise
-  preserve) live shadows.
+- **arm64**: locals 0…8 live in callee-saved `x19`…`x27`; locals 9…23 in
+  caller-saved `x0`…`x14`.  C/`sys` spills only `x0`–`x18`; typical frames
+  need no spill.  Bytecode `call` keeps args in local homes; `enter`/`leave`
+  save/restore `iorder[i]` (not physical `xi`).
 - **riscv64**: locals 0–7 are a0–a7 (`x10`–`x17`) by design.  JIT code is not
   a normal RV callee: helpers clobber those registers, so paths like
   `emit_sys`, `push_local`/`pop_local`, and `reload_flags_reg` must restore

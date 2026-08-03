@@ -33,33 +33,25 @@
 //  REGISTER ALLOCATION CONVENTIONS (AArch64) — direct mapping
 //  ===========================================================================
 //
-//  Map hardware registers X0-X23 to logical registers 0-23,
-//  except X18 on macOS which the kernel stupidly may corrupt (!!!)
+//  Bytecode locals map to GPRs in callee-saved-first order so typical frames
+//  (locals 0…8) survive C/`sys` calls without spill/fill:
 //
-//  Since the live value is in the register, the spill area 0-23 is for the
-//  caller's value, while 24+ is for the current value.
-//  This means that reading args 0-23 can be done directly from the frame,
-//  whereas other args need to "unframe" and read from parent's frame.
+//    local 0…8   →  x19…x27   (callee-saved)
+//    local 9…23  →  x0…x14    (caller-saved / AAPCS64 args+temps)
 //
-//  Calling C code requires special handling because C clobbers X0-X19.
+//  x15 is scratch; x16–x18 are overflow temps (high locals); x18 also
+//  reserved (kernel-trashed on macOS).  x28 = flags, x29 = frame, x30 = LR.
 //
-//  Registers above 24 (and 18 on
-//  Locals use [x29 - (local+1)*8]; x29 is adjusted by op_enter and op_leave.
-//  Bytecode local n maps to hardware register x0+n (n < 24) so recursive
-//  calls keep args/returns in AAPCS64 registers without spill_all.
-//  Float/double local n maps to v0+n (n < 12); overflow uses x24–x27 / v12+.
-//  get/set walk the parent frame via [x29]; see local_disp / arg_disp.
+//  Since the live value is in the register, frame slots 0–23 hold the
+//  *caller's* local homes (iorder[i], not physical xi) around enter/leave;
+//  get/set read/write those slots.  Bytecode `call` passes args in-place in
+//  local homes; only C/`sys` uses AAPCS64 x0–x7.
 //
-//  Register map:
+//  Calling C spills durable homes x0–x14 (HW_SPILL) only.  Temps are written
+//  back to the bytecode frame before blr; locals 0…8 in x19–x27 need no spill.
 //
-//    Frame pointer     x29 (HW_FRAME)   Native FP for locals / args
-//    Link register     x30 (HW_LR)      Saved with FP on enter
-//    Flags/predicates  x28 (HW_FLAGS)   64-bit predicate bits
-//    Scratch           x27 (HW_SCRATCH) Temps / large offsets / call targets
-//    Direct GPRs       x0–x23           local n ↔ xn (call-clobbered + saved)
-//    Overflow temps    x24–x27          spilled in register_sync
-//    FP banks          v0–v11           RSPEC_FLT / RSPEC_DBL direct map
-//    Stack pointer     sp              native stack
+//  Float/double local n maps to v0+n (n < 12) transiently; register_sync
+//  moves bits back to the local's durable X home (iorder[n]).
 //
 //  Spec: docs/superpowers/specs/2026-07-27-register-allocation-direct-mapping.md
 //
@@ -96,7 +88,7 @@ protected:
     //    Hardware register names for AArch64
     // ------------------------------------------------------------------------
     {
-        HW_X0,
+        HW_X0, // First 1-1 caller-saved mapped register, local 9
         HW_X1,
         HW_X2,
         HW_X3,
@@ -110,20 +102,20 @@ protected:
         HW_X11,
         HW_X12,
         HW_X13,
-        HW_X14,
-        HW_X15,
-        HW_X16,
-        HW_X17,
-        HW_X18,
-        HW_X19,
+        HW_X14, // Last 1-1 caller-saved mapped regiser, local 23
+        HW_X15, // Scratch 0
+        HW_X16, // Scratch 1
+        HW_X17, // Scratch 2
+        HW_X18, // Scratch 3 / Reserved (kernel-trashed on macOS)
+        HW_X19, // First 1-1 callee-saved mapped register, local 0
         HW_X20,
         HW_X21,
         HW_X22,
-        HW_X23, // Last register mapped 1-1 on locals
-        HW_X24, // Used for locals above 24
+        HW_X23,
+        HW_X24,
         HW_X25,
         HW_X26,
-        HW_X27, // Scratch
+        HW_X27, // Last 1-1 callee-saved mapped, local 8
         HW_X28, // Flags
         HW_X29, // Frame pointer
         HW_X30, // Link register
@@ -166,24 +158,27 @@ protected:
         HW_COUNT,
 
         HW_ARGS      = 8,
-        HW_CLOBBERED = 19, // X0-X18 are call-cloberred registers in AAPCS64
+        HW_CLOBBERED = 19, // AAPCS64: x0–x18 are call-clobbered
+        HW_SPILL     = 15, // x0–x14 inclusive
         HW_SHADOWS   = 24,
         HW_FSHADOWS  = 12,
-        HW_TEMPS     = 4,
+        HW_TEMPS     = 3,  // X16–X18 only (X15=scratch; X19+=locals 0…)
 
         HW_RESERVED  = HW_X18,
-        HW_TEMP0     = HW_X24,
+        HW_TEMP0     = HW_X16,
         HW_FTEMP0    = HW_V12F,
         HW_DTEMP0    = HW_V12D,
-        HW_SCRATCH   = HW_X27,
+        HW_SCRATCH   = HW_X15,
         HW_FLAGS     = HW_X28,
         HW_FRAME     = HW_X29,
         HW_LR        = HW_X30,
         HW_NONE      = 0,
     };
 
-    // AArch64 condition codes (B.cond / CSET)
     enum cond_t : byte
+    // ------------------------------------------------------------------------
+    // AArch64 condition codes (B.cond / CSET)
+    // ------------------------------------------------------------------------
     {
         COND_EQ = 0,
         COND_NE = 1,
@@ -215,21 +210,106 @@ protected:
         return arm64reg_t(r);
     }
 
-    bool hw_is_shadow(hwreg_t r)
+    static arm64reg_t hw_int_order(local_t loc)
     // ------------------------------------------------------------------------
-    //   Check if a register is holds a logical register directly
+    //   Register direct map for integer shadow registers
     // ------------------------------------------------------------------------
     {
-        return r < HW_X24 && r != HW_X18;
+        static const arm64reg_t iorder[] =
+        {
+            HW_X19, // First 1-1 callee-saved mapped register, local 0
+            HW_X20,
+            HW_X21,
+            HW_X22,
+            HW_X23,
+            HW_X24,
+            HW_X25,
+            HW_X26,
+            HW_X27, // Last 1-1 callee-saved mapped, local 8
+
+            HW_X0, // First 1-1 caller-saved mapped register, local 9
+            HW_X1,
+            HW_X2,
+            HW_X3,
+            HW_X4,
+            HW_X5,
+            HW_X6,
+            HW_X7,
+            HW_X8,
+            HW_X9,
+            HW_X10,
+            HW_X11,
+            HW_X12,
+            HW_X13,
+            HW_X14, // Last 1-1 caller-saved mapped regiser, local 23
+        };
+        static_assert(sizeof(iorder) / sizeof(iorder[0]) == HW_SHADOWS);
+        if (loc >= HW_SHADOWS)
+        {
+            record(arm64_error, "hw_int_order local %u out of range", loc);
+            return HW_X19;
+        }
+        return iorder[loc];
     }
 
-    bool hw_is_arg(hwreg_t r)
+    static arm64reg_t hw_flt_order(local_t loc)
     // ------------------------------------------------------------------------
-    //   Check if a register is holds a logical register directly
+    //    Register direct map for float shadow registers
     // ------------------------------------------------------------------------
     {
-        return r < HW_X8;
+        static const arm64reg_t forder[] =
+        {
+            HW_V0F,
+            HW_V1F,
+            HW_V2F,
+            HW_V3F,
+            HW_V4F,
+            HW_V5F,
+            HW_V6F,
+            HW_V7F,
+            HW_V8F,
+            HW_V9F,
+            HW_V10F,
+            HW_V11F,
+        };
+        static_assert(sizeof(forder) / sizeof(forder[0]) == HW_FSHADOWS);
+        if (loc >= HW_FSHADOWS)
+        {
+            record(arm64_error, "hw_flt_order local %u out of range", loc);
+            return HW_V12F;
+        }
+        return forder[loc];
     }
+
+    static arm64reg_t hw_dbl_order(local_t loc)
+    // ------------------------------------------------------------------------
+    //    Register direct map for double shadow registers
+    // ------------------------------------------------------------------------
+    {
+        static const arm64reg_t dorder[] =
+        {
+            HW_V0D,
+            HW_V1D,
+            HW_V2D,
+            HW_V3D,
+            HW_V4D,
+            HW_V5D,
+            HW_V6D,
+            HW_V7D,
+            HW_V8D,
+            HW_V9D,
+            HW_V10D,
+            HW_V11D,
+        };
+        static_assert(sizeof(dorder) / sizeof(dorder[0]) == HW_FSHADOWS);
+        if (loc >= HW_FSHADOWS)
+        {
+            record(arm64_error, "hw_dbl_order local %u out of range", loc);
+            return HW_V12D;
+        }
+        return dorder[loc];
+    }
+
 
     arm64reg_t hw_local(local_t loc, hwspec_t spec = RSPEC_INT)
     // ------------------------------------------------------------------------
@@ -241,8 +321,14 @@ protected:
                    "Reading local %u outside of frame %u",
                    loc,
                    local_frame_size);
-        hw_sys_arg_reload(loc, true);
-        return hw(local(loc, spec, true));
+        hwreg_t r = local(loc, spec, true);
+        // Temps are filled from the bytecode frame; the C-call spill slot is
+        // not their home (unlike direct-map locals 9…23 in x0…x14).
+        if (r >= HW_TEMP0 && r < HW_TEMP0 + HW_TEMPS)
+            spilled_args &= ~(1u << r);
+        else
+            hw_sys_arg_reload(r, true);
+        return hw(r);
     }
 
     arm64reg_t hw_dst_local(local_t loc, hwspec_t spec = RSPEC_INT)
@@ -253,8 +339,9 @@ protected:
         if (loc > local_frame_size)
             record(arm64_warning, "Writing local %u outside of frame %u",
                    loc, local_frame_size);
-        hw_sys_arg_reload(loc, false);
-        return hw(local(loc, spec, false));
+        hwreg_t r = local(loc, spec, false);
+        hw_sys_arg_reload(r, false);
+        return hw(r);
     }
 
     arm64reg_t hw_rw_local(local_t loc, hwspec_t spec = RSPEC_INT)
@@ -265,10 +352,13 @@ protected:
         if (loc > local_frame_size)
             record(arm64_warning, "Updating local %u outside of frame %u",
                    loc, local_frame_size);
-        hw_sys_arg_reload(loc, true);
-        arm64reg_t result = hw(local(loc, spec, true));
-        hw_sys_arg_reload(loc, false);
-        return result;
+        hwreg_t r = local(loc, spec, true);
+        if (r >= HW_TEMP0 && r < HW_TEMP0 + HW_TEMPS)
+            spilled_args &= ~(1u << r);
+        else
+            hw_sys_arg_reload(r, true);
+        hw_sys_arg_reload(r, false);
+        return hw(r);
     }
 
     arm64reg_t hw_sys_arg(uint arg, local_t loc)
@@ -277,13 +367,27 @@ protected:
     // ------------------------------------------------------------------------
     {
         assert(arg < HW_ARGS);
-        arm64reg_t src = hw(local(loc, RSPEC_INT, false));
+        // ld=true: overflow locals live in temps and must be filled from the
+        // frame; direct-map locals (0…23) already match and skip the load.
+        arm64reg_t src = hw(local(loc, RSPEC_INT, true));
         arm64reg_t dst = arm64reg_t(HW_X0 + arg);
         hw_sys_arg_spill(dst);
-        if (src < HW_CLOBBERED && (spilled_args & (1<<src)))
-            emit_load_off(dst, HW_SP, int(src)*sizeof(ularge_t));
+        if (src >= HW_TEMP0 && src < HW_TEMP0 + HW_TEMPS)
+        {
+            // Frame fill is authoritative; do not use the stale C-spill slot.
+            spilled_args &= ~(1u << src);
+            if (dst != src)
+                move(dst, src);
+        }
+        else if (src < HW_SPILL && (spilled_args & (1 << src)))
+        {
+            // Direct-map local whose durable home is still in the C spill area
+            emit_load_off(dst, HW_SP, int(src) * sizeof(ularge_t));
+        }
         else if (dst != src)
+        {
             move(dst, src);
+        }
         return dst;
     }
 
@@ -317,7 +421,7 @@ protected:
     {
         if (!spilled_args)
             hw_sys_arg_spill();
-        if (r < HW_CLOBBERED && ~spilled_args & (1 << r))
+        if (r < HW_SPILL && ~spilled_args & (1 << r))
         {
             emit_store_off(HW_SP, arm64reg_t(r), r * sizeof(ularge_t));
             spilled_args |= 1 << r;
@@ -326,33 +430,32 @@ protected:
 
     void hw_sys_arg_spill()
     // ------------------------------------------------------------------------
-    //   Spill registers that may be clobbered by C calls
+    //   Spill durable caller-saved local homes (x0–x14) before a C call
     // ------------------------------------------------------------------------
+    //   Slot index = physical register number.  Scratch x15 and temps x16–x18
+    //   are not preserved here — temps are frame-synced before blr.  HW_SPILL
+    //   is odd (15): pairs cover x0–x13, x14 alone.  Never touch x19 (local 0).
     {
-        // Reserve space for 32 registers
         emit32le(sub_imm(HW_SP, HW_SP, 32 * sizeof(ularge_t)));
-        uint frame = local_frame_size;
-        if (frame > HW_CLOBBERED)
-            frame = HW_CLOBBERED;
-        for (uint r = 0; r < frame; r += 2)
+        for (uint r = 0; r + 1 < HW_SPILL; r += 2)
             emit32le(stp_off(r, r + 1, HW_SP, r * sizeof(ularge_t)));
+        if (HW_SPILL & 1)
+            emit_store_off(HW_SP, arm64reg_t(HW_SPILL - 1),
+                           (HW_SPILL - 1) * sizeof(ularge_t));
         emit32le(stp_off(HW_FRAME, HW_LR, HW_SP, HW_FRAME * sizeof(ularge_t)));
-        spilled_args |= (1 << ((frame+1) & ~1)) - 1;
-        spilled_args |= (3 << HW_FRAME);
+        spilled_args  = (1u << HW_SPILL) - 1u;
+        spilled_args |= (3u << HW_FRAME);
     }
 
 
     void hw_sys_arg_respill()
     // ------------------------------------------------------------------------
-    //   Respill clobbered registers before overwriting them for syscall
+    //   Respill durable caller-saved homes before overwriting them for syscall
     // ------------------------------------------------------------------------
     {
         if (spilled_args)
         {
-            uint frame = local_frame_size;
-            if (frame > HW_CLOBBERED)
-                frame = HW_CLOBBERED;
-            for (uint r = 0; r < frame; r += 2)
+            for (uint r = 0; r + 1 < HW_SPILL; r += 2)
             {
                 arm64reg_t r1   = arm64reg_t(r);
                 arm64reg_t r2   = arm64reg_t(r + 1);
@@ -366,36 +469,43 @@ protected:
                 }
                 spilled_args |= 3 << r;
             }
+            if (HW_SPILL & 1)
+            {
+                uint r = HW_SPILL - 1;
+                if (~spilled_args & (1u << r))
+                {
+                    emit_store_off(HW_SP, arm64reg_t(r), r * sizeof(ularge_t));
+                    spilled_args |= 1u << r;
+                }
+            }
         }
     }
 
     void hw_sys_arg_reload(hwreg_t r, bool load)
     // ------------------------------------------------------------------------
-    //   Reload argument from the sysargs if needed
+    //   Reload one hardware register from the C-call spill area if needed
     // ------------------------------------------------------------------------
+    //   `r` is a hardware register index (not a bytecode local).
     {
-        if (r < HW_CLOBBERED && spilled_args & (1 << r))
+        if (r < HW_SPILL && spilled_args & (1 << r))
         {
-            arm64reg_t dst = arm64reg_t(HW_X0 + r);
+            arm64reg_t dst = arm64reg_t(r);
             if (load)
                 emit_load_off(dst, HW_SP, r * sizeof(ularge_t));
             else
-                // We are going to write into a a register, mark respill needed
+                // About to write the register; mark it dirty for respill
                 spilled_args &= ~(1 << r);
         }
     }
 
     void hw_sys_arg_reload()
     // ------------------------------------------------------------------------
-    //   Reload arguments we spilled before calling C code
+    //   Reload durable caller-saved homes we spilled before calling C code
     // ------------------------------------------------------------------------
     {
         if (spilled_args)
         {
-            uint frame = local_frame_size;
-            if (frame > HW_CLOBBERED)
-                frame = HW_CLOBBERED;
-            for (uint r = 0; r < frame; r += 2)
+            for (uint r = 0; r + 1 < HW_SPILL; r += 2)
             {
                 arm64reg_t r1   = arm64reg_t(r);
                 arm64reg_t r2   = arm64reg_t(r + 1);
@@ -408,10 +518,24 @@ protected:
                 case 3: emit32le(ldp_off(r1, r2, HW_SP, offs)); break;
                 }
             }
+            if (HW_SPILL & 1)
+            {
+                uint r = HW_SPILL - 1;
+                if (spilled_args & (1u << r))
+                    emit_load_off(arm64reg_t(r), HW_SP, r * sizeof(ularge_t));
+            }
             emit32le(ldp_off(HW_FRAME,HW_LR,HW_SP,HW_FRAME*sizeof(ularge_t)));
             emit32le(add_imm(HW_SP, HW_SP, 32 * sizeof(ularge_t)));
             spilled_args = 0;
         }
+    }
+
+    void hw_keep_scratch()
+    // ------------------------------------------------------------------------
+    //   Do not reload x15 over a value stashed there across spill reconcile
+    // ------------------------------------------------------------------------
+    {
+        spilled_args &= ~(1u << HW_SCRATCH);
     }
 
     uint hw_spills_at(byte_p target);
@@ -461,6 +585,7 @@ protected:
     {
         return ~n * int(sizeof(ularge_t));
     }
+
 
 
     // ========================================================================

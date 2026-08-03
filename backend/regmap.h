@@ -56,19 +56,17 @@
 //  AArch64 (arm64)
 //  ---------------------------------------------------------------------------
 //
-//     Shadow locals     x0 .. x15     frame[0] .. frame[15] when valid
-//     Frame pointer     x19           rt.frame, callee-saved, primed at entry
-//     Runtime (rsvd)    x21           &runtime, not yet loaded
-//     Saved link        x28           invoke return address (not a bytecode local)
-//     Flags/predicates  x22           rt.flags (64-bit), primed at entry
-//     Scratch value     x23           temp for swap, arithmetic, immediates
-//     Scratch address   x24           temp for address formation
-//     Scratch offset    x25           temp for indexed addressing
-//     Intra-call IP     x16           load target for call_abs (AAPCS IP0)
-//     Stack pointer     sp (x31)      native stack; bytecode stack uses frame
+//     Direct-map locals (callee-saved first):
+//       local 0…8   →  x19…x27   (survive C/`sys` without spill)
+//       local 9…23  →  x0…x14    (caller-saved; spilled around C/`sys`)
+//     Scratch           x15           HW_SCRATCH
+//     Overflow temps    x16…x18       HW_TEMP0… (x18 reserved on macOS)
+//     Flags/predicates  x28           rt.flags
+//     Frame pointer     x29           HW_FRAME; local_disp(n) = ~(n)*8
+//     Link register     x30
+//     Stack pointer     sp (x31)
 //
-//     Locals >= 16: ldr/str via [x19, #local*8] using scratch registers.
-//     x17, x18, x26-x28, x29 (FP), x30 (LR) follow the platform ABI.
+//     See docs/superpowers/specs/2026-07-27-register-allocation-direct-mapping.md
 //
 //
 //  ---------------------------------------------------------------------------

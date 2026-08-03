@@ -99,25 +99,31 @@ hwreg_t arm64::register_for(local_t loc, hwspec_t spec, bool ld)
     }
 
     // Select register range and check if we can allocate statically
-    uint first = isint ? HW_X0 : isdbl ? HW_V0D : isflt ? HW_V0F : HW_COUNT;
     uint count = isint ? HW_SHADOWS : HW_FSHADOWS;
-    uint last  = first + count;
 
     // Reserved registers (don't touch)
-    if (loc < count && loc != HW_RESERVED)
+    if (loc < count)
     {
+        arm64reg_t ir = hw_int_order(loc);
+        arm64reg_t fr = isflt ? hw_flt_order(loc)
+                      : isdbl ? hw_dbl_order(loc)
+                              : arm64reg_t(NO_REGISTER);
         if (ld)
         {
             if (isflt)
-                emit32le(fmov_s_w(loc, loc));
+                emit32le(fmov_s_w(vn(fr), xn(ir)));
             else if (isdbl)
-                emit32le(fmov_d_x(loc, loc));
+                emit32le(fmov_d_x(vn(fr), xn(ir)));
         }
-        return hwreg_t(first + loc);
+        return isint ? ir : fr;
     }
 
-    // We need a scratch register
-    for (uint tmp = last; tmp < last + HW_TEMPS; tmp++)
+    // We need a scratch register.
+    arm64reg_t temp = isint ? HW_TEMP0
+                    : isflt ? HW_FTEMP0
+                    : isdbl ? HW_DTEMP0
+                            : arm64reg_t(NO_REGISTER);
+    for (uint tmp = temp; tmp < temp + HW_TEMPS; tmp++)
     {
         local_t rloc = reg_local[tmp];
         if (rloc == NO_LOCAL || rloc == loc)
@@ -128,8 +134,11 @@ hwreg_t arm64::register_for(local_t loc, hwspec_t spec, bool ld)
         }
     }
 
-    record(arm64_error, "No register available for spec 0x%08X", spec);
-    return NO_REGISTER;
+    // All temps busy: spill the first and reuse it
+    spill(temp);
+    if (ld)
+        load(temp, loc);
+    return temp;
 }
 
 
@@ -209,7 +218,21 @@ void arm64::register_sync(byte_p pc)
     for (uint t = 0; t < HW_TEMPS; t++)
         spill(HW_TEMP0 + t) || spill(HW_DTEMP0 + t) || spill(HW_FTEMP0 + t);
 
+    // Drop any stale forward maps that still point at temps (bidirectional
+    // invariant can break if a temp is reused for another local).
+    for (local_t loc = 0; loc < local_reg.size(); loc++)
+    {
+        hwreg_t r = local_reg[loc];
+        if (r >= HW_TEMP0 && r < HW_TEMP0 + HW_TEMPS)
+            local_reg[loc] = NO_REGISTER;
+        else if (r >= HW_FTEMP0 && r < HW_FTEMP0 + HW_TEMPS)
+            local_reg[loc] = NO_REGISTER;
+        else if (r >= HW_DTEMP0 && r < HW_DTEMP0 + HW_TEMPS)
+            local_reg[loc] = NO_REGISTER;
+    }
+
     // Move floating point values back into X registers (durable home).
+    // Durable home is iorder[loc], not x0+loc.
     for (int sz = 0; sz < 2; sz++)
     {
         hwreg_t base = sz ? HW_V0D : HW_V0F;
@@ -218,10 +241,20 @@ void arm64::register_sync(byte_p pc)
             local_t loc = reg_local[base + fp];
             if (loc != NO_LOCAL)
             {
-                emit32le(sz ? fmov_x_d(fp, fp) : fmov_w_s(fp, fp));
-                local_reg[loc]        = HW_X0 + fp;
-                reg_local[HW_X0 + fp] = loc;
-                reg_local[base + fp]  = NO_LOCAL;
+                if (loc >= HW_SHADOWS)
+                {
+                    // High local: keep bits in a temp X, then spill below
+                    arm64reg_t tmp = HW_TEMP0;
+                    emit32le(sz ? fmov_x_d(xn(tmp), fp) : fmov_w_s(xn(tmp), fp));
+                    store(loc, tmp);
+                    reg_local[base + fp] = NO_LOCAL;
+                    continue;
+                }
+                arm64reg_t home = hw_int_order(loc);
+                emit32le(sz ? fmov_x_d(xn(home), fp) : fmov_w_s(xn(home), fp));
+                local_reg[loc]     = home;
+                reg_local[home]    = loc;
+                reg_local[base + fp] = NO_LOCAL;
             }
         }
     }
@@ -255,10 +288,7 @@ void arm64::hw_sys_arg_reload(byte_p target)
     uint diffs = dspill ^ cspill;
     if (diffs)
     {
-        uint frame = local_frame_size;
-        if (frame > HW_CLOBBERED)
-            frame = HW_CLOBBERED;
-        for (uint r = 0; r < frame; r += 2)
+        for (uint r = 0; r + 1 < HW_SPILL; r += 2)
         {
             arm64reg_t r1   = arm64reg_t(r);
             arm64reg_t r2   = arm64reg_t(r + 1);
@@ -306,6 +336,17 @@ void arm64::hw_sys_arg_reload(byte_p target)
                     emit_store_off(HW_SP, r2, offs+8);
                 }
                 break;
+            }
+        }
+        if (HW_SPILL & 1)
+        {
+            uint r = HW_SPILL - 1;
+            if ((diffs >> r) & 1)
+            {
+                if ((dspill >> r) & 1)
+                    emit_store_off(HW_SP, arm64reg_t(r), r * sizeof(ularge_t));
+                else
+                    emit_load_off(arm64reg_t(r), HW_SP, r * sizeof(ularge_t));
             }
         }
 
@@ -461,9 +502,15 @@ void arm64::call(void (*target)())
 
 void arm64::syscall(void (*target)())
 // ----------------------------------------------------------------------------
-//   Spill all locals then call a runtime helper
+//   Spill overflow temps to the frame, then call a runtime helper
+// ----------------------------------------------------------------------------
+//   High locals live in x16–x18.  Those are AAPCS64 call-clobbered, so any
+//   live temp→local mapping must be written back before blr; otherwise the
+//   post-opcode register_sync would store garbage into the frame.
 // ----------------------------------------------------------------------------
 {
+    for (uint t = 0; t < HW_TEMPS; t++)
+        spill(HW_TEMP0 + t) || spill(HW_DTEMP0 + t) || spill(HW_FTEMP0 + t);
     record(arm64, "syscall %p", target);
     call_ptr(target);
 }
@@ -568,12 +615,12 @@ arm64::reginfo arm64::register_definition(hwreg_t reg) const
 //   Return the register specification flags for AArch64
 // ----------------------------------------------------------------------------
 {
-    // Direct map: local n ↔ xn / vn (see register_for). RSPEC_ARG marks
-    // AAPCS64 arg/return regs; RSPEC_CALL marks callee-saved. Scratch x27 and
-    // flags x28 remain named roles but still appear in the table for dumps.
+    // Direct map: local n ↔ iorder[n] / vn (see register_for). RSPEC_ARG marks
+    // AAPCS64 arg/return regs (also homes for locals 9–16); RSPEC_CALL marks
+    // callee-saved (homes for locals 0–8). Flags x28 remain a named role.
     // x29 FRAME, x30 LR, sp: not allocatable (spec 0).
     static const reginfo arm64_registers[arm64::HW_COUNT] = {
-        // x0–x7: AAPCS64 args/return — also direct homes for locals 0–7.
+        // x0–x7: AAPCS64 args/return; also homes for locals 9–16.
         {   "x0",  RSPEC_ARG | RSPEC_INT },
         {   "x1",  RSPEC_ARG | RSPEC_INT },
         {   "x2",  RSPEC_ARG | RSPEC_INT },
@@ -582,26 +629,26 @@ arm64::reginfo arm64::register_definition(hwreg_t reg) const
         {   "x5",  RSPEC_ARG | RSPEC_INT },
         {   "x6",  RSPEC_ARG | RSPEC_INT },
         {   "x7",  RSPEC_ARG | RSPEC_INT },
-        {   "x8",              RSPEC_INT },
+        {   "x8",              RSPEC_INT }, // locals 17…
         {   "x9",              RSPEC_INT },
         {  "x10",              RSPEC_INT },
         {  "x11",              RSPEC_INT },
         {  "x12",              RSPEC_INT },
         {  "x13",              RSPEC_INT },
-        {  "x14",              RSPEC_INT },
-        {  "x15",              RSPEC_INT },
-        {  "x16",              RSPEC_INT },
+        {  "x14",              RSPEC_INT }, // local 23
+        {  "x15",              RSPEC_INT }, // HW_SCRATCH
+        {  "x16",              RSPEC_INT }, // HW_TEMP0
         {  "x17",              RSPEC_INT },
-        {  "x18",              RSPEC_INT },
-        {  "x19", RSPEC_CALL | RSPEC_INT },
+        {  "x18",              RSPEC_INT }, // reserved
+        {  "x19", RSPEC_CALL | RSPEC_INT }, // local 0
         {  "x20", RSPEC_CALL | RSPEC_INT },
         {  "x21", RSPEC_CALL | RSPEC_INT },
         {  "x22", RSPEC_CALL | RSPEC_INT },
         {  "x23", RSPEC_CALL | RSPEC_INT },
-        {  "x24", RSPEC_CALL | RSPEC_INT }, // HW_NONLOCAL
+        {  "x24", RSPEC_CALL | RSPEC_INT },
         {  "x25", RSPEC_CALL | RSPEC_INT },
         {  "x26", RSPEC_CALL | RSPEC_INT },
-        {  "x27", RSPEC_CALL | RSPEC_INT }, // HW_SCRATCH
+        {  "x27", RSPEC_CALL | RSPEC_INT }, // local 8
         {  "x28", RSPEC_CALL | RSPEC_INT }, // HW_FLAGS
         {  "x29",                      0 }, // HW_FRAME
         {  "x30",                      0 }, // HW_LR
@@ -1439,8 +1486,8 @@ void arm64::invoke(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
 //   Jump to generated AArch64 code; x29 = initial frame, x28 = flags
 // ----------------------------------------------------------------------------
-//   Direct-mapped locals live in x0–x7.  Copy them from rt.frame on entry and
-//   write them back on exit so successive run_native() calls share the outer
+//   Locals 0…7 live in x19…x26.  Copy them from rt.frame on entry and write
+//   them back on exit so successive run_native() calls share the outer
 //   interpreter frame (see tests/bytecode/repeated-execution.xlr8).  x29 still
 //   points at a scratch JIT frame — interpreter locals grow up from rt.frame,
 //   while local_disp grows down from FP.
@@ -1451,37 +1498,46 @@ void arm64::invoke(runtime &rt, void *code)
     ularge_t            *locals    = rt.frame;
     uint64_t            *flags_ptr = &rt.flags;
 
-    // Keep locals / flags / code in x19–x21 across blr.  Those are saved on
-    // the stack first so we do not depend on the compiler's clobber set (which
-    // ran out of registers when every call-clobbered GPR was listed).
-    // Spill every input to the stack before loading x19–x21/x29.  Otherwise the
-    // compiler may allocate %[code]/%[frame] onto those same registers and our
-    // movs destroy them (blr then jumps at rt.frame).
+    // Save callee-saved regs we touch (x19–x26, x28) plus LR/FP, and stash
+    // the C++ pointers so they survive loading locals into x19+.
+    // Layout (128 bytes):
+    //   [0]=x29,[8]=lr, [16]=x19,[24]=x20, [32]=x21,[40]=x28,
+    //   [48]=x22,[56]=x23, [64]=x24,[72]=x25, [80]=x26,[88]=pad,
+    //   [96]=locals*,[104]=flags*, [112]=code,[120]=frame
     asm volatile(
-        "stp x29, lr, [sp, #-80]!\n\t"
+        "stp x29, lr, [sp, #-128]!\n\t"
         "stp x19, x20, [sp, #16]\n\t"
         "stp x21, x28, [sp, #32]\n\t"
-        "str %[locals], [sp, #48]\n\t"
-        "str %[flags_ptr], [sp, #56]\n\t"
-        "str %[code], [sp, #64]\n\t"
-        "str %[frame], [sp, #72]\n\t"
-        "ldp x19, x20, [sp, #48]\n\t"
-        "ldp x21, x29, [sp, #64]\n\t"
-        "ldp x0, x1, [x19]\n\t"
-        "ldp x2, x3, [x19, #16]\n\t"
-        "ldp x4, x5, [x19, #32]\n\t"
-        "ldp x6, x7, [x19, #48]\n\t"
-        "ldr x28, [x20]\n\t"
-        "blr x21\n\t"
-        "ldp x19, x20, [sp, #48]\n\t"
-        "stp x0, x1, [x19]\n\t"
-        "stp x2, x3, [x19, #16]\n\t"
-        "stp x4, x5, [x19, #32]\n\t"
-        "stp x6, x7, [x19, #48]\n\t"
-        "str x28, [x20]\n\t"
+        "stp x22, x23, [sp, #48]\n\t"
+        "stp x24, x25, [sp, #64]\n\t"
+        "str x26, [sp, #80]\n\t"
+        "str %[locals], [sp, #96]\n\t"
+        "str %[flags_ptr], [sp, #104]\n\t"
+        "str %[code], [sp, #112]\n\t"
+        "str %[frame], [sp, #120]\n\t"
+        "ldr x16, [sp, #96]\n\t"
+        "ldr x17, [sp, #104]\n\t"
+        "ldr x29, [sp, #120]\n\t"
+        "ldp x19, x20, [x16]\n\t"
+        "ldp x21, x22, [x16, #16]\n\t"
+        "ldp x23, x24, [x16, #32]\n\t"
+        "ldp x25, x26, [x16, #48]\n\t"
+        "ldr x28, [x17]\n\t"
+        "ldr x16, [sp, #112]\n\t"
+        "blr x16\n\t"
+        "ldr x16, [sp, #96]\n\t"
+        "ldr x17, [sp, #104]\n\t"
+        "stp x19, x20, [x16]\n\t"
+        "stp x21, x22, [x16, #16]\n\t"
+        "stp x23, x24, [x16, #32]\n\t"
+        "stp x25, x26, [x16, #48]\n\t"
+        "str x28, [x17]\n\t"
+        "ldr x26, [sp, #80]\n\t"
+        "ldp x24, x25, [sp, #64]\n\t"
+        "ldp x22, x23, [sp, #48]\n\t"
         "ldp x21, x28, [sp, #32]\n\t"
         "ldp x19, x20, [sp, #16]\n\t"
-        "ldp x29, lr, [sp], #80"
+        "ldp x29, lr, [sp], #128"
         :
         : [frame] "r"(frame),
           [locals] "r"(locals),

@@ -605,17 +605,23 @@ hwreg_t backend::local(local_t loc, hwspec_t spec, bool ld)
     if (reg != NO_REGISTER)
     {
         assert(reg < reg_local.size() && "Register beyound hardware count");
-        assert(reg_local[reg] == loc &&
-               "Inconsistent register <-> local mapping");
-        if (register_matches(reg, spec))
+        if (reg_local[reg] == loc && register_matches(reg, spec))
             return reg;
-        spill(reg);
+        // Stale or wrong-type forward map — drop it (and reverse if still ours)
+        if (reg_local[reg] == loc)
+            spill(reg);
+        else
+            local_reg[loc] = NO_REGISTER;
     }
 
     // Find the matching register
     reg = register_for(loc, spec, ld);
     if (reg != NO_REGISTER)
     {
+        // Drop any other local that still claims this hardware register
+        local_t other = reg_local[reg];
+        if (other != NO_LOCAL && other != loc && other < local_reg.size())
+            local_reg[other] = NO_REGISTER;
         local_reg[loc] = reg;
         reg_local[reg] = loc;
         return reg;
@@ -632,6 +638,15 @@ void backend::saved(local_t loc, hwreg_t reg)
 //   After a store, record where we saved a given register
 // ----------------------------------------------------------------------------
 {
+    if (loc >= local_reg.size())
+        local_reg.resize(loc + 1, NO_REGISTER);
+    // Clear previous owners of this local / register
+    hwreg_t old = local_reg[loc];
+    if (old != NO_REGISTER && old < reg_local.size() && reg_local[old] == loc)
+        reg_local[old] = NO_LOCAL;
+    local_t other = (reg < reg_local.size()) ? reg_local[reg] : NO_LOCAL;
+    if (other != NO_LOCAL && other != loc && other < local_reg.size())
+        local_reg[other] = NO_REGISTER;
     reg_local[reg] = loc;
     local_reg[loc] = reg;
 }

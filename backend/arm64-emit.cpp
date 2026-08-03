@@ -197,14 +197,15 @@ EMIT(jmp)
 
 EMIT(call)
 // ----------------------------------------------------------------------------
-//   Emit bytecode for the call opcode (AAPCS64 / host ABI)
+//   Emit bytecode for the call opcode
 // ----------------------------------------------------------------------------
-//   Place live locals 0..7 in x0–x7, and preserve local size across call.
-//   Without bytecode enter, LR is not saved in a frame — save it around bl.
-//   (Implicit DEFAULT_FRAME_SIZE alone is only for spill/respill.)
+//   XLR8-to-XLR8 calls pass arguments in local homes (iorder), not AAPCS64
+//   x0–x7.  Callee enter/leave saves and restores those homes.  Without
+//   bytecode enter, LR is not in a frame — save it around bl.
 {
     record(arm64_ops, "emit_call %llu", e.tok);
     hw_sys_arg_reload();
+
     bool save_lr = !pre_enter_frame_size;
     if (save_lr)
         emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
@@ -213,7 +214,6 @@ EMIT(call)
     if (save_lr)
         emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
 }
-
 
 
 EMIT(ijmp)
@@ -225,7 +225,9 @@ EMIT(ijmp)
     hw_sys_arg_reload();
     hw_sys_arg(0, e.src);
     syscall(reinterpret_cast<void (*)()>(xlr8_jit_addr));
+    // JIT address in x0 — park in x15; do not let spill reload clobber it.
     emit32le(mov_rr(HW_SCRATCH, HW_X0));
+    hw_keep_scratch();
     hw_sys_arg_reload();
     emit32le(br(xn(HW_SCRATCH)));
 }
@@ -241,6 +243,7 @@ EMIT(icall)
     hw_sys_arg(0, e.src);
     syscall(reinterpret_cast<void (*)()>(xlr8_jit_addr));
     emit32le(mov_rr(HW_SCRATCH, HW_X0));
+    hw_keep_scratch();
     hw_sys_arg_reload();
     bool save_lr = !pre_enter_frame_size;
     if (save_lr)
@@ -255,8 +258,13 @@ EMIT(ret)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ret opcode
 // ----------------------------------------------------------------------------
+//   Local 0 is the XLR8 return value (already in iorder[0]).  Also mirror it
+//   into x0 for AAPCS64 / any host that inspects the C return register.
 {
     hw_sys_arg_reload();
+    arm64reg_t src = hw_int_order(0);
+    if (src != HW_X0 && local_frame_size > 0)
+        emit32le(mov_rr(HW_X0, src));
     emit32le(ret_insn());
 }
 
@@ -305,13 +313,15 @@ EMIT(enter)
     emit32le(stp_pre(HW_FRAME, HW_LR, HW_SP, -16));
     emit32le(mov_rr(HW_FRAME, HW_SP));
 
-    // Save the caller's registers we may otherwise clobber
+    // Save the caller's local homes (iorder), not physical x0…xN.  Slot i
+    // holds iorder[i] so get/set and leave stay consistent with callee-saved-
+    // first allocation (local 0 → x19, …).
     uint shadows = frame;
     if (shadows > HW_SHADOWS)
         shadows = HW_SHADOWS;
     shadows = (shadows + 1) & ~1;
     for (uint i = 0; i < shadows; i += 2)
-        emit32le(stp_pre(i+1, i, HW_SP, -16));
+        emit32le(stp_pre(hw_int_order(i + 1), hw_int_order(i), HW_SP, -16));
 
     // Keep SP 16-byte aligned (AAPCS64).
     if (frame > shadows)
@@ -340,7 +350,7 @@ EMIT(leave)
     record(arm64_ops, "emit_leave");
     hw_sys_arg_reload();
 
-    // Recover registers that we saved for the caller
+    // Recover the caller's local homes saved by enter
     uint frame = local_frame_size;
     if (!frame)
         record(arm64_error, "Running leave without having run enter");
@@ -349,7 +359,8 @@ EMIT(leave)
         shadows = HW_SHADOWS;
     shadows = (shadows + 1) & ~1;
     for (uint i = 0; i < shadows; i += 2)
-        emit32le(ldp_off(i+1, i, HW_FRAME, local_disp(i+1)));
+        emit32le(ldp_off(hw_int_order(i + 1), hw_int_order(i),
+                         HW_FRAME, local_disp(i + 1)));
     emit32le(mov_rr(HW_SP, HW_FRAME));
     emit32le(ldp_post(HW_FRAME, HW_LR, HW_SP, 16));
 
@@ -364,7 +375,8 @@ EMIT(get)
 // ----------------------------------------------------------------------------
 {
     arm64reg_t dr  = hw_dst_local(e.dst);
-    if (e.src < HW_SHADOWS && e.src < local_frame_size && e.src != HW_RESERVED)
+    // Caller local homes were saved by enter into slots 0… as iorder[i]
+    if (e.src < HW_SHADOWS && e.src < local_frame_size)
     {
         emit_load_off(dr, HW_FRAME, local_disp(e.src));
         record(arm64_ops, "emit_get [%u] = %u reg %u local %d",
@@ -386,7 +398,7 @@ EMIT(set)
 // ----------------------------------------------------------------------------
 {
     arm64reg_t sr  = hw_local(e.src);
-    if (e.src < HW_SHADOWS && e.src < local_frame_size && e.src != HW_RESERVED)
+    if (e.src < HW_SHADOWS && e.src < local_frame_size)
     {
         emit_store_off(HW_FRAME, sr, local_disp(e.dst));
         record(arm64_ops, "emit_set %u = [%u] reg %u local %d",
@@ -1908,8 +1920,9 @@ SYS(branch_on_eof)
 {
     CALL(xlr8_jit_stream_eof,
          IMM(HW_X0, e.knat),
-         // Preserve result: spill reconcile may reload x0 from the slot.
+         // Preserve result in x15; spill reconcile must not reload over it.
          emit32le(mov_rr(HW_SCRATCH, HW_X0));
+         hw_keep_scratch();
          hw_sys_arg_reload(e.bpc + e.broff);
          hwcode_t pos = emit_cbnz_rel(HW_SCRATCH);
          rel_branch(e.bpc + e.broff, pos));
@@ -1923,6 +1936,7 @@ SYS(branch_on_bad)
     CALL(xlr8_jit_stream_bad,
          IMM(HW_X0, e.knat),
          emit32le(mov_rr(HW_SCRATCH, HW_X0));
+         hw_keep_scratch();
          hw_sys_arg_reload(e.bpc + e.broff);
          hwcode_t pos = emit_cbnz_rel(HW_SCRATCH);
          rel_branch(e.bpc + e.broff, pos));
@@ -2124,6 +2138,7 @@ SYS(trap_error)
     CALL(xlr8_jit_has_error,
          /* no input */,
          emit32le(mov_rr(HW_SCRATCH, HW_X0));
+         hw_keep_scratch();
          hw_sys_arg_reload(e.bpc + e.broff);
          hwcode_t pos = emit_cbnz_rel(HW_SCRATCH);
          rel_branch(e.bpc + e.broff, pos));
