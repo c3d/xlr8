@@ -7,7 +7,7 @@ Before enter:
  R5=12
  R6=0
  R7=1968
-VAlloca Delta=144
+VAlloca Delta=72
 Alloca(7) Delta=8
 Valloca Delta after Free=0
 After leave:
