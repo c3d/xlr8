@@ -280,6 +280,15 @@ static bool native_run(runtime &rt, backend &be, byte_p start, byte_p end)
     rt.jit_code     = mem;
     rt.jit_map_size = sz;
 
+    if (cstring size_file = getenv("XLR8_JIT_SIZE_FILE"))
+    {
+        if (FILE *sf = fopen(size_file, "w"))
+        {
+            fprintf(sf, "%zu\n", sz);
+            fclose(sf);
+        }
+    }
+
     cstring dump    = runtime::dump_file;
     if (!dump)
         dump = getenv("XLR8_DUMP_JIT");
