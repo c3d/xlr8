@@ -403,13 +403,15 @@ protected:
         return dst;
     }
 
-    arm64reg_t hw_sys_ret(local_t loc)
+    arm64reg_t hw_sys_ret(local_t loc, byte bsize = 64)
     // ------------------------------------------------------------------------
     //    Move the value in the target return location, may block its reload
     // ------------------------------------------------------------------------
     {
         arm64reg_t dst = hw_dst_local(loc);
-        if (dst != HW_X0)
+        if (bsize != 64)
+            emit32le(sbfm_width(xn(dst), xn(HW_X0), bsize));
+        else if (dst != HW_X0)
             emit32le(mov_rr(dst, HW_X0));
         return dst;
     }

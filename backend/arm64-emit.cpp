@@ -1417,6 +1417,7 @@ EMIT(ddiv)
 #define ARG(a, loc)   hw_sys_arg(a, loc);
 #define IMM(a, val)   hw_sys_imm(a, val);
 #define RET(loc)      hw_sys_ret(loc);
+#define SRET(loc,sz)  hw_sys_ret(loc, sz);
 #define NORET         /* no output */
 
 // XI/XO must go through spill protocol around C calls
@@ -1601,7 +1602,7 @@ SYS(memcmp)
 //   Compare two memory regions
 // ----------------------------------------------------------------------------
 {
-    CALL(::memcmp, ARG(0, e.src) ARG(1, e.xtra) ARG(2, e.len), RET(e.dst));
+    CALL(::memcmp, ARG(0, e.src) ARG(1, e.xtra) ARG(2, e.len), SRET(e.dst,32));
 }
 
 SYS(kmemcmp)
@@ -1609,7 +1610,7 @@ SYS(kmemcmp)
 //   Compare memory regions of constant length
 // ----------------------------------------------------------------------------
 {
-    CALL(::memcmp, ARG(0, e.src) ARG(1, e.xtra) IMM(HW_X2, e.klen), RET(e.dst));
+    CALL(::memcmp, ARG(0, e.src) ARG(1, e.xtra) IMM(HW_X2, e.klen), SRET(e.dst,32));
 }
 
 SYS(memchr)
@@ -1721,7 +1722,7 @@ SYS(strcmp)
 //   Compare two C strings
 // ----------------------------------------------------------------------------
 {
-    CALL(::strcmp, ARG(0, e.src) ARG(1, e.xtra), RET(e.dst));
+    CALL(::strcmp, ARG(0, e.src) ARG(1, e.xtra), SRET(e.dst, 32));
 }
 
 SYS(strncmp)
@@ -1729,7 +1730,7 @@ SYS(strncmp)
 //   Compare C strings with length bound
 // ----------------------------------------------------------------------------
 {
-    CALL(::strncmp, ARG(0, e.src) ARG(1, e.xtra) ARG(2, e.len), RET(e.dst));
+    CALL(::strncmp, ARG(0, e.src) ARG(1, e.xtra) ARG(2, e.len), SRET(e.dst, 32));
 }
 
 SYS(kstrncmp)
@@ -1738,7 +1739,7 @@ SYS(kstrncmp)
 // ----------------------------------------------------------------------------
 {
     CALL(::strncmp,
-         ARG(0, e.src) ARG(1, e.xtra) IMM(HW_X2, e.klen), RET(e.dst));
+         ARG(0, e.src) ARG(1, e.xtra) IMM(HW_X2, e.klen), SRET(e.dst, 32));
 }
 
 // glibc/libcpp overload strchr/strrchr/strstr as char*(char*,…) /
