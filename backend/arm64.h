@@ -217,17 +217,7 @@ protected:
     {
         static const arm64reg_t iorder[] =
         {
-            HW_X19, // First 1-1 callee-saved mapped register, local 0
-            HW_X20,
-            HW_X21,
-            HW_X22,
-            HW_X23,
-            HW_X24,
-            HW_X25,
-            HW_X26,
-            HW_X27, // Last 1-1 callee-saved mapped, local 8
-
-            HW_X0, // First 1-1 caller-saved mapped register, local 9
+            HW_X0, // First 1-1 caller-saved mapped register, local 0
             HW_X1,
             HW_X2,
             HW_X3,
@@ -241,7 +231,17 @@ protected:
             HW_X11,
             HW_X12,
             HW_X13,
-            HW_X14, // Last 1-1 caller-saved mapped regiser, local 23
+            HW_X14, // Last 1-1 caller-saved mapped register, local 14
+
+            HW_X19, // First 1-1 callee-saved mapped register, local 15
+            HW_X20,
+            HW_X21,
+            HW_X22,
+            HW_X23,
+            HW_X24,
+            HW_X25,
+            HW_X26,
+            HW_X27, // Last 1-1 callee-saved mapped, local 23
         };
         static_assert(sizeof(iorder) / sizeof(iorder[0]) == HW_SHADOWS);
         if (loc >= HW_SHADOWS)
@@ -320,13 +320,20 @@ protected:
             record(arm64_warning,
                    "Reading local %u outside of frame %u",
                    loc,
+
                    local_frame_size);
+        // FP shadows are transient V regs. Durable bits live in iorder[loc].
+        // Reload that X home when it is in the C-spill set
+        bool isfp = (spec & (RSPEC_FLT | RSPEC_DBL)) != 0 &&
+                    (spec & RSPEC_INT) == 0;
+        if (isfp && loc < HW_SHADOWS)
+            hw_sys_arg_reload(hw_int_order(loc), true);
         hwreg_t r = local(loc, spec, true);
         // Temps are filled from the bytecode frame; the C-call spill slot is
-        // not their home (unlike direct-map locals 9…23 in x0…x14).
+        // not their home.
         if (r >= HW_TEMP0 && r < HW_TEMP0 + HW_TEMPS)
             spilled_args &= ~(1u << r);
-        else
+        else if (!isfp)
             hw_sys_arg_reload(r, true);
         return hw(r);
     }
@@ -340,7 +347,14 @@ protected:
             record(arm64_warning, "Writing local %u outside of frame %u",
                    loc, local_frame_size);
         hwreg_t r = local(loc, spec, false);
-        hw_sys_arg_reload(r, false);
+
+        // Mark durable home live/dirty (bit clear → respill will store).
+        bool isfp = (spec & (RSPEC_FLT | RSPEC_DBL)) != 0 &&
+                    (spec & RSPEC_INT) == 0;
+        if (isfp && loc < HW_SHADOWS)
+            hw_sys_arg_reload(hw_int_order(loc), false);
+        else
+            hw_sys_arg_reload(r, false);
         return hw(r);
     }
 
@@ -352,12 +366,19 @@ protected:
         if (loc > local_frame_size)
             record(arm64_warning, "Updating local %u outside of frame %u",
                    loc, local_frame_size);
+        bool isfp = (spec & (RSPEC_FLT | RSPEC_DBL)) != 0 &&
+                    (spec & RSPEC_INT) == 0;
+        if (isfp && loc < HW_SHADOWS)
+            hw_sys_arg_reload(hw_int_order(loc), true);
         hwreg_t r = local(loc, spec, true);
         if (r >= HW_TEMP0 && r < HW_TEMP0 + HW_TEMPS)
             spilled_args &= ~(1u << r);
-        else
+        else if (!isfp)
             hw_sys_arg_reload(r, true);
-        hw_sys_arg_reload(r, false);
+        if (isfp && loc < HW_SHADOWS)
+            hw_sys_arg_reload(hw_int_order(loc), false);
+        else
+            hw_sys_arg_reload(r, false);
         return hw(r);
     }
 

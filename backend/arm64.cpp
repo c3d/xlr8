@@ -108,11 +108,12 @@ hwreg_t arm64::register_for(local_t loc, hwspec_t spec, bool ld)
         arm64reg_t fr = isflt ? hw_flt_order(loc)
                       : isdbl ? hw_dbl_order(loc)
                               : arm64reg_t(NO_REGISTER);
-        if (ld)
+        if (ld && (isflt || isdbl))
         {
+            hw_sys_arg_reload(ir, true);
             if (isflt)
                 emit32le(fmov_s_w(vn(fr), xn(ir)));
-            else if (isdbl)
+            else
                 emit32le(fmov_d_x(vn(fr), xn(ir)));
         }
         return isint ? ir : fr;
@@ -245,13 +246,16 @@ void arm64::register_sync(byte_p pc)
                 {
                     // High local: keep bits in a temp X, then spill below
                     arm64reg_t tmp = HW_TEMP0;
-                    emit32le(sz ? fmov_x_d(xn(tmp), fp) : fmov_w_s(xn(tmp), fp));
+                    emit32le(sz
+                             ? fmov_x_d(xn(tmp), fp)
+                             : fmov_w_s(xn(tmp), fp));
                     store(loc, tmp);
                     reg_local[base + fp] = NO_LOCAL;
                     continue;
                 }
                 arm64reg_t home = hw_int_order(loc);
                 emit32le(sz ? fmov_x_d(xn(home), fp) : fmov_w_s(xn(home), fp));
+                hw_sys_arg_reload(home, false);
                 local_reg[loc]     = home;
                 reg_local[home]    = loc;
                 reg_local[base + fp] = NO_LOCAL;
@@ -603,6 +607,10 @@ bool arm64::store(local_t n, hwreg_t h)
     }
     else
     {
+        // If this GPR's durable value is in the C-spill area, the register
+        // is stale (e.g. after a C call). Reload before writing the frame.
+        if (r < HW_SPILL && (spilled_args & (1u << r)))
+            hw_sys_arg_reload(r, true);
         emit_store_off(HW_FRAME, r, disp);
     }
     saved(n, h);
@@ -1486,11 +1494,11 @@ void arm64::invoke(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
 //   Jump to generated AArch64 code; x29 = initial frame, x28 = flags
 // ----------------------------------------------------------------------------
-//   Locals 0…7 live in x19…x26.  Copy them from rt.frame on entry and write
-//   them back on exit so successive run_native() calls share the outer
-//   interpreter frame (see tests/bytecode/repeated-execution.xlr8).  x29 still
-//   points at a scratch JIT frame — interpreter locals grow up from rt.frame,
-//   while local_disp grows down from FP.
+//   Locals 0…7 live in hw_int_order(0…7).  Copy them from rt.frame on entry
+//   and write them back on exit so successive run_native() calls share the
+//   outer interpreter frame (see tests/bytecode/repeated-execution.xlr8).
+//   x29 still points at a scratch JIT frame — interpreter locals grow up from
+//   rt.frame, while local_disp grows down from FP.
 {
 #if defined(__aarch64__)
     alignas(16) ularge_t initial_frame[DEFAULT_FRAME_SIZE + 2];
@@ -1498,54 +1506,89 @@ void arm64::invoke(runtime &rt, void *code)
     ularge_t            *locals    = rt.frame;
     uint64_t            *flags_ptr = &rt.flags;
 
-    // Save callee-saved regs we touch (x19–x26, x28) plus LR/FP, and stash
-    // the C++ pointers so they survive loading locals into x19+.
-    // Layout (128 bytes):
+    // Physical-register image: place locals 0…7 at their durable homes so the
+    // asm bridge does not hardcode callee-saved-first (x19…).
+    alignas(16) ularge_t regimg[32];
+    for (uint i = 0; i < 32; i++)
+        regimg[i] = 0;
+    for (local_t loc = 0; loc < 8; loc++)
+        regimg[hw_int_order(loc)] = locals[loc];
+
+    // Save callee-saved regs we may touch (x19–x28) plus LR/FP, and stash
+    // C++ pointers.  Load/store durable GPR homes x0–x14 and x19–x27 via
+    // regimg so any hw_int_order permutation works.
+    // Layout (160 bytes):
     //   [0]=x29,[8]=lr, [16]=x19,[24]=x20, [32]=x21,[40]=x28,
-    //   [48]=x22,[56]=x23, [64]=x24,[72]=x25, [80]=x26,[88]=pad,
-    //   [96]=locals*,[104]=flags*, [112]=code,[120]=frame
+    //   [48]=x22,[56]=x23, [64]=x24,[72]=x25, [80]=x26,[88]=x27,
+    //   [96]=locals*,[104]=flags*, [112]=code,[120]=frame,
+    //   [128]=regimg*, [136]=pad
     asm volatile(
-        "stp x29, lr, [sp, #-128]!\n\t"
+        "stp x29, lr, [sp, #-160]!\n\t"
         "stp x19, x20, [sp, #16]\n\t"
         "stp x21, x28, [sp, #32]\n\t"
         "stp x22, x23, [sp, #48]\n\t"
         "stp x24, x25, [sp, #64]\n\t"
-        "str x26, [sp, #80]\n\t"
+        "stp x26, x27, [sp, #80]\n\t"
         "str %[locals], [sp, #96]\n\t"
         "str %[flags_ptr], [sp, #104]\n\t"
         "str %[code], [sp, #112]\n\t"
         "str %[frame], [sp, #120]\n\t"
-        "ldr x16, [sp, #96]\n\t"
+        "str %[regimg], [sp, #128]\n\t"
+        "ldr x16, [sp, #128]\n\t"
         "ldr x17, [sp, #104]\n\t"
         "ldr x29, [sp, #120]\n\t"
-        "ldp x19, x20, [x16]\n\t"
-        "ldp x21, x22, [x16, #16]\n\t"
-        "ldp x23, x24, [x16, #32]\n\t"
-        "ldp x25, x26, [x16, #48]\n\t"
+        // Load durable homes from regimg
+        "ldp x0, x1, [x16]\n\t"
+        "ldp x2, x3, [x16, #16]\n\t"
+        "ldp x4, x5, [x16, #32]\n\t"
+        "ldp x6, x7, [x16, #48]\n\t"
+        "ldp x8, x9, [x16, #64]\n\t"
+        "ldp x10, x11, [x16, #80]\n\t"
+        "ldp x12, x13, [x16, #96]\n\t"
+        "ldr x14, [x16, #112]\n\t"
+        "ldp x19, x20, [x16, #152]\n\t"
+        "ldp x21, x22, [x16, #168]\n\t"
+        "ldp x23, x24, [x16, #184]\n\t"
+        "ldp x25, x26, [x16, #200]\n\t"
+        "ldr x27, [x16, #216]\n\t"
         "ldr x28, [x17]\n\t"
         "ldr x16, [sp, #112]\n\t"
         "blr x16\n\t"
-        "ldr x16, [sp, #96]\n\t"
+        "ldr x16, [sp, #128]\n\t"
         "ldr x17, [sp, #104]\n\t"
-        "stp x19, x20, [x16]\n\t"
-        "stp x21, x22, [x16, #16]\n\t"
-        "stp x23, x24, [x16, #32]\n\t"
-        "stp x25, x26, [x16, #48]\n\t"
+        // Write durable homes back to regimg
+        "stp x0, x1, [x16]\n\t"
+        "stp x2, x3, [x16, #16]\n\t"
+        "stp x4, x5, [x16, #32]\n\t"
+        "stp x6, x7, [x16, #48]\n\t"
+        "stp x8, x9, [x16, #64]\n\t"
+        "stp x10, x11, [x16, #80]\n\t"
+        "stp x12, x13, [x16, #96]\n\t"
+        "str x14, [x16, #112]\n\t"
+        "stp x19, x20, [x16, #152]\n\t"
+        "stp x21, x22, [x16, #168]\n\t"
+        "stp x23, x24, [x16, #184]\n\t"
+        "stp x25, x26, [x16, #200]\n\t"
+        "str x27, [x16, #216]\n\t"
         "str x28, [x17]\n\t"
-        "ldr x26, [sp, #80]\n\t"
+        "ldp x26, x27, [sp, #80]\n\t"
         "ldp x24, x25, [sp, #64]\n\t"
         "ldp x22, x23, [sp, #48]\n\t"
         "ldp x21, x28, [sp, #32]\n\t"
         "ldp x19, x20, [sp, #16]\n\t"
-        "ldp x29, lr, [sp], #128"
+        "ldp x29, lr, [sp], #160"
         :
         : [frame] "r"(frame),
           [locals] "r"(locals),
           [flags_ptr] "r"(flags_ptr),
-          [code] "r"(code)
+          [code] "r"(code),
+          [regimg] "r"(regimg)
         : "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7",
           "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15",
           "x16", "x17", "memory", "cc");
+
+    for (local_t loc = 0; loc < 8; loc++)
+        locals[loc] = regimg[hw_int_order(loc)];
 #else
     (void) code;
     rt.error("Cannot invoke AArch64 JIT on this host");
