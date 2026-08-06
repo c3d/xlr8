@@ -166,7 +166,10 @@ EMIT(jmp)
 //   Emit bytecode for the jmp opcode
 // ----------------------------------------------------------------------------
 {
-    spill_all();
+    if (ptr64())
+        hw_sys_arg_reload();
+    else
+        spill_all();
     hwcode_t site = emit_near_jmp_rel32();
     rel32_function(e.tok, site);
     record(x86_ops, "emit_jump %llu", e.tok);
@@ -178,12 +181,15 @@ EMIT(call)
 //   Emit bytecode for the call opcode
 // ----------------------------------------------------------------------------
 {
-    spill_all();
+    record(x86_ops, "emit_call %llu", e.tok);
+    if (ptr64())
+        hw_sys_arg_reload();
+    else
+        spill_all();
     emit8(0xE8);
     hwcode_t site = cursor();
     emit32le(0);
     rel32_function(e.tok, site);
-    record(x86_ops, "emit_call %llu", e.tok);
 }
 
 
@@ -194,8 +200,10 @@ EMIT(ijmp)
 {
     x86reg_t r = hw_local(e.src);
     record(x86_ops, "emit_ijmp %u reg %u", e.src, r);
-    spill_all();
-    // TODO: Translate bytecode address to physical address
+    if (ptr64())
+        hw_sys_arg_reload();
+    else
+        spill_all();
     emit_jmp_rr(r);
 }
 
@@ -207,8 +215,10 @@ EMIT(icall)
 {
     x86reg_t r = hw_local(e.src);
     record(x86_ops, "emit_icall %u reg %u", e.src, r);
-    spill_all();
-    // TODO: Translate bytecode address to physical address
+    if (ptr64())
+        hw_sys_arg_reload();
+    else
+        spill_all();
     emit_call_rr(r);
 }
 
@@ -218,8 +228,10 @@ EMIT(ret)
 //   Emit bytecode for the ret opcode
 // ----------------------------------------------------------------------------
 {
-    spill_all();
-    // Epilogue pops prologue saves and returns.
+    if (ptr64())
+        hw_sys_arg_reload();
+    else
+        spill_all();
     epilogue();
 }
 
@@ -255,10 +267,12 @@ EMIT(enter)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_enter %u", e.dst);
+    if (ptr64())
+        hw_sys_arg_reload();
     frame_size(e.dst);
     if (!ptr64())
     {
-        // Emit space for high 32-bits of falgs
+        // Emit space for high 32-bits of flags
         emit_xor_rr(HW_RAX, HW_RAX);
         emit_push_reg(HW_RAX);
     }
@@ -278,6 +292,8 @@ EMIT(leave)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_leave");
+    if (ptr64())
+        hw_sys_arg_reload();
     emit_mov_rr(HW_RSP, HW_FRAME);
     emit_pop_reg(HW_FRAME);
     if (!ptr64())
@@ -380,6 +396,8 @@ EMIT(dbra)
     x86reg_t r = hw_local(e.dst);
     record(x86_ops, "emit_dbra %u, %lld reg %u", e.dst, e.broff, r);
     emit_grp5_ff(r, 0xc8); // Decr
+    if (ptr64())
+        hw_sys_arg_reload(e.bpc + e.broff);
     hwcode_t pos = emit_jcc_rel32(JCC_JZ);
     rel32_branch(e.bpc + e.broff, pos);
 }
@@ -392,6 +410,8 @@ EMIT(bra)
 {
     record(x86_ops, "emit_bra %lld + %lld -> %lld",
            e.bpc, e.broff, e.bpc+e.broff);
+    if (ptr64())
+        hw_sys_arg_reload(e.bpc + e.broff);
     hwcode_t site = emit_near_jmp_rel32();
     rel32_branch(e.bpc + e.broff, site);
     e.pc = e.end;               // Pick up next translation spot
@@ -1316,53 +1336,75 @@ EMIT(ddiv)
 //
 // ============================================================================
 
+// x86 SYS emitters covering native.tbl — mirrors arm64 CALL/ARG/IMM/RET.
+// On amd64, ARG/IMM spill caller-saved durable homes lazily; syscall() just
+// does call_ptr(fn) (no spill_all).  On i386, bodies fall through to the
+// old spill_all + cdecl path.
+
 #define SYS(op) void x86::emit_sys_##op(emit_args &e)
+#define ARG(a, loc)   hw_sys_arg(a, loc);
+#define IMM(a, val)   hw_sys_imm(a, val);
+#define RET(loc)      hw_sys_ret(loc);
+#define SRET(loc,sz)  hw_sys_ret(loc, sz);
+#define NORET         /* no output */
+
+#define CALL(fn, inputs, outputs)                   \
+    do                                              \
+    {                                               \
+        hw_sys_arg_respill();                       \
+        inputs;                                     \
+        syscall(reinterpret_cast<void (*)()>(fn));  \
+        outputs;                                    \
+    } while (0)
 
 SYS(globals)
 // ----------------------------------------------------------------------------
 //   Resize globals table to given length
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_globals, IMM(0, e.klen), NORET);
 }
-
 
 SYS(malloc)
 // ----------------------------------------------------------------------------
 //   Allocate heap memory of given size
 // ----------------------------------------------------------------------------
 {
+    CALL(::malloc, ARG(0, e.src), RET(e.dst));
 }
-
 
 SYS(kmalloc)
 // ----------------------------------------------------------------------------
 //   Allocate heap memory of constant size
 // ----------------------------------------------------------------------------
 {
+    CALL(::malloc, IMM(0, e.klen), RET(e.dst));
 }
-
 
 SYS(realloc)
 // ----------------------------------------------------------------------------
 //   Resize heap allocation
 // ----------------------------------------------------------------------------
 {
+    CALL(::realloc, ARG(0, e.dst) ARG(1, e.src), RET(e.dst));
 }
-
 
 SYS(free)
 // ----------------------------------------------------------------------------
 //   Free heap allocation
 // ----------------------------------------------------------------------------
 {
+    CALL(::free, ARG(0, e.dst), NORET);
 }
-
 
 SYS(alloca)
 // ----------------------------------------------------------------------------
 //   Allocate stack space and return pointer
 // ----------------------------------------------------------------------------
 {
+    if (ptr64())
+        hw_sys_arg_reload();
+
     int align = ptr64() ? 16 : 8;
     int64_t bytes = int64_t(e.kint);
     if (bytes > 0)
@@ -1374,7 +1416,7 @@ SYS(alloca)
         emit_sub_rsp_imm(int32_t(bytes));
     else if (bytes < 0)
         emit_add_rsp_imm(int32_t(-bytes));
-    emit_mov_rr(hw_local(e.dst), HW_RSP);
+    emit_mov_rr(hw_dst_local(e.dst), HW_RSP);
 }
 
 SYS(valloca)
@@ -1382,10 +1424,12 @@ SYS(valloca)
 //   Allocate variable-size stack space, return pointer
 // ----------------------------------------------------------------------------
 {
+    if (ptr64())
+        hw_sys_arg_reload();
+
     x86reg_t sz = hw_local(e.src);
     x86reg_t t  = HW_RAX;
     emit_mov_rr(t, sz);
-    // size = (size > 0 ? size + (align-1) : size) & ~(align-1)
     int align = ptr64() ? 16 : 8;
     set_imm(HW_RCX, uint64_t(align - 1));
     emit_mov_rr(HW_RDX, t);
@@ -1397,259 +1441,266 @@ SYS(valloca)
     set_imm(HW_RCX, ~uint64_t(align - 1));
     emit_and_rr(t, HW_RCX);
     emit_sub_rr(HW_RSP, t);
-    emit_mov_rr(hw_local(e.dst), HW_RSP);
+    emit_mov_rr(hw_dst_local(e.dst), HW_RSP);
 }
-
-
 
 SYS(memcpy)
 // ----------------------------------------------------------------------------
 //   Copy memory region
 // ----------------------------------------------------------------------------
 {
+    CALL(::memcpy, ARG(0, e.dst) ARG(1, e.src) ARG(2, e.len), NORET);
 }
-
 
 SYS(memmove)
 // ----------------------------------------------------------------------------
 //   Move memory region (overlap-safe)
 // ----------------------------------------------------------------------------
 {
+    CALL(::memmove, ARG(0, e.dst) ARG(1, e.src) ARG(2, e.len), NORET);
 }
-
 
 SYS(memset)
 // ----------------------------------------------------------------------------
 //   Fill memory with byte from register
 // ----------------------------------------------------------------------------
 {
+    CALL(::memset, ARG(0, e.dst) ARG(1, e.src) ARG(2, e.len), NORET);
 }
-
 
 SYS(kmemcpy)
 // ----------------------------------------------------------------------------
 //   Copy memory region of constant length
 // ----------------------------------------------------------------------------
 {
+    CALL(::memcpy, ARG(0, e.dst) ARG(1, e.src) IMM(2, e.klen), NORET);
 }
-
 
 SYS(kmemmove)
 // ----------------------------------------------------------------------------
 //   Move memory region of constant length
 // ----------------------------------------------------------------------------
 {
+    CALL(::memmove, ARG(0, e.dst) ARG(1, e.src) IMM(2, e.klen), NORET);
 }
-
 
 SYS(kmemset)
 // ----------------------------------------------------------------------------
 //   Fill memory with byte, constant length
 // ----------------------------------------------------------------------------
 {
+    CALL(::memset, ARG(0, e.dst) ARG(1, e.src) IMM(2, e.klen), NORET);
 }
-
 
 SYS(memkset)
 // ----------------------------------------------------------------------------
 //   Fill memory with constant byte value
 // ----------------------------------------------------------------------------
 {
+    CALL(::memset, ARG(0, e.dst) IMM(1, uint64_t(e.kint)); ARG(2, e.src), NORET);
 }
-
 
 SYS(kmemkset)
 // ----------------------------------------------------------------------------
 //   Fill memory with constant byte and length
 // ----------------------------------------------------------------------------
 {
+    CALL(::memset, ARG(0, e.dst) IMM(1, uint64_t(e.kint)); IMM(2, e.klen), NORET);
 }
-
 
 SYS(memcmp)
 // ----------------------------------------------------------------------------
 //   Compare two memory regions
 // ----------------------------------------------------------------------------
 {
+    CALL(::memcmp, ARG(0, e.src) ARG(1, e.xtra) ARG(2, e.len), SRET(e.dst, 32));
 }
-
 
 SYS(kmemcmp)
 // ----------------------------------------------------------------------------
 //   Compare memory regions of constant length
 // ----------------------------------------------------------------------------
 {
+    CALL(::memcmp, ARG(0, e.src) ARG(1, e.xtra) IMM(2, e.klen), SRET(e.dst, 32));
 }
-
 
 SYS(memchr)
 // ----------------------------------------------------------------------------
 //   Find byte in memory region
 // ----------------------------------------------------------------------------
 {
+    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr),
+         ARG(0, e.src) ARG(1, e.ival) ARG(2, e.len), RET(e.dst));
 }
-
 
 SYS(kmemchr)
 // ----------------------------------------------------------------------------
 //   Find byte in memory of constant length
 // ----------------------------------------------------------------------------
 {
+    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr),
+         ARG(0, e.src) ARG(1, e.ival) IMM(2, e.klen), RET(e.dst));
 }
-
 
 SYS(memkchr)
 // ----------------------------------------------------------------------------
 //   Find constant byte in memory region
 // ----------------------------------------------------------------------------
 {
+    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr),
+         ARG(0, e.src) IMM(1, uint64_t(e.kint)); ARG(2, e.len), RET(e.dst));
 }
-
 
 SYS(kmemkchr)
 // ----------------------------------------------------------------------------
 //   Find constant byte in memory of constant length
 // ----------------------------------------------------------------------------
 {
+    CALL(static_cast<void *(*)(void *, int, size_t)>(::memchr),
+         ARG(0, e.src) IMM(1, uint64_t(e.kint)); IMM(2, e.klen), RET(e.dst));
 }
-
-
 
 SYS(strlen)
 // ----------------------------------------------------------------------------
 //   Compute length of C string
 // ----------------------------------------------------------------------------
 {
+    CALL(::strlen, ARG(0, e.src), RET(e.dst));
 }
-
 
 SYS(strnlen)
 // ----------------------------------------------------------------------------
 //   Compute bounded length of C string
 // ----------------------------------------------------------------------------
 {
+    CALL(::strnlen, ARG(0, e.src) ARG(1, e.len), RET(e.dst));
 }
-
 
 SYS(kstrnlen)
 // ----------------------------------------------------------------------------
 //   Compute C string length with constant bound
 // ----------------------------------------------------------------------------
 {
+    CALL(::strnlen, ARG(0, e.src) IMM(1, e.klen), RET(e.dst));
 }
-
 
 SYS(strcpy)
 // ----------------------------------------------------------------------------
 //   Copy C string
 // ----------------------------------------------------------------------------
 {
+    CALL(::strcpy, ARG(0, e.dst) ARG(1, e.src), RET(e.dst));
 }
-
 
 SYS(strncpy)
 // ----------------------------------------------------------------------------
 //   Copy C string with length bound
 // ----------------------------------------------------------------------------
 {
+    CALL(::strncpy, ARG(0, e.dst) ARG(1, e.src) ARG(2, e.len), RET(e.dst));
 }
-
 
 SYS(kstrncpy)
 // ----------------------------------------------------------------------------
 //   Copy C string with constant length bound
 // ----------------------------------------------------------------------------
 {
+    CALL(::strncpy, ARG(0, e.dst) ARG(1, e.src) IMM(2, e.klen), RET(e.dst));
 }
-
 
 SYS(strcat)
 // ----------------------------------------------------------------------------
 //   Concatenate C strings
 // ----------------------------------------------------------------------------
 {
+    CALL(::strcat, ARG(0, e.dst) ARG(1, e.src), RET(e.dst));
 }
-
 
 SYS(strncat)
 // ----------------------------------------------------------------------------
 //   Concatenate C strings with length bound
 // ----------------------------------------------------------------------------
 {
+    CALL(::strncat, ARG(0, e.dst) ARG(1, e.src) ARG(2, e.len), RET(e.dst));
 }
-
 
 SYS(kstrncat)
 // ----------------------------------------------------------------------------
 //   Concatenate C strings with constant bound
 // ----------------------------------------------------------------------------
 {
+    CALL(::strncat, ARG(0, e.dst) ARG(1, e.src) IMM(2, e.klen), RET(e.dst));
 }
-
 
 SYS(strcmp)
 // ----------------------------------------------------------------------------
 //   Compare two C strings
 // ----------------------------------------------------------------------------
 {
+    CALL(::strcmp, ARG(0, e.src) ARG(1, e.xtra), SRET(e.dst, 32));
 }
-
 
 SYS(strncmp)
 // ----------------------------------------------------------------------------
 //   Compare C strings with length bound
 // ----------------------------------------------------------------------------
 {
+    CALL(::strncmp, ARG(0, e.src) ARG(1, e.xtra) ARG(2, e.len), SRET(e.dst, 32));
 }
-
 
 SYS(kstrncmp)
 // ----------------------------------------------------------------------------
 //   Compare C strings with constant bound
 // ----------------------------------------------------------------------------
 {
+    CALL(::strncmp,
+         ARG(0, e.src) ARG(1, e.xtra) IMM(2, e.klen), SRET(e.dst, 32));
 }
-
 
 SYS(strchr)
 // ----------------------------------------------------------------------------
 //   Find character in C string
 // ----------------------------------------------------------------------------
 {
+    CALL(static_cast<char *(*)(char *, int)>(::strchr),
+         ARG(0, e.src) ARG(1, e.ival), RET(e.dst));
 }
-
 
 SYS(kstrchr)
 // ----------------------------------------------------------------------------
 //   Find constant character in C string
 // ----------------------------------------------------------------------------
 {
+    CALL(static_cast<char *(*)(char *, int)>(::strchr),
+         ARG(0, e.src) IMM(1, uint64_t(e.kint)), RET(e.dst));
 }
-
 
 SYS(strrchr)
 // ----------------------------------------------------------------------------
 //   Find last character in C string
 // ----------------------------------------------------------------------------
 {
+    CALL(static_cast<char *(*)(char *, int)>(::strrchr),
+         ARG(0, e.src) ARG(1, e.ival), RET(e.dst));
 }
-
 
 SYS(kstrrchr)
 // ----------------------------------------------------------------------------
 //   Find last constant character in C string
 // ----------------------------------------------------------------------------
 {
+    CALL(static_cast<char *(*)(char *, int)>(::strrchr),
+         ARG(0, e.src) IMM(1, uint64_t(e.kint)), RET(e.dst));
 }
-
 
 SYS(strstr)
 // ----------------------------------------------------------------------------
 //   Find substring in C string
 // ----------------------------------------------------------------------------
 {
+    CALL(static_cast<char *(*)(char *, const char *)>(::strstr),
+         ARG(0, e.src) ARG(1, e.xtra), RET(e.dst));
 }
-
 
 #if 0 // does not exist on Debian GNU/Linux 12 (bookworm)
 SYS(strnstr)
@@ -1657,157 +1708,174 @@ SYS(strnstr)
 //   Find substring in C string with length bound
 // ----------------------------------------------------------------------------
 {
+    CALL(static_cast<char *(*)(char *, const char *)>(::strstr),
+         ARG(0, e.src) ARG(1, e.xtra), RET(e.dst));
 }
-
 
 SYS(kstrnstr)
 // ----------------------------------------------------------------------------
 //   Find substring with constant length bound
 // ----------------------------------------------------------------------------
 {
+    CALL(static_cast<char *(*)(char *, const char *)>(::strstr),
+         ARG(0, e.src) ARG(1, e.xtra), RET(e.dst));
 }
 
-
 #endif // Debian
+
 SYS(strcasestr)
 // ----------------------------------------------------------------------------
 //   Find substring case-insensitively
 // ----------------------------------------------------------------------------
 {
+#if defined(__GLIBC__)
+    CALL(static_cast<char *(*)(char *, const char *)>(::strcasestr),
+         ARG(0, e.src) ARG(1, e.xtra), RET(e.dst));
+#else
+    CALL(static_cast<char *(*)(const char *, const char *)>(::strcasestr),
+         ARG(0, e.src) ARG(1, e.xtra), RET(e.dst));
+#endif
 }
-
 
 SYS(strdup)
 // ----------------------------------------------------------------------------
 //   Duplicate C string on heap
 // ----------------------------------------------------------------------------
 {
+    CALL(::strdup, ARG(0, e.src), RET(e.dst));
 }
-
 
 SYS(strndup)
 // ----------------------------------------------------------------------------
 //   Duplicate C string on heap with length bound
 // ----------------------------------------------------------------------------
 {
+    CALL(::strndup, ARG(0, e.src) ARG(1, e.len), RET(e.dst));
 }
-
 
 SYS(kstrndup)
 // ----------------------------------------------------------------------------
 //   Duplicate C string with constant length bound
 // ----------------------------------------------------------------------------
 {
+    CALL(::strndup, ARG(0, e.src) IMM(1, e.klen), RET(e.dst));
 }
-
-
 
 SYS(cmdline)
 // ----------------------------------------------------------------------------
 //   Get command-line argument by index
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_argv, ARG(0, e.src), RET(e.dst));
 }
-
 
 SYS(env)
 // ----------------------------------------------------------------------------
 //   Get environment variable by index
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_env, ARG(0, e.src), RET(e.dst));
 }
-
-
 
 SYS(infix)
 // ----------------------------------------------------------------------------
 //   Enter infix parsing mode
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_infix, /* no input */, NORET);
 }
-
 
 SYS(prefix)
 // ----------------------------------------------------------------------------
 //   Enter prefix parsing mode
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_prefix, /* no input */, NORET);
 }
-
 
 SYS(postfix)
 // ----------------------------------------------------------------------------
 //   Enter postfix parsing mode
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_postfix, /* no input */, NORET);
 }
-
 
 SYS(block)
 // ----------------------------------------------------------------------------
 //   Enter block parsing mode
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_block, /* no input */, NORET);
 }
-
 
 SYS(builtin)
 // ----------------------------------------------------------------------------
 //   Switch to builtin (non-parsing) mode
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_builtin, /* no input */, NORET);
 }
-
 
 SYS(parsing)
 // ----------------------------------------------------------------------------
 //   Switch to parsing mode
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_parsing, /* no input */, NORET);
 }
-
-
 
 SYS(branch_on_eof)
 // ----------------------------------------------------------------------------
 //   Branch if input stream is at EOF
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_stream_eof,
+         IMM(0, e.knat),
+         emit_mov_rr(HW_SCRATCH, HW_RAX);
+         if (ptr64()) hw_sys_arg_reload(e.bpc + e.broff);
+         emit_test_rr(HW_SCRATCH, HW_SCRATCH);
+         hwcode_t pos = emit_jcc_rel32(JCC_JNZ);
+         rel32_branch(e.bpc + e.broff, pos));
 }
-
 
 SYS(branch_on_bad)
 // ----------------------------------------------------------------------------
 //   Branch if input stream is bad
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_stream_bad,
+         IMM(0, e.knat),
+         emit_mov_rr(HW_SCRATCH, HW_RAX);
+         if (ptr64()) hw_sys_arg_reload(e.bpc + e.broff);
+         emit_test_rr(HW_SCRATCH, HW_SCRATCH);
+         hwcode_t pos = emit_jcc_rel32(JCC_JNZ);
+         rel32_branch(e.bpc + e.broff, pos));
 }
-
-
 
 SYS(read_char)
 // ----------------------------------------------------------------------------
 //   Read character from input stream
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_read_char, IMM(0, e.knat), RET(e.dst));
 }
-
 
 SYS(read_integer)
 // ----------------------------------------------------------------------------
 //   Read integer from input stream
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_read_integer, IMM(0, e.knat), RET(e.dst));
 }
-
 
 SYS(read_natural)
 // ----------------------------------------------------------------------------
 //   Read natural number from input stream
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_read_natural, IMM(0, e.knat), RET(e.dst));
 }
-
 
 SYS(read_float)
 // ----------------------------------------------------------------------------
@@ -1816,7 +1884,6 @@ SYS(read_float)
 {
 }
 
-
 SYS(read_double)
 // ----------------------------------------------------------------------------
 //   Read double from input stream
@@ -1824,68 +1891,36 @@ SYS(read_double)
 {
 }
 
-
-
 SYS(write_char)
 // ----------------------------------------------------------------------------
 //   Write character to output stream
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_write_char, IMM(0, e.knat) ARG(1, e.src), NORET);
 }
-
 
 SYS(write_integer)
 // ----------------------------------------------------------------------------
 //   Write integer to output stream
 // ----------------------------------------------------------------------------
 {
-    x86reg_t v = hw_local(e.src);
-    if (ptr64())
-    {
-        emit_mov_rr(hw_arg1(), v);
-        set_imm(hw_arg0(), e.knat);
-    }
-    else
-    {
-        emit_push_reg(v);
-        set_imm(HW_RAX, e.knat);
-        emit_push_reg(HW_RAX);
-    }
-    call_ptr((void (*)()) xlr8_jit_write_integer);
-    emit_cleanup_call_args(2);
+    CALL(xlr8_jit_write_integer, IMM(0, e.knat) ARG(1, e.src), NORET);
 }
-
 
 SYS(write_natural)
 // ----------------------------------------------------------------------------
 //   Write natural number to output stream
 // ----------------------------------------------------------------------------
 {
-    x86reg_t v = hw_local(e.src);
-    if (ptr64())
-    {
-        emit_mov_rr(hw_arg1(), v);
-        set_imm(hw_arg0(), e.knat);
-    }
-    else
-    {
-        emit_push_reg(v);
-        set_imm(HW_RAX, e.knat);
-        emit_push_reg(HW_RAX);
-    }
-    call_ptr((void (*)()) xlr8_jit_write_natural);
-    emit_cleanup_call_args(2);
+    CALL(xlr8_jit_write_natural, IMM(0, e.knat) ARG(1, e.src), NORET);
 }
-
 
 SYS(write_float)
 // ----------------------------------------------------------------------------
 //   Write float to output stream
 // ----------------------------------------------------------------------------
 {
-
 }
-
 
 SYS(write_double)
 // ----------------------------------------------------------------------------
@@ -1894,51 +1929,28 @@ SYS(write_double)
 {
 }
 
-
 SYS(write_text)
 // ----------------------------------------------------------------------------
 //   Write text symbol to output stream
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_write_text, IMM(0, e.knat) ARG(1, e.src), NORET);
 }
-
 
 SYS(write_token)
 // ----------------------------------------------------------------------------
 //   Write token text to output stream
 // ----------------------------------------------------------------------------
 {
-    if (ptr64())
-    {
-        set_imm(hw_arg1(), e.tok);
-        set_imm(hw_arg0(), e.knat);
-    }
-    else
-    {
-        set_imm(HW_RAX, e.tok);
-        emit_push_reg(HW_RAX);
-        set_imm(HW_RAX, e.knat);
-        emit_push_reg(HW_RAX);
-    }
-    call_ptr((void (*)()) xlr8_jit_write_token);
-    emit_cleanup_call_args(2);
+    CALL(xlr8_jit_write_token, IMM(0, e.knat) IMM(1, e.tok), NORET);
 }
-
 
 SYS(write_newline)
 // ----------------------------------------------------------------------------
 //   Write newline to output stream
 // ----------------------------------------------------------------------------
 {
-    if (ptr64())
-        set_imm(hw_arg0(), e.knat);
-    else
-    {
-        set_imm(HW_RAX, e.knat);
-        emit_push_reg(HW_RAX);
-    }
-    call_ptr((void (*)()) xlr8_jit_write_newline);
-    emit_cleanup_call_args(1);
+    CALL(xlr8_jit_write_newline, IMM(0, e.knat), NORET);
 }
 
 

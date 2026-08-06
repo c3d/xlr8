@@ -176,14 +176,15 @@ protected:
         HW_NONE    = 0,
 
         // amd64 direct-map allocator constants
-        HW_ARGS      = 6,   // SysV: rdi,rsi,rdx,rcx,r8,r9
-        HW_SPILL     = 5,   // caller-saved durable homes (rsi,rdi,r8,r9,r10)
-        HW_SHADOWS   = 10,  // len(iorder): 5 callee + 5 caller
-        HW_FSHADOWS  = 8,   // xmm0–xmm7 transient FP homes
-        HW_TEMPS     = 2,   // rax, rdx overflow temps
-        HW_TEMP0     = HW_RAX,
-        HW_FTEMP0    = HW_XMM8F,
-        HW_DTEMP0    = HW_XMM8D,
+        HW_ARGS       = 6,   // SysV: rdi,rsi,rdx,rcx,r8,r9
+        HW_SPILL      = 12,  // spill-set ceiling (physical indices 0..11)
+        HW_SPILL_AREA = 16,  // spill area: 16 * 8 = 128 bytes (16-byte aligned)
+        HW_SHADOWS    = 10,  // len(iorder): 5 callee + 5 caller
+        HW_FSHADOWS   = 8,   // xmm0–xmm7 transient FP homes
+        HW_TEMPS      = 2,   // rax, rdx overflow temps
+        HW_TEMP0      = HW_RAX,
+        HW_FTEMP0     = HW_XMM8F,
+        HW_DTEMP0     = HW_XMM8D,
     };
 
     static x86reg_t hw_int_order(local_t loc)
@@ -283,18 +284,32 @@ protected:
 
     x86reg_t hw_local(local_t loc)
     // ------------------------------------------------------------------------
-    //   Return hardware x86 register associated with a local
+    //   Return hardware x86 register for reading a local (spill-aware)
     // ------------------------------------------------------------------------
     {
-        return hw(local(loc, RSPEC_INT, true));
+        if (!ptr64())
+            return hw(local(loc, RSPEC_INT, true));
+        hwreg_t r = local(loc, RSPEC_INT, true);
+        if (r >= HW_TEMP0 && r < HW_TEMP0 + HW_TEMPS)
+            spilled_args &= ~(1u << r);
+        else
+            hw_sys_arg_reload(r, true);
+        // Mark dirty: any use may modify the register in-place
+        if (r < HW_SPILL)
+            spilled_args &= ~(1u << r);
+        return hw(r);
     }
 
     x86reg_t hw_dst_local(local_t loc)
     // ------------------------------------------------------------------------
-    //   Return hardware x86 register associated with a local
+    //   Return hardware x86 register for writing a local (spill-aware)
     // ------------------------------------------------------------------------
     {
-        return hw(local(loc, RSPEC_INT, false));
+        if (!ptr64())
+            return hw(local(loc, RSPEC_INT, false));
+        hwreg_t r = local(loc, RSPEC_INT, false);
+        hw_sys_arg_reload(r, false);
+        return hw(r);
     }
 
     x86reg_t hw_flags() const
@@ -322,6 +337,182 @@ protected:
     {
         return win64_abi() ? HW_RDX : HW_RSI;
     }
+
+    // Bitmask of physical registers spilled around C/sys calls (amd64).
+    // rsi(6), rdi(7), r8(8), r9(9), r10(10) = caller-saved durable homes
+    // r11(11) = flags (non-durable but holds JIT state)
+    static constexpr uint HW_SPILL_MASK =
+        (1u << HW_RSI) | (1u << HW_RDI) | (1u << HW_R8) |
+        (1u << HW_R9)  | (1u << HW_R10) | (1u << HW_R11);
+
+    static int spill_offset(hwreg_t r)
+    // ------------------------------------------------------------------------
+    //   Stack offset for spill slot of physical register r
+    // ------------------------------------------------------------------------
+    {
+        return int(r) * int(sizeof(ularge_t));
+    }
+
+    x86reg_t hw_sysv_arg(uint arg) const
+    // ------------------------------------------------------------------------
+    //   SysV ABI argument register for positional arg (rdi,rsi,rdx,rcx,r8,r9)
+    // ------------------------------------------------------------------------
+    {
+        static const x86reg_t sysv[] =
+        {
+            HW_RDI, HW_RSI, HW_RDX, HW_RCX, HW_R8, HW_R9
+        };
+        assert(arg < HW_ARGS);
+        return sysv[arg];
+    }
+
+
+    // ========================================================================
+    //
+    //    amd64 C/sys spill protocol (mirrors arm64 hw_sys_arg* API)
+    //
+    // ========================================================================
+
+    x86reg_t hw_sys_arg(uint arg, local_t loc)
+    // ------------------------------------------------------------------------
+    //   Load a local into the corresponding SysV argument register
+    // ------------------------------------------------------------------------
+    {
+        assert(arg < HW_ARGS);
+        x86reg_t src = hw(local(loc, RSPEC_INT, true));
+        x86reg_t dst = hw_sysv_arg(arg);
+        hw_sys_arg_spill(dst);
+        if (src >= HW_TEMP0 && src < HW_TEMP0 + HW_TEMPS)
+        {
+            spilled_args &= ~(1u << src);
+            if (dst != src)
+                move(dst, src);
+        }
+        else if (src < HW_SPILL && (spilled_args & (1u << src)))
+        {
+            emit_load_u64(dst, HW_RSP, spill_offset(src));
+        }
+        else if (dst != src)
+        {
+            move(dst, src);
+        }
+        return dst;
+    }
+
+    x86reg_t hw_sys_imm(uint arg, value_t imm)
+    // ------------------------------------------------------------------------
+    //   Load an immediate into the corresponding SysV argument register
+    // ------------------------------------------------------------------------
+    {
+        assert(arg < HW_ARGS);
+        x86reg_t dst = hw_sysv_arg(arg);
+        hw_sys_arg_spill(dst);
+        set_imm(dst, uint64_t(imm));
+        return dst;
+    }
+
+    x86reg_t hw_sys_ret(local_t loc, byte bsize = 64)
+    // ------------------------------------------------------------------------
+    //   Move C return value (rax) into a local's durable home
+    // ------------------------------------------------------------------------
+    {
+        x86reg_t dst = hw_dst_local(loc);
+        if (bsize != 64)
+        {
+            if (dst != HW_RAX)
+                emit_mov_rr(dst, HW_RAX);
+            sext_reg(dst, bsize);
+        }
+        else if (dst != HW_RAX)
+        {
+            emit_mov_rr(dst, HW_RAX);
+        }
+        return dst;
+    }
+
+    void hw_sys_arg_spill(hwreg_t r)
+    // ------------------------------------------------------------------------
+    //   Spill one register (allocates spill area on first use)
+    // ------------------------------------------------------------------------
+    {
+        if (!spilled_args)
+            hw_sys_arg_spill();
+        if (r < HW_SPILL && (HW_SPILL_MASK & (1u << r))
+                          && ~spilled_args & (1u << r))
+        {
+            emit_store_u64(HW_RSP, x86reg_t(r), spill_offset(r));
+            spilled_args |= 1u << r;
+        }
+    }
+
+    void hw_sys_arg_spill()
+    // ------------------------------------------------------------------------
+    //   Spill caller-saved durable homes + flags before a C call
+    // ------------------------------------------------------------------------
+    //   Slot index = physical register number.  Only rsi, rdi, r8–r11 are
+    //   stored.  Callee-saved homes (rbx, r12–r15) stay live.
+    {
+        emit_sub_rsp_imm(int32_t(HW_SPILL_AREA * sizeof(ularge_t)));
+        emit_store_u64(HW_RSP, HW_RSI, spill_offset(HW_RSI));
+        emit_store_u64(HW_RSP, HW_RDI, spill_offset(HW_RDI));
+        emit_store_u64(HW_RSP, HW_R8,  spill_offset(HW_R8));
+        emit_store_u64(HW_RSP, HW_R9,  spill_offset(HW_R9));
+        emit_store_u64(HW_RSP, HW_R10, spill_offset(HW_R10));
+        emit_store_u64(HW_RSP, HW_R11, spill_offset(HW_R11));
+        spilled_args = HW_SPILL_MASK;
+    }
+
+    void hw_sys_arg_respill()
+    // ------------------------------------------------------------------------
+    //   Re-store registers modified since the last spill/respill
+    // ------------------------------------------------------------------------
+    {
+        if (spilled_args)
+        {
+            for (uint r = HW_RSI; r <= uint(HW_R11); r++)
+            {
+                if ((HW_SPILL_MASK & (1u << r)) && ~spilled_args & (1u << r))
+                {
+                    emit_store_u64(HW_RSP, x86reg_t(r), spill_offset(r));
+                    spilled_args |= 1u << r;
+                }
+            }
+        }
+    }
+
+    void hw_sys_arg_reload(hwreg_t r, bool load)
+    // ------------------------------------------------------------------------
+    //   Reload one hardware register from C-call spill area if needed
+    // ------------------------------------------------------------------------
+    {
+        if (r < HW_SPILL && spilled_args & (1u << r))
+        {
+            if (load)
+                emit_load_u64(x86reg_t(r), HW_RSP, spill_offset(r));
+            else
+                spilled_args &= ~(1u << r);
+        }
+    }
+
+    void hw_sys_arg_reload()
+    // ------------------------------------------------------------------------
+    //   Reload all spilled registers and deallocate spill area
+    // ------------------------------------------------------------------------
+    {
+        if (spilled_args)
+        {
+            for (uint r = HW_RSI; r <= uint(HW_R11); r++)
+            {
+                if (spilled_args & (1u << r))
+                    emit_load_u64(x86reg_t(r), HW_RSP, spill_offset(r));
+            }
+            emit_add_rsp_imm(int32_t(HW_SPILL_AREA * sizeof(ularge_t)));
+            spilled_args = 0;
+        }
+    }
+
+    uint hw_spills_at(byte_p target);
+    void hw_sys_arg_reload(byte_p target);
 
     int local_disp(int n) const
     // ------------------------------------------------------------------------

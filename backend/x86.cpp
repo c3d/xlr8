@@ -164,9 +164,19 @@ void x86::syscall(void (*target)())
 //   Implement a syscall to the runtime
 // ----------------------------------------------------------------------------
 {
-    size_t spilled = spill_all();
-    record(x86, "syscall %p spilled %zu", target, spilled);
-    call_ptr(target);
+    if (ptr64())
+    {
+        if (!spilled_args)
+            hw_sys_arg_spill();
+        record(x86, "syscall %p (direct-map spill)", target);
+        call_ptr(target);
+    }
+    else
+    {
+        size_t spilled = spill_all();
+        record(x86, "syscall %p spilled %zu", target, spilled);
+        call_ptr(target);
+    }
 }
 
 
@@ -398,8 +408,72 @@ void x86::register_sync(byte_p pc)
         }
     }
 
-    // Forward branches: if this PC is a branch target, ensure consistent state
-    label_branches(pc);
+    // Forward branches: if this PC is a branch target, ensure consistent state.
+    // Reload all spilled args so the register file is clean at merge points.
+    if (ptr64())
+    {
+        if (label_branches(pc))
+            hw_sys_arg_reload();
+    }
+    else
+    {
+        label_branches(pc);
+    }
+}
+
+
+uint x86::hw_spills_at(byte_p target)
+// ----------------------------------------------------------------------------
+//   Return the value of spilled_args recorded at a given branch target
+// ----------------------------------------------------------------------------
+{
+    auto spill = backend::lower_bound(spills, target);
+    if (spill != spills.end() && spill->bytecode == target)
+        return spill->spilled;
+    return 0;
+}
+
+
+void x86::hw_sys_arg_reload(byte_p target)
+// ----------------------------------------------------------------------------
+//   Reconcile spill state to match what was recorded at branch target
+// ----------------------------------------------------------------------------
+{
+    uint dspill = hw_spills_at(target);
+    uint cspill = spilled_args;
+    uint diffs  = dspill ^ cspill;
+    if (diffs)
+    {
+        for (uint r = HW_RSI; r <= uint(HW_R11); r++)
+        {
+            if (!((HW_SPILL_MASK >> r) & 1))
+                continue;
+            uint dd = (diffs >> r) & 1;
+            if (!dd)
+                continue;
+            if ((dspill >> r) & 1)
+                emit_store_u64(HW_RSP, x86reg_t(r), spill_offset(r));
+            else
+                emit_load_u64(x86reg_t(r), HW_RSP, spill_offset(r));
+        }
+
+        // If destination has no spill area but we currently have one, dealloc
+        if (!dspill && cspill)
+        {
+            emit_add_rsp_imm(int32_t(HW_SPILL_AREA * sizeof(ularge_t)));
+        }
+        // If destination has a spill area but we don't, allocate and spill
+        else if (dspill && !cspill)
+        {
+            emit_sub_rsp_imm(int32_t(HW_SPILL_AREA * sizeof(ularge_t)));
+            for (uint r = HW_RSI; r <= uint(HW_R11); r++)
+            {
+                if ((dspill >> r) & 1)
+                    emit_store_u64(HW_RSP, x86reg_t(r), spill_offset(r));
+            }
+        }
+        spilled_args = dspill;
+    }
 }
 
 
@@ -1001,6 +1075,8 @@ void x86::bra_pred(byte p, byte_p target, bool sense)
 // ----------------------------------------------------------------------------
 {
     record(x86, "bra_%+s %u, %lld", sense ? "true" : "false" ,p, target);
+    if (ptr64())
+        hw_sys_arg_reload(target);
     emit_pred_test_bit(p);                              // BT -> CF
     hwcode_t pos = emit_jcc_rel32(sense ? JCC_JC : JCC_JNC);
     rel32_branch(target, pos);
@@ -1013,6 +1089,8 @@ void x86::bra_test(local_t s, byte_p target, byte cc)
 // ----------------------------------------------------------------------------
 {
     record(x86, "bra_test %u, %lld cc=%u", s, target, cc);
+    if (ptr64())
+        hw_sys_arg_reload(target);
     x86reg_t r = hw_local(s);
     emit_test_rr(r, r);
     hwcode_t pos = emit_jcc_rel32(cc);
@@ -1129,6 +1207,8 @@ void x86::dispatch(local_t loc, byte_p &pc, byte jcc)
 //   Dispatch a branch table
 // ----------------------------------------------------------------------------
 {
+    if (ptr64())
+        hw_sys_arg_reload();
     x86reg_t ref = hw_local(loc);
     size_t   ncases  = leb128<size_t>(pc);
     for (size_t n = 0; n < ncases; n++)
@@ -1137,6 +1217,8 @@ void x86::dispatch(local_t loc, byte_p &pc, byte jcc)
         byte_p  bpc  = pc;
         broff_t offs = leb128<broff_t>(pc);
         byte_p  tgt  = bpc + offs;
+        if (ptr64())
+            hw_sys_arg_reload(tgt);
         set_imm(HW_RAX, test);
         emit_cmp_rr(ref, HW_RAX);
         hwcode_t pos = emit_jcc_rel32(jcc);
