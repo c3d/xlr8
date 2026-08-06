@@ -1,11 +1,12 @@
 // Locals >= 16 are frame-only on arm64; must not touch HW shadow registers.
 // Default frame is enter 8; need enter >= 19 to legally use locals 16–18.
+// Formula stays in signed 32-bit for n in 0..255 (value_t is intptr_t).
 
 enter 255
 
 [STDOUT 1]
 [SetN [n]
- nat n #(1000000*n*n+100*n)
+ nat n #(1000*n*n+n)
  sys write_token STDOUT "Init "
  sys write_integer STDOUT n
  sys write_newline STDOUT]
