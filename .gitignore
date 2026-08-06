@@ -16,3 +16,8 @@
 /tests/**/*.mk
 /tests/failures.log
 /work/
+
+# Local build/perf artifacts
+/cmd/
+/perf/fibonacci
+/perf/*.csv
