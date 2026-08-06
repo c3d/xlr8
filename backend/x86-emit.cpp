@@ -192,19 +192,16 @@ EMIT(call)
     {
         hw_sys_arg_reload();
 
-        bool save_fp = !pre_enter_frame_size;
-        if (save_fp)
-            emit_push_reg(HW_FRAME);
+        // Always push rbp: (a) the callee's enter will overwrite it,
+        // and (b) the push keeps callee entry 16-byte aligned
+        // (push 8 + call 8 = 16 bytes from aligned RSP).
+        emit_push_reg(HW_FRAME);
         emit8(0xE8);
         hwcode_t site = cursor();
         emit32le(0);
         rel32_function(e.tok, site);
-        if (save_fp)
-            emit_pop_reg(HW_FRAME);
+        emit_pop_reg(HW_FRAME);
 
-        // On x86, the callee's epilogue restored all callee-saved regs,
-        // including iorder[0].  The return value is in rax (set by callee's
-        // ret before its epilogue).  Copy it back to iorder[0].
         x86reg_t r0 = hw_int_order(0);
         if (r0 != HW_RAX)
             emit_mov_rr(r0, HW_RAX);
