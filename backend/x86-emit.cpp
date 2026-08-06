@@ -1404,7 +1404,7 @@ EMIT(fadd)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_fadd(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, op_fadd);
+    binop_local(e.dst, e.src, op_fadd, 32);
 }
 
 
@@ -1414,7 +1414,7 @@ EMIT(fsub)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_fsub(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, op_fsub);
+    binop_local(e.dst, e.src, op_fsub, 32);
 }
 
 
@@ -1424,7 +1424,7 @@ EMIT(fmul)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_fmul(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, op_fmul);
+    binop_local(e.dst, e.src, op_fmul, 32);
 }
 
 
@@ -1434,7 +1434,7 @@ EMIT(fdiv)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_fdiv(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, op_fdiv);
+    binop_local(e.dst, e.src, op_fdiv, 32);
 }
 
 
@@ -1444,7 +1444,7 @@ EMIT(dadd)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_dadd(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, op_dadd);
+    binop_local(e.dst, e.src, op_dadd, 64);
 }
 
 
@@ -1454,7 +1454,7 @@ EMIT(dsub)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_dsub(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, op_dsub);
+    binop_local(e.dst, e.src, op_dsub, 64);
 }
 
 
@@ -1464,7 +1464,7 @@ EMIT(dmul)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_dmul(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, op_dmul);
+    binop_local(e.dst, e.src, op_dmul, 64);
 }
 
 
@@ -1474,7 +1474,7 @@ EMIT(ddiv)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_ddiv(%u, %u)", e.dst, e.src);
-    binop_local(e.dst, e.src, op_ddiv);
+    binop_local(e.dst, e.src, op_ddiv, 64);
 }
 
 
