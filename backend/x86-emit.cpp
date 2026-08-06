@@ -234,7 +234,9 @@ EMIT(ijmp)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ijmp opcode
 // ----------------------------------------------------------------------------
-//   Pop this function's callee-saved regs before jumping (like jmp).
+//   Unlike jmp, ijmp does NOT pop callee-saved regs: the target may be a
+//   mid-function label (no prologue).  Stack balance is maintained because
+//   the eventual end/epilogue in the target function pops the set.
 {
     record(x86_ops, "emit_ijmp %u", e.src);
     if (ptr64())
@@ -243,11 +245,6 @@ EMIT(ijmp)
         hw_sys_arg(0, e.src);
         syscall(reinterpret_cast<void (*)()>(xlr8_jit_addr));
         hw_sys_arg_reload();
-        emit_pop_reg(HW_R15);
-        emit_pop_reg(HW_R14);
-        emit_pop_reg(HW_R13);
-        emit_pop_reg(HW_R12);
-        emit_pop_reg(HW_RBX);
         emit_jmp_rr(HW_RAX);
     }
     else
