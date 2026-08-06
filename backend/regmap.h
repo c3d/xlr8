@@ -97,6 +97,7 @@
 //     Value temps       eax, ecx, edx    used by opcode helpers
 //     Stack pointer     esp              native stack
 //     Direct-map not yet active for i386 — locals accessed via frame memory.
+//     Next: Phase A on crazypad (after amd64 Phase A done).
 //
 //
 //  ---------------------------------------------------------------------------

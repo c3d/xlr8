@@ -1,7 +1,7 @@
 # Register allocation: direct mapping (arm64)
 
 **Date:** 2026-07-27 (updated 2026-08-06)  
-**Status:** Implemented on arm64; x86-64 Phase A done; stubs on arm32 / riscv64  
+**Status:** Implemented on arm64; x86-64 Phase A done (turbo 224/0); **i386 Phase A next (crazypad)**; stubs on arm32 / riscv64  
 
 ## Goal
 
@@ -139,6 +139,7 @@ do not depend on that move.
 | `enter`/`leave` save/restore `iorder` | OK |
 | Bytecode `call` in-place (no x0 marshal) | OK |
 | x86-64 direct-map Phase A (locals 0-9) | Done (turbo green 224/0) |
+| i386 direct-map Phase A | Next on crazypad |
 | arm32 / riscv64 `register_for` / `register_sync` | Still stubs |
 
 ## Out of scope here
