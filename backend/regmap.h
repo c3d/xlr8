@@ -70,28 +70,32 @@
 //
 //
 //  ---------------------------------------------------------------------------
-//  x86-64 (amd64)
+//  x86-64 (amd64) — direct-map allocator
 //  ---------------------------------------------------------------------------
 //
-//     Shadow locals     r8,r9,r10,rbx  frame[0] .. frame[3] when valid (x86-64)
-//     Locals >= 4: load/store at [r12 + local*8] as before.
+//     Direct-map locals (callee-saved first):
+//       local 0…4   →  rbx, r12, r13, r14, r15  (survive C/sys without spill)
+//       local 5…9   →  rsi, rdi, r8, r9, r10    (caller-saved; spilled around C)
+//     Overflow temps    rax, rdx          HW_TEMP0… (locals >= 10)
+//     Scratch           rcx               HW_SCRATCH (shift-count, encoding temp)
+//     Flags/predicates  r11               HW_FLAGS; non-durable (spill around sys)
+//     Frame pointer     rbp               HW_FRAME; local_disp(n) = ~(n)*8
+//     Stack pointer     rsp               native stack
 //
-//     Frame pointer     r12           rt.frame, primed at entry
-//     Flags/predicates  r15           rt.flags (64-bit), primed at entry
-//     Scratch           r11           general temp (swap, etc.)
-//     Value temps       rax, rcx, rdx used by opcode helpers
-//     Callee-saved      rbx, rbp      saved in JIT prologue
-//     Stack pointer     rsp           native stack
+//     See docs/superpowers/specs/2026-08-06-x86-direct-map-allocator-design.md
 //
 //
 //  ---------------------------------------------------------------------------
 //  i386 (i386)
 //  ---------------------------------------------------------------------------
 //
-//     Same model as x86-64 but 32-bit pointers and only 8 bytecode locals
-//     in the ISA surface (registers == 8).  Frame pointer ebx or a dedicated
-//     reg would be needed; current backend inherits the x86_64 register enum
-//     and uses [r12+disp] with 4-byte slots when built as i386.
+//     Frame pointer     ebp (HW_FRAME)   Native frame via enter/leave
+//     Flags/predicates  esi (HW_FLAGS)   low 32 flags; high half at [ebp+4]
+//     Scratch           ecx (HW_SCRATCH) general temp
+//     Prologue saves    ebx,esi,edi      (SysV callee-saved); restored in epilogue
+//     Value temps       eax, ecx, edx    used by opcode helpers
+//     Stack pointer     esp              native stack
+//     Direct-map not yet active for i386 — locals accessed via frame memory.
 //
 //
 //  ---------------------------------------------------------------------------

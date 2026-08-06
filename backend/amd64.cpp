@@ -67,29 +67,32 @@ uint amd64::pointer_size() const
 
 amd64::reginfo amd64::register_definition(hwreg_t reg) const
 // ----------------------------------------------------------------------------
-//   Return the register specification flags for amd64
+//   Return the register specification flags for amd64 direct-map allocator
 // ----------------------------------------------------------------------------
+//   RSPEC_INT marks registers usable as integer local homes or temps.
+//   RSPEC_CALL marks callee-saved (survive C/sys without spill).
+//   Registers with spec 0 are fixed-role (frame, stack, scratch, flags).
 {
     static const reginfo amd64_registers[x86::HW_COUNT] =
     {
-        {    "rax",                      0 },
-        {    "rcx",                      0 },
-        {    "rdx",                      0 },
-        {    "rbx", RSPEC_CALL | RSPEC_INT },
-        {    "rsp",                      0 },
-        {    "rbp",                      0 },
-        {    "rsi",                      0 },
-        {    "rdi",              RSPEC_INT },
-        {     "r8",              RSPEC_INT },
-        {     "r9",              RSPEC_INT },
-        {    "r10",              RSPEC_INT },
-        {    "r11", RSPEC_CALL | RSPEC_INT },
-        {    "r12",              RSPEC_INT },
-        {    "r13",              RSPEC_INT },
-        {    "r14",              RSPEC_INT },
-        {    "r15", RSPEC_CALL | RSPEC_INT },
+        {    "rax",              RSPEC_INT }, // HW_TEMP0
+        {    "rcx",                      0 }, // HW_SCRATCH
+        {    "rdx",              RSPEC_INT }, // HW_TEMP1
+        {    "rbx", RSPEC_CALL | RSPEC_INT }, // iorder[0]
+        {    "rsp",                      0 }, // stack
+        {    "rbp",                      0 }, // HW_FRAME
+        {    "rsi",              RSPEC_INT }, // iorder[5]
+        {    "rdi",              RSPEC_INT }, // iorder[6]
+        {     "r8",              RSPEC_INT }, // iorder[7]
+        {     "r9",              RSPEC_INT }, // iorder[8]
+        {    "r10",              RSPEC_INT }, // iorder[9]
+        {    "r11",                      0 }, // HW_FLAGS
+        {    "r12", RSPEC_CALL | RSPEC_INT }, // iorder[1]
+        {    "r13", RSPEC_CALL | RSPEC_INT }, // iorder[2]
+        {    "r14", RSPEC_CALL | RSPEC_INT }, // iorder[3]
+        {    "r15", RSPEC_CALL | RSPEC_INT }, // iorder[4]
 
-        {  "xmm0d",              RSPEC_DBL },
+        {  "xmm0d",              RSPEC_DBL }, // FP shadow
         {  "xmm1d",              RSPEC_DBL },
         {  "xmm2d",              RSPEC_DBL },
         {  "xmm3d",              RSPEC_DBL },
@@ -97,16 +100,16 @@ amd64::reginfo amd64::register_definition(hwreg_t reg) const
         {  "xmm5d",              RSPEC_DBL },
         {  "xmm6d",              RSPEC_DBL },
         {  "xmm7d",              RSPEC_DBL },
-        {  "xmm8d",              RSPEC_DBL },
+        {  "xmm8d",              RSPEC_DBL }, // HW_DTEMP0
         {  "xmm9d",              RSPEC_DBL },
-        { "xmm10d",              RSPEC_DBL },
-        { "xmm11d",              RSPEC_DBL },
-        { "xmm12d",              RSPEC_DBL },
-        { "xmm13d",              RSPEC_DBL },
-        { "xmm14d",              RSPEC_DBL },
-        { "xmm15d",              RSPEC_DBL },
+        { "xmm10d",                      0 },
+        { "xmm11d",                      0 },
+        { "xmm12d",                      0 },
+        { "xmm13d",                      0 },
+        { "xmm14d",                      0 },
+        { "xmm15d",                      0 },
 
-        {  "xmm0f",              RSPEC_FLT },
+        {  "xmm0f",              RSPEC_FLT }, // FP shadow
         {  "xmm1f",              RSPEC_FLT },
         {  "xmm2f",              RSPEC_FLT },
         {  "xmm3f",              RSPEC_FLT },
@@ -114,14 +117,14 @@ amd64::reginfo amd64::register_definition(hwreg_t reg) const
         {  "xmm5f",              RSPEC_FLT },
         {  "xmm6f",              RSPEC_FLT },
         {  "xmm7f",              RSPEC_FLT },
-        {  "xmm8f",              RSPEC_FLT },
+        {  "xmm8f",              RSPEC_FLT }, // HW_FTEMP0
         {  "xmm9f",              RSPEC_FLT },
-        { "xmm10f",              RSPEC_FLT },
-        { "xmm11f",              RSPEC_FLT },
-        { "xmm12f",              RSPEC_FLT },
-        { "xmm13f",              RSPEC_FLT },
-        { "xmm14f",              RSPEC_FLT },
-        { "xmm15f",              RSPEC_FLT },
+        { "xmm10f",                      0 },
+        { "xmm11f",                      0 },
+        { "xmm12f",                      0 },
+        { "xmm13f",                      0 },
+        { "xmm14f",                      0 },
+        { "xmm15f",                      0 },
     };
 
     return reg < HW_COUNT ? amd64_registers[reg] : reginfo{ "INVALID", 0 };
@@ -130,15 +133,17 @@ amd64::reginfo amd64::register_definition(hwreg_t reg) const
 
 void amd64::prologue()
 // ----------------------------------------------------------------------------
-//   Push callee-saved registers only; do not move the frame pointer
+//   Push callee-saved registers that serve as local homes (iorder 0–4)
 // ----------------------------------------------------------------------------
 {
     record(amd64, "prologue");
 
-    // SysV and Win64: rbx,rbp,r12,r15 are callee-saved.  r12/r15 hold
-    // frame/flags for the whole translation.  rbp is owned by enter/leave.
+    // Direct-map callee-saved homes: rbx, r12, r13, r14, r15 (locals 0–4).
+    // rbp is owned by enter/leave (HW_FRAME), not pushed here.
     emit_push_reg(HW_RBX);
     emit_push_reg(HW_R12);
+    emit_push_reg(HW_R13);
+    emit_push_reg(HW_R14);
     emit_push_reg(HW_R15);
 }
 
@@ -150,6 +155,8 @@ void amd64::epilogue()
 {
     record(amd64, "epilogue()");
     emit_pop_reg(HW_R15);
+    emit_pop_reg(HW_R14);
+    emit_pop_reg(HW_R13);
     emit_pop_reg(HW_R12);
     emit_pop_reg(HW_RBX);
     emit_insn_ret();

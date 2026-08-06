@@ -30,15 +30,48 @@
 // ****************************************************************************
 //
 //  ===========================================================================
-//  REGISTER ALLOCATION CONVENTIONS (x86 / i386)
+//  REGISTER ALLOCATION CONVENTIONS (x86 family)
 //  ===========================================================================
+//
+//  ---------------------------------------------------------------------------
+//  amd64 (x86-64) — direct-map allocator (mirrors arm64 contract)
+//  ---------------------------------------------------------------------------
+//
+//  Callee-saved-first iorder so typical frames (locals 0–4) survive C/`sys`:
+//
+//    local 0…4   →  rbx, r12, r13, r14, r15  (callee-saved)
+//    local 5…9   →  rsi, rdi, r8, r9, r10    (caller-saved; spilled around C)
+//
+//  Overflow (locals ≥ HW_SHADOWS=10) uses temps rax, rdx (HW_TEMP0/1):
+//  loaded from frame, used transiently, stored back in register_sync.
+//
+//  Reserved / fixed roles:
+//    rbp          HW_FRAME   local_disp(n) = ~(n)*8
+//    rcx          HW_SCRATCH shift-count constraints (shl %cl), general temp
+//    r11          HW_FLAGS   predicate bits (non-durable; save/restore in sys)
+//    rsp          stack pointer
+//
+//  Flags home: r11 (caller-saved, non-durable). Chosen over a memory slot
+//  because it keeps BT/BTS/BTR single-instruction. Spilled around C/`sys`
+//  calls (Task 3) alongside the caller-saved durable set. r15 is freed for
+//  local 4.
+//
+//  FP: transient XMM homes (xmm0–xmm7); register_sync bit-copies live XMM
+//  back to the local's durable GPR home (iorder[n]).
+//
+//  C/`sys`: spill caller-saved durable set (HW_SPILL=5: rsi,rdi,r8,r9,r10)
+//  plus flags (r11). Callee-saved homes (rbx,r12–r15) stay live.
+//
+//  ---------------------------------------------------------------------------
+//  i386
+//  ---------------------------------------------------------------------------
 //
 //  Locals use [ebp - (local+1)*8], ebp is adjusted by op_enter and op_leave
 //  args are pointed to by ebp[2+flags+arg] (previous frame)
 //  Flags 32-63 are at ebp[1]
 //  Args   use [ebp + arg*8] before enter
 //
-//  Register map (x86 / i386):
+//  Register map (i386):
 //
 //    Frame pointer     ebp (HW_FRAME)   Runtime frame for locals
 //    Flags/predicates  esi (HW_FLAGS)   First 32 flags
@@ -141,7 +174,83 @@ protected:
         HW_FRAME   = HW_RBP,
         HW_SCRATCH = HW_RCX,
         HW_NONE    = 0,
+
+        // amd64 direct-map allocator constants
+        HW_ARGS      = 6,   // SysV: rdi,rsi,rdx,rcx,r8,r9
+        HW_SPILL     = 5,   // caller-saved durable homes (rsi,rdi,r8,r9,r10)
+        HW_SHADOWS   = 10,  // len(iorder): 5 callee + 5 caller
+        HW_FSHADOWS  = 8,   // xmm0–xmm7 transient FP homes
+        HW_TEMPS     = 2,   // rax, rdx overflow temps
+        HW_TEMP0     = HW_RAX,
+        HW_FTEMP0    = HW_XMM8F,
+        HW_DTEMP0    = HW_XMM8D,
     };
+
+    static x86reg_t hw_int_order(local_t loc)
+    // ------------------------------------------------------------------------
+    //   Direct-map register assignment for amd64 integer locals
+    // ------------------------------------------------------------------------
+    //   Callee-saved first so locals 0–4 survive C/sys without spill.
+    {
+        static const x86reg_t iorder[] =
+        {
+            HW_RBX,             // local 0 (callee-saved)
+            HW_R12,             // local 1
+            HW_R13,             // local 2
+            HW_R14,             // local 3
+            HW_R15,             // local 4
+            HW_RSI,             // local 5 (caller-saved)
+            HW_RDI,             // local 6
+            HW_R8,              // local 7
+            HW_R9,              // local 8
+            HW_R10,             // local 9
+        };
+        static_assert(sizeof(iorder) / sizeof(iorder[0]) == HW_SHADOWS);
+        if (loc >= HW_SHADOWS)
+        {
+            record(x86_error, "hw_int_order local %u out of range", loc);
+            return HW_RAX;
+        }
+        return iorder[loc];
+    }
+
+    static x86reg_t hw_flt_order(local_t loc)
+    // ------------------------------------------------------------------------
+    //   Direct-map register assignment for float shadow registers
+    // ------------------------------------------------------------------------
+    {
+        static const x86reg_t forder[] =
+        {
+            HW_XMM0F, HW_XMM1F, HW_XMM2F, HW_XMM3F,
+            HW_XMM4F, HW_XMM5F, HW_XMM6F, HW_XMM7F,
+        };
+        static_assert(sizeof(forder) / sizeof(forder[0]) == HW_FSHADOWS);
+        if (loc >= HW_FSHADOWS)
+        {
+            record(x86_error, "hw_flt_order local %u out of range", loc);
+            return HW_XMM8F;
+        }
+        return forder[loc];
+    }
+
+    static x86reg_t hw_dbl_order(local_t loc)
+    // ------------------------------------------------------------------------
+    //   Direct-map register assignment for double shadow registers
+    // ------------------------------------------------------------------------
+    {
+        static const x86reg_t dorder[] =
+        {
+            HW_XMM0D, HW_XMM1D, HW_XMM2D, HW_XMM3D,
+            HW_XMM4D, HW_XMM5D, HW_XMM6D, HW_XMM7D,
+        };
+        static_assert(sizeof(dorder) / sizeof(dorder[0]) == HW_FSHADOWS);
+        if (loc >= HW_FSHADOWS)
+        {
+            record(x86_error, "hw_dbl_order local %u out of range", loc);
+            return HW_XMM8D;
+        }
+        return dorder[loc];
+    }
 
     bool win64_abi() const
     // ------------------------------------------------------------------------
@@ -192,9 +301,10 @@ protected:
     // ------------------------------------------------------------------------
     //   Register used for hardware flags
     // ------------------------------------------------------------------------
-    //   In 32-bit mode, it only holds flags 0..31. The rest is in ebp[-2]
+    //   amd64: r11 (non-durable; freed r15 for local 4)
+    //   i386:  esi; flags 32–63 spill to ebp[-2]
     {
-        return ptr64() ? HW_R15 : HW_RSI;
+        return ptr64() ? HW_R11 : HW_RSI;
     }
 
     x86reg_t hw_arg0() const
@@ -233,10 +343,10 @@ protected:
         return n * int(sizeof(ularge_t)) + enter_and_ra + prologue;
     }
 
-    // ebx/esi/edi (i386) or rbx/r12/r15 (amd64): 3 pointer-sized pushes.
+    // i386: ebx/esi/edi (3 pushes). amd64: rbx/r12/r13/r14/r15 (5 pushes).
     uint PROLOGUE_SAVE_BYTES() const
     {
-        return 3u * pointer_size();
+        return (ptr64() ? 5u : 3u) * pointer_size();
     }
 
 
