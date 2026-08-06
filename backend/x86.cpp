@@ -1129,11 +1129,24 @@ void x86::prologue()
 {
     record(x86, "prologue");
 
-    // i386 SysV: ebx/esi/edi are callee-saved. Frame is rbp (HW_FRAME) via
-    // enter/leave; flags live in esi (hw_flags()).
-    emit_push_reg(HW_RBX);
-    emit_push_reg(HW_RSI);
-    emit_push_reg(HW_RDI);
+    if (ptr64())
+    {
+        // amd64 direct-map: callee-saved durable homes rbx, r12–r15.
+        // 5 pushes (40 bytes) + 8-byte return address = 48 → SP stays
+        // 16-byte aligned after prologue (ready for enter push rbp).
+        emit_push_reg(HW_RBX);
+        emit_push_reg(HW_R12);
+        emit_push_reg(HW_R13);
+        emit_push_reg(HW_R14);
+        emit_push_reg(HW_R15);
+    }
+    else
+    {
+        // i386 SysV: ebx/esi/edi are callee-saved.
+        emit_push_reg(HW_RBX);
+        emit_push_reg(HW_RSI);
+        emit_push_reg(HW_RDI);
+    }
 }
 
 
@@ -1143,9 +1156,20 @@ void x86::epilogue()
 // ----------------------------------------------------------------------------
 {
     record(x86, "epilogue()");
-    emit_pop_reg(HW_RDI);
-    emit_pop_reg(HW_RSI);
-    emit_pop_reg(HW_RBX);
+    if (ptr64())
+    {
+        emit_pop_reg(HW_R15);
+        emit_pop_reg(HW_R14);
+        emit_pop_reg(HW_R13);
+        emit_pop_reg(HW_R12);
+        emit_pop_reg(HW_RBX);
+    }
+    else
+    {
+        emit_pop_reg(HW_RDI);
+        emit_pop_reg(HW_RSI);
+        emit_pop_reg(HW_RBX);
+    }
     emit_insn_ret();
 }
 
@@ -1183,7 +1207,9 @@ void x86::invoke(runtime &rt, void *code)
         "call *%0"
         :
         : "r"(entry), "r"(frame), "r"(flags)
-        : "rbp", "r11", "memory", "cc");
+        : "rax", "rcx", "rdx", "rsi", "rdi",
+          "r8", "r9", "r10", "r11", "rbp",
+          "memory", "cc");
 #elif defined(__i386__) || defined(__i386)
     typedef void (*entry_fn)(void);
     entry_fn  entry  = (entry_fn) code;

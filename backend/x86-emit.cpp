@@ -262,7 +262,7 @@ EMIT(ret)
     {
         hw_sys_arg_reload();
         x86reg_t src = hw_int_order(0);
-        if (src != HW_RAX && local_frame_size > 0)
+        if (src != HW_RAX)
             emit_mov_rr(HW_RAX, src);
         epilogue();
     }
@@ -327,6 +327,16 @@ EMIT(enter)
 
     if (ptr64())
     {
+        // Allocate the full frame below rbp (shadows + high locals).
+        // push rbp consumed 8 bytes; total must be 16-byte aligned
+        // so that SP is ready for C calls (SysV requires 16-byte alignment
+        // before call, i.e. SP ≡ 0 mod 16 at the call instruction).
+        int32_t total = int32_t(8 + frame * sizeof(ularge_t));
+        total = (total + 15) & ~15;
+        int32_t alloc = total - 8;
+        if (alloc > 0)
+            emit_sub_rsp_imm(alloc);
+
         // Save caller's local homes (iorder[i]) into frame slots, mirroring
         // arm64: slot i holds iorder[i] so get/set stay consistent.
         uint shadows = frame;
@@ -334,12 +344,6 @@ EMIT(enter)
             shadows = HW_SHADOWS;
         for (uint i = 0; i < shadows; i++)
             emit_store_u64(HW_FRAME, hw_int_order(i), local_disp(i));
-
-        uint high = frame > shadows ? frame - shadows : 0;
-        int32_t bytes = int32_t(high * sizeof(ularge_t));
-        bytes = (bytes + 15) & ~15;
-        if (bytes > 0)
-            emit_sub_rsp_imm(bytes);
     }
     else
     {
