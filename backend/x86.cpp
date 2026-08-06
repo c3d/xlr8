@@ -1178,29 +1178,63 @@ void x86::invoke(runtime &rt, void *code)
 // ----------------------------------------------------------------------------
 //   Jump to generated x86 code with FP = initial frame and flags in HW_FLAGS
 // ----------------------------------------------------------------------------
+//   Locals 0-9 live in hw_int_order(0-9).  Copy them from rt.frame on entry
+//   and write them back on exit so successive run_native() calls share the
+//   outer interpreter frame (see tests/bytecode/repeated-execution.xlr8).
 {
 #if defined(__x86_64__) || defined(__amd64__)
     typedef void (*entry_fn)(void);
-    entry_fn entry = (entry_fn) code;
+    entry_fn  entry     = (entry_fn) code;
     alignas(16) ularge_t initial_frame[DEFAULT_FRAME_SIZE + 2];
-    stack_p  frame = initial_jit_fp(initial_frame);
-    uint64_t flags = rt.flags;
+    stack_p   frame     = initial_jit_fp(initial_frame);
+    ularge_t *locals    = rt.frame;
+    uint64_t *flags_ptr = &rt.flags;
+
+    frame[0] = reinterpret_cast<ularge_t>(locals);
+    frame[1] = reinterpret_cast<ularge_t>(flags_ptr);
+
     asm volatile(
         "push %%rbx\n\t"
         "push %%r12\n\t"
         "push %%r13\n\t"
         "push %%r14\n\t"
         "push %%r15\n\t"
-        "mov %1, %%rbp\n\t"
-        "mov %2, %%r11\n\t"
-        "call *%0\n\t"
+        "mov %[frame], %%rbp\n\t"
+        "mov %[entry], %%rax\n\t"
+        "mov 0(%%rbp), %%rcx\n\t"
+        "mov 0(%%rcx), %%rbx\n\t"
+        "mov 8(%%rcx), %%r12\n\t"
+        "mov 16(%%rcx), %%r13\n\t"
+        "mov 24(%%rcx), %%r14\n\t"
+        "mov 32(%%rcx), %%r15\n\t"
+        "mov 40(%%rcx), %%rsi\n\t"
+        "mov 48(%%rcx), %%rdi\n\t"
+        "mov 56(%%rcx), %%r8\n\t"
+        "mov 64(%%rcx), %%r9\n\t"
+        "mov 72(%%rcx), %%r10\n\t"
+        "mov 8(%%rbp), %%rcx\n\t"
+        "mov 0(%%rcx), %%r11\n\t"
+        "call *%%rax\n\t"
+        "mov 8(%%rbp), %%rcx\n\t"
+        "mov %%r11, 0(%%rcx)\n\t"
+        "mov 0(%%rbp), %%rcx\n\t"
+        "mov %%rbx, 0(%%rcx)\n\t"
+        "mov %%r12, 8(%%rcx)\n\t"
+        "mov %%r13, 16(%%rcx)\n\t"
+        "mov %%r14, 24(%%rcx)\n\t"
+        "mov %%r15, 32(%%rcx)\n\t"
+        "mov %%rsi, 40(%%rcx)\n\t"
+        "mov %%rdi, 48(%%rcx)\n\t"
+        "mov %%r8, 56(%%rcx)\n\t"
+        "mov %%r9, 64(%%rcx)\n\t"
+        "mov %%r10, 72(%%rcx)\n\t"
         "pop %%r15\n\t"
         "pop %%r14\n\t"
         "pop %%r13\n\t"
         "pop %%r12\n\t"
         "pop %%rbx"
         :
-        : "r"(entry), "r"(frame), "r"(flags)
+        : [entry] "r"(entry), [frame] "r"(frame)
         : "rax", "rcx", "rdx", "rsi", "rdi",
           "r8", "r9", "r10", "r11", "rbp",
           "memory", "cc");
