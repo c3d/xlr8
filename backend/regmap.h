@@ -70,7 +70,7 @@
 //
 //
 //  ---------------------------------------------------------------------------
-//  x86-64 (amd64) — direct-map allocator
+//  x86-64 (amd64) — direct-map allocator (Phase A complete)
 //  ---------------------------------------------------------------------------
 //
 //     Direct-map locals (callee-saved first):
@@ -82,6 +82,7 @@
 //     Frame pointer     rbp               HW_FRAME; local_disp(n) = ~(n)*8
 //     Stack pointer     rsp               native stack
 //
+//     Phase A (locals 0-9, 10 direct homes) green on turbo.
 //     See docs/superpowers/specs/2026-08-06-x86-direct-map-allocator-design.md
 //
 //

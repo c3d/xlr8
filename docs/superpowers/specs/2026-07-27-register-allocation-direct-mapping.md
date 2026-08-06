@@ -1,7 +1,7 @@
 # Register allocation: direct mapping (arm64)
 
-**Date:** 2026-07-27 (updated 2026-08-03)  
-**Status:** Implemented on arm64; stubs on x86 / arm32 / riscv64  
+**Date:** 2026-07-27 (updated 2026-08-06)  
+**Status:** Implemented on arm64; x86-64 Phase A done; stubs on arm32 / riscv64  
 
 ## Goal
 
@@ -138,10 +138,11 @@ do not depend on that move.
 | C/`sys` spill of `x0`–`x18` only | OK |
 | `enter`/`leave` save/restore `iorder` | OK |
 | Bytecode `call` in-place (no x0 marshal) | OK |
-| x86 / arm / riscv64 `register_for` / `register_sync` | Still stubs |
+| x86-64 direct-map Phase A (locals 0-9) | Done (turbo green 226/0) |
+| arm32 / riscv64 `register_for` / `register_sync` | Still stubs |
 
 ## Out of scope here
 
-Porting this map to x86/arm/riscv64; instruction-level peepholes from
+Full x86-64 expansion (Phase B: locals 10+, FP homes); porting to arm32/riscv64; instruction-level peepholes from
 `BACKEND-OPTIMIZATION.md`. Remaining historical `-O` notes:
 `docs/superpowers/plans/2026-07-27-arm64-O-failures-after-direct-map.md`.

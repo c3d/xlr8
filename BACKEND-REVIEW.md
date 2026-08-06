@@ -48,17 +48,17 @@ declarations.  This is clean and prevents signature drift.
 
 | Role              | arm64         | x86-64            | x86-32       | arm32        | riscv64       |
 |-------------------|---------------|-------------------|--------------|--------------|---------------|
-| Shadow locals     | x0–x15        | r8,r9,r10,rbx     | (none)       | r0–r3        | x10–x25       |
-| Frame pointer     | x19           | r12               | edi          | r11          | x8 (s0)       |
+| Shadow locals     | x0–x15        | rbx,r12-r15; rsi,rdi,r8-r10 | (none) | r0–r3        | x10–x25       |
+| Frame pointer     | x19           | rbp               | edi          | r11          | x8 (s0)       |
 | Frame anchor      | x27           | --                | --           | --           | --            |
-| Flags/predicates  | x22           | r15               | esi          | r10          | x9 (s1)       |
-| Scratch value     | x23           | r11; rax,rcx,rdx  | ecx; eax,edx  | r4           | x28 (t3)      |
+| Flags/predicates  | x22           | r11               | esi          | r10          | x9 (s1)       |
+| Scratch value     | x23           | rcx; rax,rdx      | ecx; eax,edx | r4           | x28 (t3)      |
 | Scratch address   | x24           | --                | --           | r8           | x29 (t4)      |
 | Scratch offset    | x25           | --                | --           | r5           | x30 (t5)      |
 | Intra-call IP     | x16           | --                | --           | r12          | x5 (t0)       |
 | Saved link        | x28           | --                | --           | --           | --            |
 | Frame slot size   | 8 bytes       | 8 bytes           | 8 bytes      | 8 bytes†     | 8 bytes       |
-| Max shadow locals | 16            | 4                 | 0            | 4            | 16            |
+| Max shadow locals | 16            | 10 (Phase A)      | 0            | 4            | 16            |
 
 † arm32 frame slots are `ularge_t` (8 bytes) even though the ABI is ILP32;
   pointers and most integers still occupy a full slot.
