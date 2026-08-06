@@ -131,5 +131,5 @@ amd64::reginfo amd64::register_definition(hwreg_t reg) const
 }
 
 
-// Prologue/epilogue for amd64 are handled by x86::prologue/epilogue.
-// No amd64-specific override needed; x86 pushes/pops rbx, r12–r15.
+// Prologue/epilogue for amd64 are no-ops (callee-saved in invoke()).
+// No amd64-specific override needed.

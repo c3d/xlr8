@@ -1123,24 +1123,16 @@ void x86::rel32_function(tok_t tok, hwcode_t site)
 
 void x86::prologue()
 // ----------------------------------------------------------------------------
-//   Push callee-saved registers; each JIT function gets its own set
+//   Push callee-saved registers on i386 (amd64 handles them in invoke())
 // ----------------------------------------------------------------------------
-//   On amd64 the 5 pushes (40 bytes) plus the 8-byte return address give
-//   48 bytes total, keeping RSP 16-byte aligned inside the function body.
-//   jmp/ijmp pop these before jumping so the target function's prologue
-//   can push its own set without stack growth.
+//   On amd64 the direct-map allocator uses rbx/r12-r15 as local homes.
+//   These must NOT be pushed/popped per-function because jmp/ijmp transfer
+//   control between functions and the register values must survive.  invoke()
+//   saves/restores them at the C↔JIT boundary instead.
 {
     record(x86, "prologue");
 
-    if (ptr64())
-    {
-        emit_push_reg(HW_RBX);
-        emit_push_reg(HW_R12);
-        emit_push_reg(HW_R13);
-        emit_push_reg(HW_R14);
-        emit_push_reg(HW_R15);
-    }
-    else
+    if (!ptr64())
     {
         emit_push_reg(HW_RBX);
         emit_push_reg(HW_RSI);
@@ -1151,19 +1143,11 @@ void x86::prologue()
 
 void x86::epilogue()
 // ----------------------------------------------------------------------------
-//   Pop prologue callee-saves and return
+//   Pop prologue callee-saves (i386 only) and return
 // ----------------------------------------------------------------------------
 {
     record(x86, "epilogue()");
-    if (ptr64())
-    {
-        emit_pop_reg(HW_R15);
-        emit_pop_reg(HW_R14);
-        emit_pop_reg(HW_R13);
-        emit_pop_reg(HW_R12);
-        emit_pop_reg(HW_RBX);
-    }
-    else
+    if (!ptr64())
     {
         emit_pop_reg(HW_RDI);
         emit_pop_reg(HW_RSI);
@@ -1201,9 +1185,19 @@ void x86::invoke(runtime &rt, void *code)
     stack_p  frame = initial_jit_fp(initial_frame);
     uint64_t flags = rt.flags;
     asm volatile(
+        "push %%rbx\n\t"
+        "push %%r12\n\t"
+        "push %%r13\n\t"
+        "push %%r14\n\t"
+        "push %%r15\n\t"
         "mov %1, %%rbp\n\t"
         "mov %2, %%r11\n\t"
-        "call *%0"
+        "call *%0\n\t"
+        "pop %%r15\n\t"
+        "pop %%r14\n\t"
+        "pop %%r13\n\t"
+        "pop %%r12\n\t"
+        "pop %%rbx"
         :
         : "r"(entry), "r"(frame), "r"(flags)
         : "rax", "rcx", "rdx", "rsi", "rdi",

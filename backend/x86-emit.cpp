@@ -166,22 +166,12 @@ EMIT(jmp)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the jmp opcode
 // ----------------------------------------------------------------------------
-//   Pop this function's callee-saved regs before jumping so the target's
-//   prologue can push its own set without growing the stack.
+//   On amd64, prologue is a no-op so there is nothing to undo; just jump.
 {
     if (ptr64())
-    {
         hw_sys_arg_reload();
-        emit_pop_reg(HW_R15);
-        emit_pop_reg(HW_R14);
-        emit_pop_reg(HW_R13);
-        emit_pop_reg(HW_R12);
-        emit_pop_reg(HW_RBX);
-    }
     else
-    {
         spill_all();
-    }
     hwcode_t site = emit_near_jmp_rel32();
     rel32_function(e.tok, site);
     record(x86_ops, "emit_jump %llu", e.tok);
