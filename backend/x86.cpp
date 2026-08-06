@@ -362,6 +362,10 @@ void x86::register_sync(byte_p pc)
             local_reg[loc] = NO_REGISTER;
     }
 
+    // Restore caller-saved registers and deallocate spill area so that
+    // subsequent non-sys instructions see correct durable-home values.
+    hw_sys_arg_reload();
+
     // Move floating point values back into GPR durable homes (iorder[loc]).
     for (int sz = 0; sz < 2; sz++)
     {
@@ -836,6 +840,16 @@ void x86::cmp_local(byte p, local_t d, local_t s, byte jcc)
     x86reg_t dr = hw_local(d);
     x86reg_t sr = hw_local(s);
     record(x86, "cmp_local cc=%u p=%u d=%u r%u s=%u r%u", jcc, p, d, dr, s, sr);
+    if (ptr64() && dr == HW_RAX)
+    {
+        emit_mov_rr(HW_RDX, dr);
+        dr = HW_RDX;
+    }
+    else if (ptr64() && sr == HW_RAX)
+    {
+        emit_mov_rr(HW_RDX, sr);
+        sr = HW_RDX;
+    }
     emit_pred_cmp(p, dr, sr, jcc);
 }
 
@@ -848,6 +862,11 @@ void x86::cmp_imm(byte p, local_t d, value_t v, byte jcc)
     x86reg_t dr = hw_local(d);
     set_imm(HW_RCX, v);
     record(x86, "cmp_imm cc=%u p=%u d=%u r%u v=%u", jcc, p, d, dr, v);
+    if (ptr64() && dr == HW_RAX)
+    {
+        emit_mov_rr(HW_RDX, dr);
+        dr = HW_RDX;
+    }
     emit_pred_cmp(p, dr, HW_RCX, jcc);
 }
 
