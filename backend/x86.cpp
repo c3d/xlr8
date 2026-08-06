@@ -722,7 +722,7 @@ void x86::store_float(local_t d, float v)
 // ----------------------------------------------------------------------------
 {
     record(x86, "store_flt [%u] = %g", d, v);
-    x86reg_t dreg = hw(local(d, false, RSPEC_FLT));
+    x86reg_t dreg = hw(local(d, RSPEC_FLT, false));
     uint32_t bits = *((uint32_t *) &v);
     emit_set_xmm_imm(dreg, bits, false);
 }
@@ -734,7 +734,7 @@ void x86::store_double(local_t d, double v)
 // ----------------------------------------------------------------------------
 {
     record(x86, "store_dbl [%u] = %g", d, v);
-    x86reg_t dreg = hw(local(d, false, RSPEC_DBL));
+    x86reg_t dreg = hw(local(d, RSPEC_DBL, false));
     uint64_t bits = *((uint64_t *) &v);
     emit_set_xmm_imm(dreg, bits, true);
 }

@@ -470,12 +470,13 @@ EMIT(sto)
 //   Emit bytecode for the sto opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t  r     = hw_local(e.src);
-    uintptr_t gaddr = uintptr_t(&rt.globals[e.dst]);
-    set_imm(HW_RAX, gaddr);
-    emit_store_u64(HW_RAX, r);
-    record(x86_ops, "store_global g[%u]=%u addr %p reg %u",
-           e.dst, e.src, gaddr, r);
+    x86reg_t r   = hw_local(e.src);
+    size_t   off = e.dst * sizeof(value_t);
+    set_imm(HW_RAX, uintptr_t(&xlr8_globals));
+    emit_load_u64(HW_RAX, HW_RAX);
+    emit_store_u64(HW_RAX, r, int(off));
+    record(x86_ops, "store_global g[%u]=%u off %zu reg %u",
+           e.dst, e.src, off, r);
 }
 
 
@@ -484,12 +485,13 @@ EMIT(rcl)
 //   Emit bytecode for the rcl opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t r = hw_local(e.dst);
-    uintptr_t gaddr = uintptr_t(&rt.globals[e.src]);
-    set_imm(HW_RAX, gaddr);
-    emit_load_u64(r, HW_RAX);
-    record(x86_ops, "store_global g[%u]=%u addr %p reg %u",
-           e.dst, e.src, gaddr, r);
+    x86reg_t r   = hw_dst_local(e.dst);
+    size_t   off = e.src * sizeof(value_t);
+    set_imm(HW_RAX, uintptr_t(&xlr8_globals));
+    emit_load_u64(HW_RAX, HW_RAX);
+    emit_load_u64(r, HW_RAX, int(off));
+    record(x86_ops, "load_global g[%u]=%u off %zu reg %u",
+           e.dst, e.src, off, r);
 }
 
 
@@ -1988,7 +1990,7 @@ SYS(read_float)
 // ----------------------------------------------------------------------------
 {
     CALL(xlr8_jit_read_float, IMM(0, e.knat),
-         x86reg_t d = hw(local(e.dst, false, RSPEC_FLT));
+         x86reg_t d = hw(local(e.dst, RSPEC_FLT, false));
          emit_sse_scalar_op(0xf3, 0x10, d, HW_XMM0F));
 }
 
@@ -1998,7 +2000,7 @@ SYS(read_double)
 // ----------------------------------------------------------------------------
 {
     CALL(xlr8_jit_read_double, IMM(0, e.knat),
-         x86reg_t d = hw(local(e.dst, false, RSPEC_DBL));
+         x86reg_t d = hw(local(e.dst, RSPEC_DBL, false));
          emit_sse_scalar_op(0xf2, 0x10, d, HW_XMM0D));
 }
 
@@ -2176,7 +2178,7 @@ SYS(i2f)
 // ----------------------------------------------------------------------------
 {
     x86reg_t s = hw_local(e.src);
-    x86reg_t d = hw(local(e.dst, false, RSPEC_FLT));
+    x86reg_t d = hw(local(e.dst, RSPEC_FLT, false));
     // cvtsi2ss xmm, r64: F3 REX.W 0F 2A /r
     emit8(0xf3);
     emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
@@ -2191,7 +2193,7 @@ SYS(i2d)
 // ----------------------------------------------------------------------------
 {
     x86reg_t s = hw_local(e.src);
-    x86reg_t d = hw(local(e.dst, false, RSPEC_DBL));
+    x86reg_t d = hw(local(e.dst, RSPEC_DBL, false));
     // cvtsi2sd xmm, r64: F2 REX.W 0F 2A /r
     emit8(0xf2);
     emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
@@ -2206,7 +2208,7 @@ SYS(u2f)
 // ----------------------------------------------------------------------------
 {
     x86reg_t s = hw_local(e.src);
-    x86reg_t d = hw(local(e.dst, false, RSPEC_FLT));
+    x86reg_t d = hw(local(e.dst, RSPEC_FLT, false));
     // No unsigned cvt in x86; use signed 64-bit (correct for values < 2^63)
     emit8(0xf3);
     emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
@@ -2221,7 +2223,7 @@ SYS(u2d)
 // ----------------------------------------------------------------------------
 {
     x86reg_t s = hw_local(e.src);
-    x86reg_t d = hw(local(e.dst, false, RSPEC_DBL));
+    x86reg_t d = hw(local(e.dst, RSPEC_DBL, false));
     emit8(0xf2);
     emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
     emit8(0x0f); emit8(0x2a);
@@ -2293,7 +2295,7 @@ SYS(f2d)
 // ----------------------------------------------------------------------------
 {
     x86reg_t s = load_fp(e.src, 32);
-    x86reg_t d = hw(local(e.dst, false, RSPEC_DBL));
+    x86reg_t d = hw(local(e.dst, RSPEC_DBL, false));
     // cvtss2sd xmm, xmm: F3 0F 5A /r
     emit8(0xf3);
     if (rex_r(d) || rex_b(s))
@@ -2309,7 +2311,7 @@ SYS(d2f)
 // ----------------------------------------------------------------------------
 {
     x86reg_t s = load_fp(e.src, 64);
-    x86reg_t d = hw(local(e.dst, false, RSPEC_FLT));
+    x86reg_t d = hw(local(e.dst, RSPEC_FLT, false));
     // cvtsd2ss xmm, xmm: F2 0F 5A /r
     emit8(0xf2);
     if (rex_r(d) || rex_b(s))
@@ -2350,7 +2352,7 @@ SYS(fpop)
 {
     CALL(xlr8_jit_fpop,
          /* no input */,
-         x86reg_t d = hw(local(e.dst, false, RSPEC_FLT));
+         x86reg_t d = hw(local(e.dst, RSPEC_FLT, false));
          if (d != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, d, HW_XMM0F));
 }
 
@@ -2362,7 +2364,7 @@ SYS(dpop)
 {
     CALL(xlr8_jit_dpop,
          /* no input */,
-         x86reg_t d = hw(local(e.dst, false, RSPEC_DBL));
+         x86reg_t d = hw(local(e.dst, RSPEC_DBL, false));
          if (d != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, d, HW_XMM0D));
 }
 
@@ -2399,7 +2401,7 @@ SYS(dmod)
 SYS(f##op)                                                      \
 {                                                               \
     x86reg_t s = load_fp(e.src, 32);                            \
-    x86reg_t d = hw(local(e.dst, false, RSPEC_FLT));            \
+    x86reg_t d = hw(local(e.dst, RSPEC_FLT, false));            \
     CALL(static_cast<float (*)(float)>(ffn),                    \
          if (s != HW_XMM0F)                                    \
              emit_sse_scalar_op(0xf3, 0x10, HW_XMM0F, s),      \
@@ -2410,7 +2412,7 @@ SYS(f##op)                                                      \
 SYS(d##op)                                                      \
 {                                                               \
     x86reg_t s = load_fp(e.src, 64);                            \
-    x86reg_t d = hw(local(e.dst, false, RSPEC_DBL));            \
+    x86reg_t d = hw(local(e.dst, RSPEC_DBL, false));            \
     CALL(static_cast<double (*)(double)>(dfn),                  \
          if (s != HW_XMM0D)                                    \
              emit_sse_scalar_op(0xf2, 0x10, HW_XMM0D, s),      \
