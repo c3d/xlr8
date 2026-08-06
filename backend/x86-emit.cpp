@@ -2483,16 +2483,14 @@ SYS(f##op)                                                              \
 {                                                                       \
     x86reg_t d = load_fp(e.dst, 32);                                    \
     x86reg_t s = load_fp(e.src, 32);                                    \
-    emit_ucomiss(d, s);                                                 \
-    emit_pred_cmp_flags(e.pred, jcc);                                   \
+    emit_pred_fp_cmp(e.pred, d, s, jcc, false);                         \
 }                                                                       \
                                                                         \
 SYS(d##op)                                                              \
 {                                                                       \
     x86reg_t d = load_fp(e.dst, 64);                                    \
     x86reg_t s = load_fp(e.src, 64);                                    \
-    emit_ucomisd(d, s);                                                 \
-    emit_pred_cmp_flags(e.pred, jcc);                                   \
+    emit_pred_fp_cmp(e.pred, d, s, jcc, true);                          \
 }
 
 REAL_CMP(cmpeq, SETCC_EQ)

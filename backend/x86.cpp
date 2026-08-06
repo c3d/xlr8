@@ -164,9 +164,13 @@ void x86::syscall(void (*target)())
 // ----------------------------------------------------------------------------
 //   Implement a syscall to the runtime
 // ----------------------------------------------------------------------------
+//   Spill overflow temps (rax, rdx) before the C call so that register_sync
+//   after the opcode does not store the C return value back to a frame slot.
 {
     if (ptr64())
     {
+        for (uint t = 0; t < HW_TEMPS; t++)
+            spill(HW_TEMP0 + t) || spill(HW_DTEMP0 + t) || spill(HW_FTEMP0 + t);
         if (!spilled_args)
             hw_sys_arg_spill();
         record(x86, "syscall %p (direct-map spill)", target);

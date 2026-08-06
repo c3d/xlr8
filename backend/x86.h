@@ -1469,16 +1469,21 @@ protected:
         emit8(modrm_rr(d, s));
     }
 
-    void emit_pred_cmp_flags(byte p, byte cc)
+    void emit_pred_fp_cmp(byte p, x86reg_t d, x86reg_t s, byte cc,
+                          bool is_double)
     // ------------------------------------------------------------------------
-    //   Set predicate p from CPU flags via SETcc + BTR/BTS/CMOVcc
+    //   Set predicate p from FP comparison (ucomiss/ucomisd + BTR/BTS/CMOVcc)
     // ------------------------------------------------------------------------
+    //   BTR/BTS clobber CF, so the compare must happen after them.
     {
         x86reg_t flags = hw_flags();
         emit_mov_rr(HW_RAX, flags);
         emit_btx_imm8(flags,  /*BTR*/ 6, p);
         emit_btx_imm8(HW_RAX, /*BTS*/ 5, p);
-        // CPU flags already set by ucomiss/ucomisd
+        if (is_double)
+            emit_ucomisd(d, s);
+        else
+            emit_ucomiss(d, s);
         emit_cmov_rr(cc, flags, HW_RAX);
     }
 
