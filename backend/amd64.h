@@ -84,9 +84,6 @@ struct amd64 : x86
     uint        pointer_size() const                            override;
 
 
-  protected:
-    void        prologue()                                      override;
-    void        epilogue()                                      override;
 };
 
 

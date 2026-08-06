@@ -131,33 +131,5 @@ amd64::reginfo amd64::register_definition(hwreg_t reg) const
 }
 
 
-void amd64::prologue()
-// ----------------------------------------------------------------------------
-//   Push callee-saved registers that serve as local homes (iorder 0–4)
-// ----------------------------------------------------------------------------
-{
-    record(amd64, "prologue");
-
-    // Direct-map callee-saved homes: rbx, r12, r13, r14, r15 (locals 0–4).
-    // rbp is owned by enter/leave (HW_FRAME), not pushed here.
-    emit_push_reg(HW_RBX);
-    emit_push_reg(HW_R12);
-    emit_push_reg(HW_R13);
-    emit_push_reg(HW_R14);
-    emit_push_reg(HW_R15);
-}
-
-
-void amd64::epilogue()
-// ----------------------------------------------------------------------------
-//   Pop prologue callee-saves and return (SP must already be at that block)
-// ----------------------------------------------------------------------------
-{
-    record(amd64, "epilogue()");
-    emit_pop_reg(HW_R15);
-    emit_pop_reg(HW_R14);
-    emit_pop_reg(HW_R13);
-    emit_pop_reg(HW_R12);
-    emit_pop_reg(HW_RBX);
-    emit_insn_ret();
-}
+// Prologue/epilogue for amd64 are handled by x86::prologue/epilogue (no-ops)
+// and x86::invoke() (push/pop callee-saved in the inline asm wrapper).

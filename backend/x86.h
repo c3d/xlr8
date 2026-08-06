@@ -534,10 +534,10 @@ protected:
         return n * int(sizeof(ularge_t)) + enter_and_ra + prologue;
     }
 
-    // i386: ebx/esi/edi (3 pushes). amd64: 0 (callee-saves live in invoke).
+    // i386: ebx/esi/edi (3 pushes). amd64: rbx/r12/r13/r14/r15 (5 pushes).
     uint PROLOGUE_SAVE_BYTES() const
     {
-        return (ptr64() ? 0u : 3u) * pointer_size();
+        return (ptr64() ? 5u : 3u) * pointer_size();
     }
 
 

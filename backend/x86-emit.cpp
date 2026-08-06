@@ -166,11 +166,22 @@ EMIT(jmp)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the jmp opcode
 // ----------------------------------------------------------------------------
+//   Pop this function's callee-saved regs before jumping so the target's
+//   prologue can push its own set without growing the stack.
 {
     if (ptr64())
+    {
         hw_sys_arg_reload();
+        emit_pop_reg(HW_R15);
+        emit_pop_reg(HW_R14);
+        emit_pop_reg(HW_R13);
+        emit_pop_reg(HW_R12);
+        emit_pop_reg(HW_RBX);
+    }
     else
+    {
         spill_all();
+    }
     hwcode_t site = emit_near_jmp_rel32();
     rel32_function(e.tok, site);
     record(x86_ops, "emit_jump %llu", e.tok);
@@ -223,6 +234,7 @@ EMIT(ijmp)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ijmp opcode
 // ----------------------------------------------------------------------------
+//   Pop this function's callee-saved regs before jumping (like jmp).
 {
     record(x86_ops, "emit_ijmp %u", e.src);
     if (ptr64())
@@ -230,9 +242,12 @@ EMIT(ijmp)
         hw_sys_arg_reload();
         hw_sys_arg(0, e.src);
         syscall(reinterpret_cast<void (*)()>(xlr8_jit_addr));
-        // JIT address now in rax; rax is not in HW_SPILL_MASK so reload
-        // won't clobber it.
         hw_sys_arg_reload();
+        emit_pop_reg(HW_R15);
+        emit_pop_reg(HW_R14);
+        emit_pop_reg(HW_R13);
+        emit_pop_reg(HW_R12);
+        emit_pop_reg(HW_RBX);
         emit_jmp_rr(HW_RAX);
     }
     else
