@@ -138,7 +138,7 @@ do not depend on that move.
 | C/`sys` spill of `x0`–`x18` only | OK |
 | `enter`/`leave` save/restore `iorder` | OK |
 | Bytecode `call` in-place (no x0 marshal) | OK |
-| x86-64 direct-map Phase A (locals 0-9) | Done (turbo green 226/0) |
+| x86-64 direct-map Phase A (locals 0-9) | Done (turbo green 224/0) |
 | arm32 / riscv64 `register_for` / `register_sync` | Still stubs |
 
 ## Out of scope here
