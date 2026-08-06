@@ -65,7 +65,8 @@ EMIT(end)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_end");
-    // Epilogue is emitted by finish_translation()
+    if (ptr64())
+        hw_sys_arg_reload();
     e.pc = e.end;
 }
 
@@ -180,16 +181,41 @@ EMIT(call)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the call opcode
 // ----------------------------------------------------------------------------
+//   XLR8-to-XLR8 calls pass arguments in local homes (iorder), not SysV.
+//   Callee enter/leave saves and restores those homes.  Without bytecode
+//   enter, the return address on x86 is already on the stack from `call`,
+//   but FP must be saved/restored if there is no enclosing enter frame.
 {
     record(x86_ops, "emit_call %llu", e.tok);
     if (ptr64())
+    {
         hw_sys_arg_reload();
+
+        bool save_fp = !pre_enter_frame_size;
+        if (save_fp)
+            emit_push_reg(HW_FRAME);
+        emit8(0xE8);
+        hwcode_t site = cursor();
+        emit32le(0);
+        rel32_function(e.tok, site);
+        if (save_fp)
+            emit_pop_reg(HW_FRAME);
+
+        // On x86, the callee's epilogue restored all callee-saved regs,
+        // including iorder[0].  The return value is in rax (set by callee's
+        // ret before its epilogue).  Copy it back to iorder[0].
+        x86reg_t r0 = hw_int_order(0);
+        if (r0 != HW_RAX)
+            emit_mov_rr(r0, HW_RAX);
+    }
     else
+    {
         spill_all();
-    emit8(0xE8);
-    hwcode_t site = cursor();
-    emit32le(0);
-    rel32_function(e.tok, site);
+        emit8(0xE8);
+        hwcode_t site = cursor();
+        emit32le(0);
+        rel32_function(e.tok, site);
+    }
 }
 
 
@@ -227,12 +253,24 @@ EMIT(ret)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the ret opcode
 // ----------------------------------------------------------------------------
+//   Local 0 is the XLR8 return value (already in iorder[0]).  Mirror it
+//   into rax for any host that inspects the C return register.
+//   On x86, the return address is on the stack (not in a link register), so
+//   we must pop the callee-saved regs pushed by the prologue via epilogue().
 {
     if (ptr64())
+    {
         hw_sys_arg_reload();
+        x86reg_t src = hw_int_order(0);
+        if (src != HW_RAX && local_frame_size > 0)
+            emit_mov_rr(HW_RAX, src);
+        epilogue();
+    }
     else
+    {
         spill_all();
-    epilogue();
+        epilogue();
+    }
 }
 
 
@@ -269,7 +307,15 @@ EMIT(enter)
     record(x86_ops, "emit_enter %u", e.dst);
     if (ptr64())
         hw_sys_arg_reload();
-    frame_size(e.dst);
+
+    uint frame = e.dst + 1;
+    if (pre_enter_frame_size)
+        record(x86_error, "Enter called twice in a function, %u after %u",
+               frame, local_frame_size);
+    pre_enter_frame_size = local_frame_size;
+    local_frame_size     = frame;
+    frame_size(frame);
+
     if (!ptr64())
     {
         // Emit space for high 32-bits of flags
@@ -278,11 +324,28 @@ EMIT(enter)
     }
     emit_push_reg(HW_FRAME);
     emit_mov_rr(HW_FRAME, HW_RSP);
-    // Keep SP 16-byte aligned on x86-64.
-    int32_t bytes = int32_t(e.dst * sizeof(ularge_t));
+
     if (ptr64())
+    {
+        // Save caller's local homes (iorder[i]) into frame slots, mirroring
+        // arm64: slot i holds iorder[i] so get/set stay consistent.
+        uint shadows = frame;
+        if (shadows > HW_SHADOWS)
+            shadows = HW_SHADOWS;
+        for (uint i = 0; i < shadows; i++)
+            emit_store_u64(HW_FRAME, hw_int_order(i), local_disp(i));
+
+        uint high = frame > shadows ? frame - shadows : 0;
+        int32_t bytes = int32_t(high * sizeof(ularge_t));
         bytes = (bytes + 15) & ~15;
-    emit_sub_rsp_imm(bytes);
+        if (bytes > 0)
+            emit_sub_rsp_imm(bytes);
+    }
+    else
+    {
+        int32_t bytes = int32_t(e.dst * sizeof(ularge_t));
+        emit_sub_rsp_imm(bytes);
+    }
 }
 
 
@@ -294,11 +357,31 @@ EMIT(leave)
     record(x86_ops, "emit_leave");
     if (ptr64())
         hw_sys_arg_reload();
+
+    if (ptr64())
+    {
+        uint frame = local_frame_size;
+        if (!frame)
+            record(x86_error, "Running leave without having run enter");
+        uint shadows = frame;
+        if (shadows > HW_SHADOWS)
+            shadows = HW_SHADOWS;
+        for (uint i = 0; i < shadows; i++)
+            emit_load_u64(hw_int_order(i), HW_FRAME, local_disp(i));
+    }
+
     emit_mov_rr(HW_RSP, HW_FRAME);
     emit_pop_reg(HW_FRAME);
     if (!ptr64())
+    {
         emit_pop_reg(HW_RAX);
-    forget_registers();
+        forget_registers();
+    }
+    else
+    {
+        local_frame_size     = pre_enter_frame_size;
+        pre_enter_frame_size = 0;
+    }
 }
 
 
@@ -307,11 +390,20 @@ EMIT(get)
 //   Emit bytecode for the get opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t dr  = hw_local(e.dst);
-    int      off = arg_disp(e.src);
-    record(x86_ops, "emit_get [%u] = %u reg %u offs %d",
-           e.dst, e.src, dr, off);
-    emit_load_u64(dr, HW_FRAME, off);
+    x86reg_t dr = hw_dst_local(e.dst);
+    if (ptr64() && e.src < HW_SHADOWS && e.src < local_frame_size)
+    {
+        emit_load_u64(dr, HW_FRAME, local_disp(e.src));
+        record(x86_ops, "emit_get [%u] = %u reg %u local %d",
+               e.dst, e.src, dr, local_disp(e.src));
+    }
+    else
+    {
+        int off = arg_disp(e.src);
+        record(x86_ops, "emit_get [%u] = %u reg %u offs %d",
+               e.dst, e.src, dr, off);
+        emit_load_u64(dr, HW_FRAME, off);
+    }
 }
 
 
@@ -320,11 +412,20 @@ EMIT(set)
 //   Emit bytecode for the set opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t sr  = hw_local(e.src);
-    int      off = arg_disp(e.dst);
-    record(x86_ops, "emit_set %u = [%u] reg %u offs %d",
-           e.dst, e.src, sr, off);
-    emit_store_u64(HW_FRAME, sr, off);
+    x86reg_t sr = hw_local(e.src);
+    if (ptr64() && e.dst < HW_SHADOWS && e.dst < local_frame_size)
+    {
+        emit_store_u64(HW_FRAME, sr, local_disp(e.dst));
+        record(x86_ops, "emit_set %u = [%u] reg %u local %d",
+               e.dst, e.src, sr, local_disp(e.dst));
+    }
+    else
+    {
+        int off = arg_disp(e.dst);
+        record(x86_ops, "emit_set %u = [%u] reg %u offs %d",
+               e.dst, e.src, sr, off);
+        emit_store_u64(HW_FRAME, sr, off);
+    }
 }
 
 
@@ -1882,6 +1983,9 @@ SYS(read_float)
 //   Read float from input stream
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_read_float, IMM(0, e.knat),
+         x86reg_t d = hw(local(e.dst, false, RSPEC_FLT));
+         emit_sse_scalar_op(0xf3, 0x10, d, HW_XMM0F));
 }
 
 SYS(read_double)
@@ -1889,6 +1993,9 @@ SYS(read_double)
 //   Read double from input stream
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_read_double, IMM(0, e.knat),
+         x86reg_t d = hw(local(e.dst, false, RSPEC_DBL));
+         emit_sse_scalar_op(0xf2, 0x10, d, HW_XMM0D));
 }
 
 SYS(write_char)
@@ -1920,6 +2027,11 @@ SYS(write_float)
 //   Write float to output stream
 // ----------------------------------------------------------------------------
 {
+    x86reg_t s = load_fp(e.src, 32);
+    CALL(xlr8_jit_write_float,
+         IMM(0, e.knat);
+         if (s != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, HW_XMM0F, s),
+         NORET);
 }
 
 SYS(write_double)
@@ -1927,6 +2039,11 @@ SYS(write_double)
 //   Write double to output stream
 // ----------------------------------------------------------------------------
 {
+    x86reg_t s = load_fp(e.src, 64);
+    CALL(xlr8_jit_write_double,
+         IMM(0, e.knat);
+         if (s != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, HW_XMM0D, s),
+         NORET);
 }
 
 SYS(write_text)
@@ -1960,6 +2077,13 @@ SYS(read_scanner)
 //   Scan next token from input stream
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_read_scanner,
+         emit_sub_rsp_imm(16); IMM(0, e.knat);
+         emit_lea(hw_sysv_arg(1), HW_RSP, 0);
+         emit_lea(hw_sysv_arg(2), HW_RSP, 8),
+         emit_load_u64(hw_dst_local(e.dst), HW_RSP, 0);
+         emit_load_u64(hw_dst_local(local_t(e.dst + 1)), HW_RSP, 8);
+         emit_add_rsp_imm(16));
 }
 
 
@@ -1968,6 +2092,7 @@ SYS(nat)
 //   Append natural number to scanner output
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_nat_append, IMM(0, e.knat) ARG(1, e.src), NORET);
 }
 
 
@@ -1976,6 +2101,7 @@ SYS(int)
 //   Append integer to scanner output
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_int_append, IMM(0, e.knat) ARG(1, e.src), NORET);
 }
 
 
@@ -1984,6 +2110,11 @@ SYS(flt)
 //   Append float to scanner output
 // ----------------------------------------------------------------------------
 {
+    x86reg_t s = load_fp(e.src, 32);
+    CALL(xlr8_jit_flt_append,
+         IMM(0, e.knat);
+         if (s != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, HW_XMM0F, s),
+         NORET);
 }
 
 
@@ -1992,6 +2123,11 @@ SYS(dbl)
 //   Append double to scanner output
 // ----------------------------------------------------------------------------
 {
+    x86reg_t s = load_fp(e.src, 64);
+    CALL(xlr8_jit_dbl_append,
+         IMM(0, e.knat);
+         if (s != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, HW_XMM0D, s),
+         NORET);
 }
 
 
@@ -2001,6 +2137,7 @@ SYS(print_error)
 //   Print runtime error to output stream
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_print_error, IMM(0, e.knat), NORET);
 }
 
 
@@ -2009,6 +2146,7 @@ SYS(clear_error)
 //   Clear runtime error state
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_clear_error, /* no input */, NORET);
 }
 
 
@@ -2017,6 +2155,13 @@ SYS(trap_error)
 //   Branch if a runtime error is set
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_has_error,
+         /* no input */,
+         emit_mov_rr(HW_SCRATCH, HW_RAX);
+         if (ptr64()) hw_sys_arg_reload(e.bpc + e.broff);
+         emit_test_rr(HW_SCRATCH, HW_SCRATCH);
+         hwcode_t pos = emit_jcc_rel32(JCC_JNZ);
+         rel32_branch(e.bpc + e.broff, pos));
 }
 
 
@@ -2026,6 +2171,13 @@ SYS(i2f)
 //   Convert integer to float
 // ----------------------------------------------------------------------------
 {
+    x86reg_t s = hw_local(e.src);
+    x86reg_t d = hw(local(e.dst, false, RSPEC_FLT));
+    // cvtsi2ss xmm, r64: F3 REX.W 0F 2A /r
+    emit8(0xf3);
+    emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    emit8(0x0f); emit8(0x2a);
+    emit8(modrm_rr(d, s));
 }
 
 
@@ -2034,6 +2186,13 @@ SYS(i2d)
 //   Convert integer to double
 // ----------------------------------------------------------------------------
 {
+    x86reg_t s = hw_local(e.src);
+    x86reg_t d = hw(local(e.dst, false, RSPEC_DBL));
+    // cvtsi2sd xmm, r64: F2 REX.W 0F 2A /r
+    emit8(0xf2);
+    emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    emit8(0x0f); emit8(0x2a);
+    emit8(modrm_rr(d, s));
 }
 
 
@@ -2042,6 +2201,13 @@ SYS(u2f)
 //   Convert natural to float
 // ----------------------------------------------------------------------------
 {
+    x86reg_t s = hw_local(e.src);
+    x86reg_t d = hw(local(e.dst, false, RSPEC_FLT));
+    // No unsigned cvt in x86; use signed 64-bit (correct for values < 2^63)
+    emit8(0xf3);
+    emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    emit8(0x0f); emit8(0x2a);
+    emit8(modrm_rr(d, s));
 }
 
 
@@ -2050,6 +2216,12 @@ SYS(u2d)
 //   Convert natural to double
 // ----------------------------------------------------------------------------
 {
+    x86reg_t s = hw_local(e.src);
+    x86reg_t d = hw(local(e.dst, false, RSPEC_DBL));
+    emit8(0xf2);
+    emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    emit8(0x0f); emit8(0x2a);
+    emit8(modrm_rr(d, s));
 }
 
 
@@ -2058,6 +2230,13 @@ SYS(f2i)
 //   Convert float to integer
 // ----------------------------------------------------------------------------
 {
+    x86reg_t s = load_fp(e.src, 32);
+    x86reg_t d = hw_dst_local(e.dst);
+    // cvttss2si r64, xmm: F3 REX.W 0F 2C /r
+    emit8(0xf3);
+    emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    emit8(0x0f); emit8(0x2c);
+    emit8(modrm_rr(d, s));
 }
 
 
@@ -2066,6 +2245,13 @@ SYS(d2i)
 //   Convert double to integer
 // ----------------------------------------------------------------------------
 {
+    x86reg_t s = load_fp(e.src, 64);
+    x86reg_t d = hw_dst_local(e.dst);
+    // cvttsd2si r64, xmm: F2 REX.W 0F 2C /r
+    emit8(0xf2);
+    emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    emit8(0x0f); emit8(0x2c);
+    emit8(modrm_rr(d, s));
 }
 
 
@@ -2074,6 +2260,12 @@ SYS(f2u)
 //   Convert float to natural
 // ----------------------------------------------------------------------------
 {
+    x86reg_t s = load_fp(e.src, 32);
+    x86reg_t d = hw_dst_local(e.dst);
+    emit8(0xf3);
+    emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    emit8(0x0f); emit8(0x2c);
+    emit8(modrm_rr(d, s));
 }
 
 
@@ -2082,6 +2274,12 @@ SYS(d2u)
 //   Convert double to natural
 // ----------------------------------------------------------------------------
 {
+    x86reg_t s = load_fp(e.src, 64);
+    x86reg_t d = hw_dst_local(e.dst);
+    emit8(0xf2);
+    emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    emit8(0x0f); emit8(0x2c);
+    emit8(modrm_rr(d, s));
 }
 
 
@@ -2090,6 +2288,14 @@ SYS(f2d)
 //   Convert float to double
 // ----------------------------------------------------------------------------
 {
+    x86reg_t s = load_fp(e.src, 32);
+    x86reg_t d = hw(local(e.dst, false, RSPEC_DBL));
+    // cvtss2sd xmm, xmm: F3 0F 5A /r
+    emit8(0xf3);
+    if (rex_r(d) || rex_b(s))
+        emit8(byte(0x40 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    emit8(0x0f); emit8(0x5a);
+    emit8(modrm_rr(d, s));
 }
 
 
@@ -2098,6 +2304,14 @@ SYS(d2f)
 //   Convert double to float
 // ----------------------------------------------------------------------------
 {
+    x86reg_t s = load_fp(e.src, 64);
+    x86reg_t d = hw(local(e.dst, false, RSPEC_FLT));
+    // cvtsd2ss xmm, xmm: F2 0F 5A /r
+    emit8(0xf2);
+    if (rex_r(d) || rex_b(s))
+        emit8(byte(0x40 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    emit8(0x0f); emit8(0x5a);
+    emit8(modrm_rr(d, s));
 }
 
 
@@ -2106,6 +2320,10 @@ SYS(fpush)
 //   Push float bits onto runtime stack
 // ----------------------------------------------------------------------------
 {
+    x86reg_t s = load_fp(e.src, 32);
+    CALL(xlr8_jit_fpush,
+         if (s != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, HW_XMM0F, s),
+         NORET);
 }
 
 
@@ -2114,6 +2332,10 @@ SYS(dpush)
 //   Push double bits onto runtime stack
 // ----------------------------------------------------------------------------
 {
+    x86reg_t s = load_fp(e.src, 64);
+    CALL(xlr8_jit_dpush,
+         if (s != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, HW_XMM0D, s),
+         NORET);
 }
 
 
@@ -2122,6 +2344,10 @@ SYS(fpop)
 //   Pop float bits from runtime stack
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_fpop,
+         /* no input */,
+         x86reg_t d = hw(local(e.dst, false, RSPEC_FLT));
+         if (d != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, d, HW_XMM0F));
 }
 
 
@@ -2130,6 +2356,10 @@ SYS(dpop)
 //   Pop double bits from runtime stack
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_dpop,
+         /* no input */,
+         x86reg_t d = hw(local(e.dst, false, RSPEC_DBL));
+         if (d != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, d, HW_XMM0D));
 }
 
 
@@ -2138,6 +2368,12 @@ SYS(fmod)
 //   Float remainder (modulo)
 // ----------------------------------------------------------------------------
 {
+    x86reg_t d = load_fp(e.dst, 32);
+    x86reg_t s = load_fp(e.src, 32);
+    CALL(static_cast<float (*)(float, float)>(::fmodf),
+         if (d != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, HW_XMM0F, d);
+         if (s != HW_XMM1F) emit_sse_scalar_op(0xf3, 0x10, HW_XMM1F, s),
+         if (d != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, d, HW_XMM0F));
 }
 
 
@@ -2146,52 +2382,78 @@ SYS(dmod)
 //   Double remainder (modulo)
 // ----------------------------------------------------------------------------
 {
+    x86reg_t d = load_fp(e.dst, 64);
+    x86reg_t s = load_fp(e.src, 64);
+    CALL(static_cast<double (*)(double, double)>(::fmod),
+         if (d != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, HW_XMM0D, d);
+         if (s != HW_XMM1D) emit_sse_scalar_op(0xf2, 0x10, HW_XMM1D, s),
+         if (d != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, d, HW_XMM0D));
 }
 
 
-#define REAL_OP(op)                             \
-SYS(f##op)                                      \
-{                                               \
-                                                \
-}                                               \
-                                                \
-SYS(d##op)                                      \
-{                                               \
-                                                \
+#define REAL_OP(op, ffn, dfn)                                    \
+SYS(f##op)                                                      \
+{                                                               \
+    x86reg_t s = load_fp(e.src, 32);                            \
+    x86reg_t d = hw(local(e.dst, false, RSPEC_FLT));            \
+    CALL(static_cast<float (*)(float)>(ffn),                    \
+         if (s != HW_XMM0F)                                    \
+             emit_sse_scalar_op(0xf3, 0x10, HW_XMM0F, s),      \
+         if (d != HW_XMM0F)                                    \
+             emit_sse_scalar_op(0xf3, 0x10, d, HW_XMM0F));     \
+}                                                               \
+                                                                \
+SYS(d##op)                                                      \
+{                                                               \
+    x86reg_t s = load_fp(e.src, 64);                            \
+    x86reg_t d = hw(local(e.dst, false, RSPEC_DBL));            \
+    CALL(static_cast<double (*)(double)>(dfn),                  \
+         if (s != HW_XMM0D)                                    \
+             emit_sse_scalar_op(0xf2, 0x10, HW_XMM0D, s),      \
+         if (d != HW_XMM0D)                                    \
+             emit_sse_scalar_op(0xf2, 0x10, d, HW_XMM0D));     \
 }
 
 
-REAL_OP(floor)
-REAL_OP(ceil)
-REAL_OP(sqrt)
-REAL_OP(cbrt)
-REAL_OP(sin)
-REAL_OP(cos)
-REAL_OP(tan)
-REAL_OP(asin)
-REAL_OP(acos)
-REAL_OP(atan)
-REAL_OP(exp)
-REAL_OP(log)
-REAL_OP(exp2)
-REAL_OP(log2)
+REAL_OP(floor, ::floorf, ::floor)
+REAL_OP(ceil,  ::ceilf,  ::ceil)
+REAL_OP(sqrt,  ::sqrtf,  ::sqrt)
+REAL_OP(cbrt,  ::cbrtf,  ::cbrt)
+REAL_OP(sin,   ::sinf,   ::sin)
+REAL_OP(cos,   ::cosf,   ::cos)
+REAL_OP(tan,   ::tanf,   ::tan)
+REAL_OP(asin,  ::asinf,  ::asin)
+REAL_OP(acos,  ::acosf,  ::acos)
+REAL_OP(atan,  ::atanf,  ::atan)
+REAL_OP(exp,   ::expf,   ::exp)
+REAL_OP(log,   ::logf,   ::log)
+REAL_OP(exp2,  ::exp2f,  ::exp2)
+REAL_OP(log2,  ::log2f,  ::log2)
 
 
-#define REAL_CMP(op, cmp)                       \
-SYS(f##op)                                      \
-{                                               \
-}                                               \
-                                                \
-SYS(d##op)                                      \
-{                                               \
+#define REAL_CMP(op, jcc)                                               \
+SYS(f##op)                                                              \
+{                                                                       \
+    x86reg_t d = load_fp(e.dst, 32);                                    \
+    x86reg_t s = load_fp(e.src, 32);                                    \
+    emit_ucomiss(d, s);                                                 \
+    emit_pred_cmp_flags(e.pred, jcc);                                   \
+}                                                                       \
+                                                                        \
+SYS(d##op)                                                              \
+{                                                                       \
+    x86reg_t d = load_fp(e.dst, 64);                                    \
+    x86reg_t s = load_fp(e.src, 64);                                    \
+    emit_ucomisd(d, s);                                                 \
+    emit_pred_cmp_flags(e.pred, jcc);                                   \
 }
 
-REAL_CMP(cmpeq, == )
-REAL_CMP(cmpne, != )
-REAL_CMP(cmplt, <  )
-REAL_CMP(cmpgt, >  )
-REAL_CMP(cmple, <= )
-REAL_CMP(cmpge, >= )
+REAL_CMP(cmpeq, SETCC_EQ)
+REAL_CMP(cmpne, SETCC_NE)
+REAL_CMP(cmplt, 0x92)
+REAL_CMP(cmpgt, 0x97)
+REAL_CMP(cmple, 0x96)
+REAL_CMP(cmpge, 0x93)
 
 
 SYS(stack)
@@ -2199,104 +2461,25 @@ SYS(stack)
 //   Get runtime stack pointer
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_stack_ptr, /* no input */, RET(e.dst));
 }
 
 
 
-SYS(st8v)
-// ----------------------------------------------------------------------------
-//   Volatile store 8-byte value
-// ----------------------------------------------------------------------------
-{
-}
+SYS(st8v) { store_mem(e.dst, e.src, 8); }
+SYS(st4v) { store_mem(e.dst, e.src, 4); }
+SYS(st2v) { store_mem(e.dst, e.src, 2); }
+SYS(st1v) { store_mem(e.dst, e.src, 1); }
 
+SYS(ld8v) { load_mem(e.dst, e.src, 8); }
+SYS(ld4v) { load_mem(e.dst, e.src, 4); }
+SYS(ld2v) { load_mem(e.dst, e.src, 2); }
+SYS(ld1v) { load_mem(e.dst, e.src, 1); }
 
-SYS(st4v)
-// ----------------------------------------------------------------------------
-//   Volatile store 4-byte value
-// ----------------------------------------------------------------------------
-{
-}
-
-
-SYS(st2v)
-// ----------------------------------------------------------------------------
-//   Volatile store 2-byte value
-// ----------------------------------------------------------------------------
-{
-}
-
-
-SYS(st1v)
-// ----------------------------------------------------------------------------
-//   Volatile store 1-byte value
-// ----------------------------------------------------------------------------
-{
-}
-
-
-SYS(ld8v)
-// ----------------------------------------------------------------------------
-//   Volatile load 8-byte unsigned
-// ----------------------------------------------------------------------------
-{
-}
-
-
-SYS(ld4v)
-// ----------------------------------------------------------------------------
-//   Volatile load 4-byte unsigned
-// ----------------------------------------------------------------------------
-{
-}
-
-
-SYS(ld2v)
-// ----------------------------------------------------------------------------
-//   Volatile load 2-byte unsigned
-// ----------------------------------------------------------------------------
-{
-}
-
-
-SYS(ld1v)
-// ----------------------------------------------------------------------------
-//   Volatile load 1-byte unsigned
-// ----------------------------------------------------------------------------
-{
-}
-
-
-SYS(ld8vs)
-// ----------------------------------------------------------------------------
-//   Volatile load 8-byte signed
-// ----------------------------------------------------------------------------
-{
-}
-
-
-SYS(ld4vs)
-// ----------------------------------------------------------------------------
-//   Volatile load 4-byte signed
-// ----------------------------------------------------------------------------
-{
-}
-
-
-SYS(ld2vs)
-// ----------------------------------------------------------------------------
-//   Volatile load 2-byte signed
-// ----------------------------------------------------------------------------
-{
-}
-
-
-SYS(ld1vs)
-// ----------------------------------------------------------------------------
-//   Volatile load 1-byte signed
-// ----------------------------------------------------------------------------
-{
-}
+SYS(ld8vs) { load_sext(e.dst, e.src, 64); }
+SYS(ld4vs) { load_sext(e.dst, e.src, 32); }
+SYS(ld2vs) { load_sext(e.dst, e.src, 16); }
+SYS(ld1vs) { load_sext(e.dst, e.src, 8); }
 
 
 
@@ -2305,6 +2488,7 @@ SYS(tok)
 //   Get address of token by index
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_tokaddr, ARG(0, e.src), RET(e.dst));
 }
 
 
@@ -2313,6 +2497,10 @@ SYS(leb2i)
 //   Decode LEB128 signed integer
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_leb2i,
+         ARG(0, e.src),
+         emit_mov_rr(hw_dst_local(e.dst), HW_RAX);
+         emit_mov_rr(hw_dst_local(e.src), HW_RDX));
 }
 
 
@@ -2321,6 +2509,10 @@ SYS(leb2u)
 //   Decode LEB128 unsigned integer
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_leb2u,
+         ARG(0, e.src),
+         emit_mov_rr(hw_dst_local(e.dst), HW_RAX);
+         emit_mov_rr(hw_dst_local(e.src), HW_RDX));
 }
 
 
@@ -2329,6 +2521,7 @@ SYS(i2leb)
 //   Encode signed integer as LEB128
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_i2leb, ARG(0, e.dst) ARG(1, e.src), RET(e.dst));
 }
 
 
@@ -2337,6 +2530,7 @@ SYS(u2leb)
 //   Encode unsigned integer as LEB128
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_u2leb, ARG(0, e.dst) ARG(1, e.src), RET(e.dst));
 }
 
 
@@ -2345,6 +2539,7 @@ SYS(i2lebsz)
 //   Size of signed integer as LEB128
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_i2lebsz, ARG(0, e.src), RET(e.dst));
 }
 
 
@@ -2353,6 +2548,7 @@ SYS(u2lebsz)
 //   Size of unsigned integer as LEB128
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_u2lebsz, ARG(0, e.src), RET(e.dst));
 }
 
 
@@ -2361,4 +2557,5 @@ SYS(cstring)
 //   Get C string for token
 // ----------------------------------------------------------------------------
 {
+    CALL(xlr8_jit_cstring, IMM(0, e.tok), RET(e.dst));
 }

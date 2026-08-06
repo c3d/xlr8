@@ -1446,6 +1446,42 @@ protected:
         emit8(bit);
     }
 
+    void emit_ucomiss(x86reg_t d, x86reg_t s)
+    // ------------------------------------------------------------------------
+    //   Emit ucomiss xmm, xmm (0F 2E /r — no prefix)
+    // ------------------------------------------------------------------------
+    {
+        if (rex_r(d) || rex_b(s))
+            emit8(byte(0x40 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+        emit8(0x0f); emit8(0x2e);
+        emit8(modrm_rr(d, s));
+    }
+
+    void emit_ucomisd(x86reg_t d, x86reg_t s)
+    // ------------------------------------------------------------------------
+    //   Emit ucomisd xmm, xmm (66 0F 2E /r)
+    // ------------------------------------------------------------------------
+    {
+        emit8(0x66);
+        if (rex_r(d) || rex_b(s))
+            emit8(byte(0x40 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+        emit8(0x0f); emit8(0x2e);
+        emit8(modrm_rr(d, s));
+    }
+
+    void emit_pred_cmp_flags(byte p, byte cc)
+    // ------------------------------------------------------------------------
+    //   Set predicate p from CPU flags via SETcc + BTR/BTS/CMOVcc
+    // ------------------------------------------------------------------------
+    {
+        x86reg_t flags = hw_flags();
+        emit_mov_rr(HW_RAX, flags);
+        emit_btx_imm8(flags,  /*BTR*/ 6, p);
+        emit_btx_imm8(HW_RAX, /*BTS*/ 5, p);
+        // CPU flags already set by ucomiss/ucomisd
+        emit_cmov_rr(cc, flags, HW_RAX);
+    }
+
     void emit_pred_cmp(byte p, x86reg_t x, x86reg_t y, byte cc)
     // ------------------------------------------------------------------------
     //    Set predicate p according to comparison between x and y

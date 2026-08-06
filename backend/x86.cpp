@@ -33,6 +33,7 @@
 #include "native-bridge.h"
 #include "runtime.h"
 
+#include <cmath>
 #include <cstring>
 
 
