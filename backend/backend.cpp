@@ -342,6 +342,11 @@ uint backend::label(byte_p bytecode)
     }
     calls.erase(crange.first, crange.second);
 
+    // Record the current spill mask for this bytecode address
+    auto spill = lower_bound(spills, bytecode);
+    if (spill == spills.end() || spill->bytecode != bytecode)
+        spills.emplace(spill, regspill{ bytecode, spilled_args });
+
     // Record the mapping from bytecode to machine code for future branches
     auto insert = lower_bound(labels, bytecode);
     if (insert == labels.end() || insert->bytecode != bytecode)
@@ -554,6 +559,10 @@ void backend::begin_translation()
     // Default assignment for registers and locals
     reg_local.resize(registers(), NO_LOCAL);
     local_reg.resize(DEFAULT_FRAME_SIZE, NO_REGISTER);
+
+    // Reset spill tracking state
+    spilled_args = 0;
+    pre_enter_frame_size = 0;
 }
 
 

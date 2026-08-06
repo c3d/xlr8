@@ -80,7 +80,6 @@ struct arm64 : backend
     static backend *make(runtime &rt) { return new arm64(rt); }
 
 #include "backend-iface.h"
-    uint        label(byte_p bytecode) override;
 
 protected:
     enum arm64reg_t : hwreg_t
@@ -1415,20 +1414,6 @@ protected:
     {
         return call(((void (*)()) fn));
     }
-
-protected:
-    uint          local_frame_size;
-    uint          spilled_args;
-    uint          num_functions;
-    uint          pre_enter_frame_size;
-
-    struct regspill { byte_p bytecode; uint spilled; };
-    using regspills = std::vector<regspill>;
-    regspills     spills;
-
-    friend struct regspill_compare;
-    template<typename T> static auto lower_bound(const regspills &, T);
-    template<typename T> static auto equal_range(const regspills &, T);
 };
 
 #endif // ARM64_H

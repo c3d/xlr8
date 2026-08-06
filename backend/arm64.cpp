@@ -49,11 +49,7 @@ arm64::arm64(runtime &rt)
 // ----------------------------------------------------------------------------
 //   Construct an AArch64 code generator
 // ----------------------------------------------------------------------------
-    : backend(rt, ARCH_ARM64),
-      local_frame_size(0),
-      spilled_args(0),
-      num_functions(0),
-      pre_enter_frame_size(0)
+    : backend(rt, ARCH_ARM64)
 {
     record(arm64, "New backend arch=%+s", arch_name(ARCH_ARM64));
 }
@@ -142,74 +138,6 @@ hwreg_t arm64::register_for(local_t loc, hwspec_t spec, bool ld)
     return temp;
 }
 
-
-
-struct regspill_compare
-// ----------------------------------------------------------------------------
-//   Comparator for regspills based on bytecode, spilled or lexicographic
-// ----------------------------------------------------------------------------
-{
-    bool operator()(const arm64::regspill &t, byte_p bc)
-    {
-        return t.bytecode < bc;
-    }
-    bool operator()(byte_p bc, const arm64::regspill &t)
-    {
-        return bc < t.bytecode;
-    }
-    bool operator()(const arm64::regspill &t, uint mc)
-    {
-        return t.spilled < mc;
-    }
-    bool operator()(uint mc, const arm64::regspill &t)
-    {
-        return mc < t.spilled;
-    }
-    bool operator()(const arm64::regspill &t1,
-                    const arm64::regspill &t2)
-    {
-        return (t1.bytecode < t2.bytecode ||
-                (t1.bytecode == t2.bytecode && t1.spilled < t2.spilled));
-    }
-};
-
-
-template<typename T>
-auto arm64::lower_bound(const regspills &t, T v)
-// ----------------------------------------------------------------------------
-//   Find the lower bound by bytecode
-// ----------------------------------------------------------------------------
-{
-    return std::lower_bound(t.begin(), t.end(), v, regspill_compare{});
-}
-
-
-template<typename T>
-auto arm64::equal_range(const regspills &t, T v)
-// ----------------------------------------------------------------------------
-//   Find the lower bound by bytecode
-// ----------------------------------------------------------------------------
-{
-    return std::equal_range(t.begin(), t.end(), v, regspill_compare{});
-}
-
-
-uint arm64::label(byte_p bytecode)
-// ----------------------------------------------------------------------------
-//   Record the spill status for each bytecode address
-// ----------------------------------------------------------------------------
-{
-    uint brcount = backend::label(bytecode);
-
-    // If already translated, return the offset to the translation
-    auto spill  = lower_bound(spills, bytecode);
-    if (spill == spills.end() || spill->bytecode != bytecode)
-        spills.emplace(spill, regspill{ bytecode, spilled_args });
-
-    return brcount;
-}
-
-
 void arm64::register_sync(byte_p pc)
 // ----------------------------------------------------------------------------
 //   Synchronize the temporaries
@@ -275,7 +203,7 @@ uint arm64::hw_spills_at(byte_p target)
 //   Return the value of spills at a given known branch
 // ----------------------------------------------------------------------------
 {
-    auto spill = lower_bound(spills, target);
+    auto spill = backend::lower_bound(spills, target);
     if (spill != spills.end() && spill->bytecode == target)
         return spill->spilled;
     return 0;
@@ -393,8 +321,6 @@ void arm64::begin_translation()
 {
     record(arm64, "begin_translation callee=%u", callee_entry);
     backend::begin_translation();
-    spilled_args  = 0;
-    pre_enter_frame_size = 0;
 
     // Logical 8-slot frame for spill/respill until 'enter' says otherwise.
     // Top-level also saves FP/LR once for the invoke wrapper; callees keep the

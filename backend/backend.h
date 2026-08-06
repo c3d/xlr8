@@ -34,6 +34,7 @@
 #include "section.h"
 
 
+#include <algorithm>
 #include <map>
 #include <set>
 #include <string>
@@ -293,6 +294,15 @@ protected:
     locals_t reg_local;
     regs_t   local_reg;
 
+    uint          local_frame_size = 0;
+    uint          spilled_args = 0;
+    uint          num_functions = 0;
+    uint          pre_enter_frame_size = 0;
+
+    struct regspill { byte_p bytecode; uint spilled; };
+    using regspills = std::vector<regspill>;
+    regspills     spills;
+
     struct translation { byte_p   bytecode; hwcode_t hwcode; };
     using translations = std::vector<translation>;
     translations labels;        // Map bytecode to machine code
@@ -309,6 +319,40 @@ protected:
     friend struct translation_compare;
     template<typename T> static auto lower_bound(const translations &, T);
     template<typename T> static auto equal_range(const translations &, T);
+
+    friend struct regspill_compare;
+    template<typename T> static auto lower_bound(const regspills &s, T v)
+    {
+        struct regspill_compare
+        {
+            bool operator()(const regspill &t, byte_p bc) { return t.bytecode < bc; }
+            bool operator()(byte_p bc, const regspill &t) { return bc < t.bytecode; }
+            bool operator()(const regspill &t, uint mc) { return t.spilled < mc; }
+            bool operator()(uint mc, const regspill &t) { return mc < t.spilled; }
+            bool operator()(const regspill &t1, const regspill &t2)
+            {
+                return (t1.bytecode < t2.bytecode ||
+                        (t1.bytecode == t2.bytecode && t1.spilled < t2.spilled));
+            }
+        };
+        return std::lower_bound(s.begin(), s.end(), v, regspill_compare{});
+    }
+    template<typename T> static auto equal_range(const regspills &s, T v)
+    {
+        struct regspill_compare
+        {
+            bool operator()(const regspill &t, byte_p bc) { return t.bytecode < bc; }
+            bool operator()(byte_p bc, const regspill &t) { return bc < t.bytecode; }
+            bool operator()(const regspill &t, uint mc) { return t.spilled < mc; }
+            bool operator()(uint mc, const regspill &t) { return mc < t.spilled; }
+            bool operator()(const regspill &t1, const regspill &t2)
+            {
+                return (t1.bytecode < t2.bytecode ||
+                        (t1.bytecode == t2.bytecode && t1.spilled < t2.spilled));
+            }
+        };
+        return std::equal_range(s.begin(), s.end(), v, regspill_compare{});
+    }
 };
 
 RECORDER_DECLARE(backend);
