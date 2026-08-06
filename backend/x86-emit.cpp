@@ -224,13 +224,23 @@ EMIT(ijmp)
 //   Emit bytecode for the ijmp opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t r = hw_local(e.src);
-    record(x86_ops, "emit_ijmp %u reg %u", e.src, r);
+    record(x86_ops, "emit_ijmp %u", e.src);
     if (ptr64())
+    {
         hw_sys_arg_reload();
+        hw_sys_arg(0, e.src);
+        syscall(reinterpret_cast<void (*)()>(xlr8_jit_addr));
+        // JIT address now in rax; rax is not in HW_SPILL_MASK so reload
+        // won't clobber it.
+        hw_sys_arg_reload();
+        emit_jmp_rr(HW_RAX);
+    }
     else
+    {
+        x86reg_t r = hw_local(e.src);
         spill_all();
-    emit_jmp_rr(r);
+        emit_jmp_rr(r);
+    }
 }
 
 
@@ -239,13 +249,27 @@ EMIT(icall)
 //   Emit bytecode for the icall opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t r = hw_local(e.src);
-    record(x86_ops, "emit_icall %u reg %u", e.src, r);
+    record(x86_ops, "emit_icall %u", e.src);
     if (ptr64())
+    {
         hw_sys_arg_reload();
+        hw_sys_arg(0, e.src);
+        syscall(reinterpret_cast<void (*)()>(xlr8_jit_addr));
+        // JIT address now in rax; reload spills then call.
+        hw_sys_arg_reload();
+        bool save_fp = !pre_enter_frame_size;
+        if (save_fp)
+            emit_push_reg(HW_FRAME);
+        emit_call_rr(HW_RAX);
+        if (save_fp)
+            emit_pop_reg(HW_FRAME);
+    }
     else
+    {
+        x86reg_t r = hw_local(e.src);
         spill_all();
-    emit_call_rr(r);
+        emit_call_rr(r);
+    }
 }
 
 
@@ -438,6 +462,8 @@ EMIT(push)
 //   Emit bytecode for the push opcode
 // ----------------------------------------------------------------------------
 {
+    if (ptr64())
+        hw_sys_arg_reload();
     x86reg_t sr  = hw_local(e.src);
     record(x86_ops, "emit_push %u reg %u", e.src, sr);
     emit_push_reg(sr);
@@ -449,7 +475,9 @@ EMIT(pop)
 //   Emit bytecode for the pop opcode
 // ----------------------------------------------------------------------------
 {
-    x86reg_t dr  = hw_local(e.dst);
+    if (ptr64())
+        hw_sys_arg_reload();
+    x86reg_t dr  = hw_dst_local(e.dst);
     record(x86_ops, "emit_pop %u reg %u", e.dst, dr);
     emit_pop_reg(dr);
 }
@@ -505,7 +533,7 @@ EMIT(dbra)
     emit_grp5_ff(r, 0xc8); // Decr
     if (ptr64())
         hw_sys_arg_reload(e.bpc + e.broff);
-    hwcode_t pos = emit_jcc_rel32(JCC_JZ);
+    hwcode_t pos = emit_jcc_rel32(JCC_JNZ);
     rel32_branch(e.bpc + e.broff, pos);
 }
 
