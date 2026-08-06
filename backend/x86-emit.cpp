@@ -184,12 +184,8 @@ EMIT(jmp)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the jmp opcode
 // ----------------------------------------------------------------------------
-//   On amd64, prologue is a no-op so there is nothing to undo; just jump.
 {
-    if (ptr64())
-        hw_sys_arg_reload();
-    else
-        spill_all();
+    hw_sys_arg_reload();
     hwcode_t site = emit_near_jmp_rel32();
     rel32_function(e.tok, site);
     record(x86_ops, "emit_jump %llu", e.tok);
@@ -226,11 +222,17 @@ EMIT(call)
     }
     else
     {
-        spill_all();
+        hw_sys_arg_reload();
+        emit_push_reg(HW_FRAME);
         emit8(0xE8);
         hwcode_t site = cursor();
         emit32le(0);
         rel32_function(e.tok, site);
+        emit_pop_reg(HW_FRAME);
+
+        x86reg_t r0 = hw_int_order_32(0);
+        if (r0 != HW_RAX)
+            emit_mov_rr(r0, HW_RAX);
     }
 }
 
@@ -254,8 +256,8 @@ EMIT(ijmp)
     }
     else
     {
+        hw_sys_arg_reload();
         x86reg_t r = hw_local(e.src);
-        spill_all();
         emit_jmp_rr(r);
     }
 }
@@ -283,9 +285,14 @@ EMIT(icall)
     }
     else
     {
+        hw_sys_arg_reload();
         x86reg_t r = hw_local(e.src);
-        spill_all();
+        bool save_fp = !pre_enter_frame_size;
+        if (save_fp)
+            emit_push_reg(HW_FRAME);
         emit_call_rr(r);
+        if (save_fp)
+            emit_pop_reg(HW_FRAME);
     }
 }
 
@@ -309,7 +316,10 @@ EMIT(ret)
     }
     else
     {
-        spill_all();
+        hw_sys_arg_reload();
+        x86reg_t src = hw_int_order_32(0);
+        if (src != HW_RAX)
+            emit_mov_rr(HW_RAX, src);
         epilogue();
     }
 }
@@ -390,6 +400,12 @@ EMIT(enter)
     {
         int32_t bytes = int32_t(e.dst * sizeof(ularge_t));
         emit_sub_rsp_imm(bytes);
+
+        uint shadows = frame;
+        if (shadows > HW_SHADOWS_32)
+            shadows = HW_SHADOWS_32;
+        for (uint i = 0; i < shadows; i++)
+            emit_store_u64(HW_FRAME, hw_int_order_32(i), local_disp(i));
     }
 }
 
@@ -415,11 +431,25 @@ EMIT(leave)
             emit_load_u64(hw_int_order(i), HW_FRAME, local_disp(i));
     }
 
+    if (!ptr64())
+    {
+        uint frame = local_frame_size;
+        if (!frame)
+            record(x86_error, "Running leave without having run enter");
+        uint shadows = frame;
+        if (shadows > HW_SHADOWS_32)
+            shadows = HW_SHADOWS_32;
+        for (uint i = 0; i < shadows; i++)
+            emit_load_u64(hw_int_order_32(i), HW_FRAME, local_disp(i));
+    }
+
     emit_mov_rr(HW_RSP, HW_FRAME);
     emit_pop_reg(HW_FRAME);
     if (!ptr64())
     {
         emit_pop_reg(HW_RAX);
+        local_frame_size     = pre_enter_frame_size;
+        pre_enter_frame_size = 0;
         forget_registers();
     }
     else
@@ -449,12 +479,18 @@ EMIT(get)
         record(x86_ops, "emit_get [%u] = %u reg %u parent %d",
                e.dst, e.src, dr, local_disp(e.src));
     }
+    else if (e.src < HW_SHADOWS_32 && e.src < local_frame_size)
+    {
+        emit_load_u64(dr, HW_FRAME, local_disp(e.src));
+        record(x86_ops, "emit_get [%u] = %u reg %u local %d",
+               e.dst, e.src, dr, local_disp(e.src));
+    }
     else
     {
-        int off = arg_disp(e.src);
-        record(x86_ops, "emit_get [%u] = %u reg %u offs %d",
-               e.dst, e.src, dr, off);
-        emit_load_u64(dr, HW_FRAME, off);
+        emit_load_u64(HW_RAX, HW_FRAME, 0);
+        emit_load_u64(dr, HW_RAX, local_disp(e.src));
+        record(x86_ops, "emit_get [%u] = %u reg %u parent %d",
+               e.dst, e.src, dr, local_disp(e.src));
     }
 }
 
@@ -478,12 +514,18 @@ EMIT(set)
         record(x86_ops, "emit_set %u = [%u] reg %u parent %d",
                e.dst, e.src, sr, local_disp(e.dst));
     }
+    else if (e.dst < HW_SHADOWS_32 && e.dst < local_frame_size)
+    {
+        emit_store_u64(HW_FRAME, sr, local_disp(e.dst));
+        record(x86_ops, "emit_set %u = [%u] reg %u local %d",
+               e.dst, e.src, sr, local_disp(e.dst));
+    }
     else
     {
-        int off = arg_disp(e.dst);
-        record(x86_ops, "emit_set %u = [%u] reg %u offs %d",
-               e.dst, e.src, sr, off);
-        emit_store_u64(HW_FRAME, sr, off);
+        emit_load_u64(HW_RAX, HW_FRAME, 0);
+        emit_store_u64(HW_RAX, sr, local_disp(e.dst));
+        record(x86_ops, "emit_set %u = [%u] reg %u parent %d",
+               e.dst, e.src, sr, local_disp(e.dst));
     }
 }
 
@@ -2142,13 +2184,32 @@ SYS(read_scanner)
 //   Scan next token from input stream
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_read_scanner,
-         emit_sub_rsp_imm(16); IMM(0, e.knat);
-         emit_lea(hw_sysv_arg(1), HW_RSP, 0);
-         emit_lea(hw_sysv_arg(2), HW_RSP, 8),
-         emit_load_u64(hw_dst_local(e.dst), HW_RSP, 0);
-         emit_load_u64(hw_dst_local(local_t(e.dst + 1)), HW_RSP, 8);
-         emit_add_rsp_imm(16));
+    if (ptr64())
+    {
+        CALL(xlr8_jit_read_scanner,
+             emit_sub_rsp_imm(16); IMM(0, e.knat);
+             emit_lea(hw_sysv_arg(1), HW_RSP, 0);
+             emit_lea(hw_sysv_arg(2), HW_RSP, 8),
+             emit_load_u64(hw_dst_local(e.dst), HW_RSP, 0);
+             emit_load_u64(hw_dst_local(local_t(e.dst + 1)), HW_RSP, 8);
+             emit_add_rsp_imm(16));
+    }
+    else
+    {
+        hw_sys_arg_respill();
+        emit_sub_rsp_imm(16);
+        emit_lea(HW_RAX, HW_RSP, 8);
+        emit_push_reg(HW_RAX);
+        emit_lea(HW_RAX, HW_RSP, 4);
+        emit_push_reg(HW_RAX);
+        set_imm(HW_RAX, uint64_t(e.knat));
+        emit_push_reg(HW_RAX);
+        syscall(reinterpret_cast<void (*)()>(xlr8_jit_read_scanner));
+        emit_add_esp_imm(12);
+        emit_load_u64(hw_dst_local(e.dst), HW_RSP, 0);
+        emit_load_u64(hw_dst_local(local_t(e.dst + 1)), HW_RSP, 8);
+        emit_add_rsp_imm(16);
+    }
 }
 
 
@@ -2238,9 +2299,11 @@ SYS(i2f)
 {
     x86reg_t s = hw_local(e.src);
     x86reg_t d = hw(local(e.dst, RSPEC_FLT, false));
-    // cvtsi2ss xmm, r64: F3 REX.W 0F 2A /r
     emit8(0xf3);
-    emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    if (ptr64())
+        emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    else if (rex_r(d) || rex_b(s))
+        emit8(byte(0x40 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
     emit8(0x0f); emit8(0x2a);
     emit8(modrm_rr(d, s));
 }
@@ -2253,9 +2316,11 @@ SYS(i2d)
 {
     x86reg_t s = hw_local(e.src);
     x86reg_t d = hw(local(e.dst, RSPEC_DBL, false));
-    // cvtsi2sd xmm, r64: F2 REX.W 0F 2A /r
     emit8(0xf2);
-    emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    if (ptr64())
+        emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    else if (rex_r(d) || rex_b(s))
+        emit8(byte(0x40 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
     emit8(0x0f); emit8(0x2a);
     emit8(modrm_rr(d, s));
 }
@@ -2268,9 +2333,11 @@ SYS(u2f)
 {
     x86reg_t s = hw_local(e.src);
     x86reg_t d = hw(local(e.dst, RSPEC_FLT, false));
-    // No unsigned cvt in x86; use signed 64-bit (correct for values < 2^63)
     emit8(0xf3);
-    emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    if (ptr64())
+        emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    else if (rex_r(d) || rex_b(s))
+        emit8(byte(0x40 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
     emit8(0x0f); emit8(0x2a);
     emit8(modrm_rr(d, s));
 }
@@ -2284,7 +2351,10 @@ SYS(u2d)
     x86reg_t s = hw_local(e.src);
     x86reg_t d = hw(local(e.dst, RSPEC_DBL, false));
     emit8(0xf2);
-    emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    if (ptr64())
+        emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    else if (rex_r(d) || rex_b(s))
+        emit8(byte(0x40 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
     emit8(0x0f); emit8(0x2a);
     emit8(modrm_rr(d, s));
 }
@@ -2297,9 +2367,11 @@ SYS(f2i)
 {
     x86reg_t s = load_fp(e.src, 32);
     x86reg_t d = hw_dst_local(e.dst);
-    // cvttss2si r64, xmm: F3 REX.W 0F 2C /r
     emit8(0xf3);
-    emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    if (ptr64())
+        emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    else if (rex_r(d) || rex_b(s))
+        emit8(byte(0x40 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
     emit8(0x0f); emit8(0x2c);
     emit8(modrm_rr(d, s));
 }
@@ -2312,9 +2384,11 @@ SYS(d2i)
 {
     x86reg_t s = load_fp(e.src, 64);
     x86reg_t d = hw_dst_local(e.dst);
-    // cvttsd2si r64, xmm: F2 REX.W 0F 2C /r
     emit8(0xf2);
-    emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    if (ptr64())
+        emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    else if (rex_r(d) || rex_b(s))
+        emit8(byte(0x40 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
     emit8(0x0f); emit8(0x2c);
     emit8(modrm_rr(d, s));
 }
@@ -2328,7 +2402,10 @@ SYS(f2u)
     x86reg_t s = load_fp(e.src, 32);
     x86reg_t d = hw_dst_local(e.dst);
     emit8(0xf3);
-    emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    if (ptr64())
+        emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    else if (rex_r(d) || rex_b(s))
+        emit8(byte(0x40 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
     emit8(0x0f); emit8(0x2c);
     emit8(modrm_rr(d, s));
 }
@@ -2342,7 +2419,10 @@ SYS(d2u)
     x86reg_t s = load_fp(e.src, 64);
     x86reg_t d = hw_dst_local(e.dst);
     emit8(0xf2);
-    emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    if (ptr64())
+        emit8(byte(0x48 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
+    else if (rex_r(d) || rex_b(s))
+        emit8(byte(0x40 | (rex_r(d) ? 4 : 0) | (rex_b(s) ? 1 : 0)));
     emit8(0x0f); emit8(0x2c);
     emit8(modrm_rr(d, s));
 }

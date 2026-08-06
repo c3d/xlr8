@@ -185,6 +185,9 @@ protected:
         HW_TEMP0      = HW_RAX,
         HW_FTEMP0     = HW_XMM8F,
         HW_DTEMP0     = HW_XMM8D,
+
+        HW_SHADOWS_32 = 2,   // i386: ebx, edi callee-saved homes
+        HW_I386_ARG_BYTES = 32,
     };
 
     static x86reg_t hw_int_order(local_t loc)
@@ -213,6 +216,29 @@ protected:
             return HW_RAX;
         }
         return iorder[loc];
+    }
+
+    static x86reg_t hw_int_order_32(local_t loc)
+    // ------------------------------------------------------------------------
+    //   Direct-map register assignment for i386 integer locals
+    // ------------------------------------------------------------------------
+    {
+        static const x86reg_t iorder32[] = { HW_RBX, HW_RDI };
+        static_assert(sizeof(iorder32) / sizeof(iorder32[0]) == HW_SHADOWS_32);
+        if (loc >= HW_SHADOWS_32)
+        {
+            record(x86_error, "hw_int_order_32 local %u out of range", loc);
+            return HW_RAX;
+        }
+        return iorder32[loc];
+    }
+
+    uint hw_shadows() const
+    // ------------------------------------------------------------------------
+    //   Number of integer shadow registers for the current architecture
+    // ------------------------------------------------------------------------
+    {
+        return ptr64() ? HW_SHADOWS : HW_SHADOWS_32;
     }
 
     static x86reg_t hw_flt_order(local_t loc)
@@ -375,9 +401,17 @@ protected:
 
     x86reg_t hw_sys_arg(uint arg, local_t loc)
     // ------------------------------------------------------------------------
-    //   Load a local into the corresponding SysV argument register
+    //   Load a local into the corresponding C argument slot
     // ------------------------------------------------------------------------
     {
+        if (!ptr64())
+        {
+            if (!spilled_args)
+                hw_sys_arg_spill();
+            x86reg_t src = hw(local(loc, RSPEC_INT, true));
+            emit_store_u32(HW_RSP, src, int(arg * pointer_size()));
+            return src;
+        }
         assert(arg < HW_ARGS);
         x86reg_t src = hw(local(loc, RSPEC_INT, true));
         x86reg_t dst = hw_sysv_arg(arg);
@@ -401,9 +435,17 @@ protected:
 
     x86reg_t hw_sys_imm(uint arg, value_t imm)
     // ------------------------------------------------------------------------
-    //   Load an immediate into the corresponding SysV argument register
+    //   Load an immediate into the corresponding C argument slot
     // ------------------------------------------------------------------------
     {
+        if (!ptr64())
+        {
+            if (!spilled_args)
+                hw_sys_arg_spill();
+            set_imm(HW_RAX, uint64_t(imm));
+            emit_store_u32(HW_RSP, HW_RAX, int(arg * pointer_size()));
+            return HW_RAX;
+        }
         assert(arg < HW_ARGS);
         x86reg_t dst = hw_sysv_arg(arg);
         hw_sys_arg_spill(dst);
@@ -437,8 +479,8 @@ protected:
     {
         if (!spilled_args)
             hw_sys_arg_spill();
-        if (r < HW_SPILL && (HW_SPILL_MASK & (1u << r))
-                          && ~spilled_args & (1u << r))
+        if (ptr64() && r < HW_SPILL && (HW_SPILL_MASK & (1u << r))
+                                     && ~spilled_args & (1u << r))
         {
             emit_store_u64(HW_RSP, x86reg_t(r), spill_offset(r));
             spilled_args |= 1u << r;
@@ -449,9 +491,13 @@ protected:
     // ------------------------------------------------------------------------
     //   Spill caller-saved durable homes + flags before a C call
     // ------------------------------------------------------------------------
-    //   Slot index = physical register number.  Only rsi, rdi, r8–r11 are
-    //   stored.  Callee-saved homes (rbx, r12–r15) stay live.
     {
+        if (!ptr64())
+        {
+            emit_sub_rsp_imm(int32_t(HW_I386_ARG_BYTES));
+            spilled_args = 1;
+            return;
+        }
         emit_sub_rsp_imm(int32_t(HW_SPILL_AREA * sizeof(ularge_t)));
         emit_store_u64(HW_RSP, HW_RSI, spill_offset(HW_RSI));
         emit_store_u64(HW_RSP, HW_RDI, spill_offset(HW_RDI));
@@ -467,15 +513,14 @@ protected:
     //   Re-store registers modified since the last spill/respill
     // ------------------------------------------------------------------------
     {
-        if (spilled_args)
+        if (!ptr64() || !spilled_args)
+            return;
+        for (uint r = HW_RSI; r <= uint(HW_R11); r++)
         {
-            for (uint r = HW_RSI; r <= uint(HW_R11); r++)
+            if ((HW_SPILL_MASK & (1u << r)) && ~spilled_args & (1u << r))
             {
-                if ((HW_SPILL_MASK & (1u << r)) && ~spilled_args & (1u << r))
-                {
-                    emit_store_u64(HW_RSP, x86reg_t(r), spill_offset(r));
-                    spilled_args |= 1u << r;
-                }
+                emit_store_u64(HW_RSP, x86reg_t(r), spill_offset(r));
+                spilled_args |= 1u << r;
             }
         }
     }
@@ -485,6 +530,8 @@ protected:
     //   Reload one hardware register from C-call spill area if needed
     // ------------------------------------------------------------------------
     {
+        if (!ptr64())
+            return;
         if (r < HW_SPILL && spilled_args & (1u << r))
         {
             if (load)
@@ -499,16 +546,21 @@ protected:
     //   Reload all spilled registers and deallocate spill area
     // ------------------------------------------------------------------------
     {
-        if (spilled_args)
+        if (!spilled_args)
+            return;
+        if (!ptr64())
         {
-            for (uint r = HW_RSI; r <= uint(HW_R11); r++)
-            {
-                if (spilled_args & (1u << r))
-                    emit_load_u64(x86reg_t(r), HW_RSP, spill_offset(r));
-            }
-            emit_add_rsp_imm(int32_t(HW_SPILL_AREA * sizeof(ularge_t)));
+            emit_add_rsp_imm(int32_t(HW_I386_ARG_BYTES));
             spilled_args = 0;
+            return;
         }
+        for (uint r = HW_RSI; r <= uint(HW_R11); r++)
+        {
+            if (spilled_args & (1u << r))
+                emit_load_u64(x86reg_t(r), HW_RSP, spill_offset(r));
+        }
+        emit_add_rsp_imm(int32_t(HW_SPILL_AREA * sizeof(ularge_t)));
+        spilled_args = 0;
     }
 
     uint hw_spills_at(byte_p target);
@@ -534,11 +586,8 @@ protected:
         return n * int(sizeof(ularge_t)) + enter_and_ra + prologue;
     }
 
-    // i386: ebx/esi/edi (3 pushes). amd64: 0 (callee-saved in invoke()).
-    uint PROLOGUE_SAVE_BYTES() const
-    {
-        return (ptr64() ? 0u : 3u) * pointer_size();
-    }
+    // Prologue is empty on both arches (callee-saved handled by invoke).
+    uint PROLOGUE_SAVE_BYTES() const { return 0; }
 
 
     // ========================================================================

@@ -178,8 +178,11 @@ void x86::syscall(void (*target)())
     }
     else
     {
-        size_t spilled = spill_all();
-        record(x86, "syscall %p spilled %zu", target, spilled);
+        for (uint t = 0; t < HW_TEMPS; t++)
+            spill(HW_TEMP0 + t);
+        if (!spilled_args)
+            hw_sys_arg_spill();
+        record(x86, "syscall %p (i386 direct-map)", target);
         call_ptr(target);
     }
 }
@@ -277,15 +280,9 @@ bool x86::store(local_t n, hwreg_t h)
 
 hwreg_t x86::register_for(local_t loc, hwspec_t spec, bool ld)
 // ----------------------------------------------------------------------------
-//   Find the register associated to the local (amd64 direct-map / i386 stub)
+//   Find the register associated to the local (direct-map: amd64 + i386)
 // ----------------------------------------------------------------------------
 {
-    if (!ptr64())
-    {
-        record(x86_error, "i386 register_for not yet implemented");
-        return NO_REGISTER;
-    }
-
     bool isint = spec & RSPEC_INT;
     bool isflt = spec & RSPEC_FLT;
     bool isdbl = spec & RSPEC_DBL;
@@ -295,6 +292,42 @@ hwreg_t x86::register_for(local_t loc, hwspec_t spec, bool ld)
         return NO_REGISTER;
     }
 
+    // --- i386 direct-map ---
+    if (!ptr64())
+    {
+        if (isint && loc < hw_shadows())
+            return hw_int_order_32(loc);
+
+        if ((isflt || isdbl) && loc < HW_FSHADOWS)
+        {
+            x86reg_t fr = isflt ? hw_flt_order(loc) : hw_dbl_order(loc);
+            if (ld)
+                load(fr, loc);
+            return fr;
+        }
+
+        x86reg_t temp = isint  ? x86reg_t(HW_TEMP0)
+                      : isflt  ? HW_XMM7F
+                      : isdbl  ? HW_XMM7D
+                               : x86reg_t(NO_REGISTER);
+        uint ntemps = isint ? HW_TEMPS : 1u;
+        for (uint tmp = temp; tmp < uint(temp) + ntemps; tmp++)
+        {
+            local_t rloc = reg_local[tmp];
+            if (rloc == NO_LOCAL || rloc == loc)
+            {
+                if (ld)
+                    load(tmp, loc);
+                return tmp;
+            }
+        }
+        spill(temp);
+        if (ld)
+            load(temp, loc);
+        return temp;
+    }
+
+    // --- amd64 direct-map ---
     uint count = isint ? uint(HW_SHADOWS) : uint(HW_FSHADOWS);
 
     if (loc < count)
@@ -344,81 +377,119 @@ hwreg_t x86::register_for(local_t loc, hwspec_t spec, bool ld)
 
 void x86::register_sync(byte_p pc)
 // ----------------------------------------------------------------------------
-//   Synchronize the temporaries (amd64 direct-map / i386 no-op)
+//   Synchronize temporaries and FP state (amd64 + i386 direct-map)
 // ----------------------------------------------------------------------------
 {
-    if (!ptr64())
-        return;
-
-    // Spill anything that was loaded in a temporary
     for (uint t = 0; t < HW_TEMPS; t++)
-        spill(HW_TEMP0 + t) || spill(HW_DTEMP0 + t) || spill(HW_FTEMP0 + t);
+        spill(HW_TEMP0 + t);
 
-    // Drop stale forward maps that still point at temps
+    if (ptr64())
+    {
+        for (uint t = 0; t < HW_TEMPS; t++)
+            spill(HW_DTEMP0 + t) || spill(HW_FTEMP0 + t);
+    }
+    else
+    {
+        spill(HW_XMM7D) || spill(HW_XMM7F);
+    }
+
     for (local_t loc = 0; loc < local_reg.size(); loc++)
     {
         hwreg_t r = local_reg[loc];
         if (r >= HW_TEMP0 && r < HW_TEMP0 + HW_TEMPS)
             local_reg[loc] = NO_REGISTER;
-        else if (r >= HW_FTEMP0 && r < hwreg_t(HW_FTEMP0 + HW_TEMPS))
-            local_reg[loc] = NO_REGISTER;
-        else if (r >= HW_DTEMP0 && r < hwreg_t(HW_DTEMP0 + HW_TEMPS))
-            local_reg[loc] = NO_REGISTER;
+        else if (ptr64())
+        {
+            if (r >= HW_FTEMP0 && r < hwreg_t(HW_FTEMP0 + HW_TEMPS))
+                local_reg[loc] = NO_REGISTER;
+            else if (r >= HW_DTEMP0 && r < hwreg_t(HW_DTEMP0 + HW_TEMPS))
+                local_reg[loc] = NO_REGISTER;
+        }
+        else
+        {
+            if (r == HW_XMM7F || r == HW_XMM7D)
+                local_reg[loc] = NO_REGISTER;
+        }
     }
 
-    // Restore caller-saved registers and deallocate spill area so that
-    // subsequent non-sys instructions see correct durable-home values.
     hw_sys_arg_reload();
 
-    // Move floating point values back into GPR durable homes (iorder[loc]).
-    for (int sz = 0; sz < 2; sz++)
+    if (ptr64())
     {
-        hwreg_t base = sz ? HW_XMM0D : HW_XMM0F;
-        for (uint fp = 0; fp < HW_FSHADOWS; fp++)
+        for (int sz = 0; sz < 2; sz++)
         {
-            local_t loc = reg_local[base + fp];
-            if (loc != NO_LOCAL)
+            hwreg_t base = sz ? HW_XMM0D : HW_XMM0F;
+            for (uint fp = 0; fp < HW_FSHADOWS; fp++)
             {
-                x86reg_t xmm = x86reg_t(base + fp);
-                if (loc >= HW_SHADOWS)
+                local_t loc = reg_local[base + fp];
+                if (loc != NO_LOCAL)
                 {
-                    // High local: movd/movq to temp GPR, then store to frame
-                    x86reg_t tmp = x86reg_t(HW_TEMP0);
+                    x86reg_t xmm = x86reg_t(base + fp);
+                    if (loc >= HW_SHADOWS)
+                    {
+                        x86reg_t tmp = x86reg_t(HW_TEMP0);
+                        emit8(0x66);
+                        if (sz)
+                            emit8(byte(0x48 | (rex_r(xmm) ? 4 : 0)
+                                            | (rex_b(tmp) ? 1 : 0)));
+                        else if (rex_r(xmm) || rex_b(tmp))
+                            emit8(byte(0x40 | (rex_r(xmm) ? 4 : 0)
+                                            | (rex_b(tmp) ? 1 : 0)));
+                        emit8(0x0f);
+                        emit8(0x7e);
+                        emit8(byte(0xc0 | (reg_value(xmm) << 3)
+                                        | reg_value(tmp)));
+                        store(loc, tmp);
+                        reg_local[base + fp] = NO_LOCAL;
+                        continue;
+                    }
+                    x86reg_t home = hw_int_order(loc);
                     emit8(0x66);
                     if (sz)
                         emit8(byte(0x48 | (rex_r(xmm) ? 4 : 0)
-                                        | (rex_b(tmp) ? 1 : 0)));
-                    else if (rex_r(xmm) || rex_b(tmp))
+                                        | (rex_b(home) ? 1 : 0)));
+                    else if (rex_r(xmm) || rex_b(home))
                         emit8(byte(0x40 | (rex_r(xmm) ? 4 : 0)
-                                        | (rex_b(tmp) ? 1 : 0)));
+                                        | (rex_b(home) ? 1 : 0)));
                     emit8(0x0f);
                     emit8(0x7e);
-                    emit8(byte(0xc0 | (reg_value(xmm) << 3) | reg_value(tmp)));
-                    store(loc, tmp);
+                    emit8(byte(0xc0 | (reg_value(xmm) << 3)
+                                    | reg_value(home)));
+                    local_reg[loc]       = home;
+                    reg_local[home]      = loc;
                     reg_local[base + fp] = NO_LOCAL;
-                    continue;
                 }
-                x86reg_t home = hw_int_order(loc);
-                // movd/movq gpr, xmm — bit-copy back to durable GPR home
-                emit8(0x66);
-                if (sz)
-                    emit8(byte(0x48 | (rex_r(xmm) ? 4 : 0)
-                                    | (rex_b(home) ? 1 : 0)));
-                else if (rex_r(xmm) || rex_b(home))
-                    emit8(byte(0x40 | (rex_r(xmm) ? 4 : 0)
-                                    | (rex_b(home) ? 1 : 0)));
-                emit8(0x0f);
-                emit8(0x7e);
-                emit8(byte(0xc0 | (reg_value(xmm) << 3) | reg_value(home)));
-                local_reg[loc]       = home;
-                reg_local[home]      = loc;
-                reg_local[base + fp] = NO_LOCAL;
+            }
+        }
+    }
+    else
+    {
+        for (int sz = 0; sz < 2; sz++)
+        {
+            hwreg_t base = sz ? HW_XMM0D : HW_XMM0F;
+            for (uint fp = 0; fp < HW_FSHADOWS; fp++)
+            {
+                local_t loc = reg_local[base + fp];
+                if (loc != NO_LOCAL)
+                {
+                    store(loc, base + fp);
+                    reg_local[base + fp] = NO_LOCAL;
+                    if (loc < hw_shadows())
+                    {
+                        x86reg_t home = hw_int_order_32(loc);
+                        load(home, loc);
+                        local_reg[loc]  = home;
+                        reg_local[home] = loc;
+                    }
+                    else
+                    {
+                        local_reg[loc] = NO_REGISTER;
+                    }
+                }
             }
         }
     }
 
-    // Forward branches: if this PC is a branch target, ensure consistent state.
-    // Reload all spilled args so the register file is clean at merge points.
     if (ptr64())
     {
         if (label_branches(pc))
@@ -448,6 +519,11 @@ void x86::hw_sys_arg_reload(byte_p target)
 //   Reconcile spill state to match what was recorded at branch target
 // ----------------------------------------------------------------------------
 {
+    if (!ptr64())
+    {
+        hw_sys_arg_reload();
+        return;
+    }
     uint dspill = hw_spills_at(target);
     uint cspill = spilled_args;
     uint diffs  = dspill ^ cspill;
@@ -488,19 +564,21 @@ void x86::hw_sys_arg_reload(byte_p target)
 
 x86::reginfo x86::register_definition(hwreg_t reg) const
 // ----------------------------------------------------------------------------
-//   Return the register specification flags for x86
+//   Return the register specification flags for i386 direct-map
 // ----------------------------------------------------------------------------
+//   ebx = iorder[0], edi = iorder[1] (callee-saved homes).
+//   esi = HW_FLAGS; ecx = HW_SCRATCH; eax/edx = temps.
 {
     static const reginfo i386_registers[x86::HW_COUNT] =
     {
-        {    "rax",                      0 },
-        {    "rcx",                      0 },
-        {    "rdx",                      0 },
-        {    "rbx",              RSPEC_INT },
-        {    "rsp",                      0 },
-        {    "rbp",                      0 },
-        {    "rsi", RSPEC_CALL | RSPEC_INT },
-        {    "rdi", RSPEC_CALL | RSPEC_INT },
+        {    "eax",              RSPEC_INT }, // HW_TEMP0
+        {    "ecx",                      0 }, // HW_SCRATCH
+        {    "edx",              RSPEC_INT }, // HW_TEMP1
+        {    "ebx", RSPEC_CALL | RSPEC_INT }, // iorder[0]
+        {    "esp",                      0 }, // stack
+        {    "ebp",                      0 }, // HW_FRAME
+        {    "esi",                      0 }, // HW_FLAGS
+        {    "edi", RSPEC_CALL | RSPEC_INT }, // iorder[1]
         {     "r8",                      0 },
         {     "r9",                      0 },
         {    "r10",                      0 },
@@ -1147,36 +1225,19 @@ void x86::rel32_function(tok_t tok, hwcode_t site)
 
 void x86::prologue()
 // ----------------------------------------------------------------------------
-//   Push callee-saved registers on i386 (amd64 handles them in invoke())
+//   Prologue — empty on both amd64 and i386 (direct-map)
 // ----------------------------------------------------------------------------
-//   On amd64 the direct-map allocator uses rbx/r12-r15 as local homes.
-//   These must NOT be pushed/popped per-function because jmp/ijmp transfer
-//   control between functions and the register values must survive.  invoke()
-//   saves/restores them at the C↔JIT boundary instead.
 {
     record(x86, "prologue");
-
-    if (!ptr64())
-    {
-        emit_push_reg(HW_RBX);
-        emit_push_reg(HW_RSI);
-        emit_push_reg(HW_RDI);
-    }
 }
 
 
 void x86::epilogue()
 // ----------------------------------------------------------------------------
-//   Pop prologue callee-saves (i386 only) and return
+//   Emit return — no callee-save pops (direct-map; invoke restores them)
 // ----------------------------------------------------------------------------
 {
     record(x86, "epilogue()");
-    if (!ptr64())
-    {
-        emit_pop_reg(HW_RDI);
-        emit_pop_reg(HW_RSI);
-        emit_pop_reg(HW_RBX);
-    }
     emit_insn_ret();
 }
 
@@ -1263,16 +1324,36 @@ void x86::invoke(runtime &rt, void *code)
           "memory", "cc");
 #elif defined(__i386__) || defined(__i386)
     typedef void (*entry_fn)(void);
-    entry_fn  entry  = (entry_fn) code;
+    entry_fn  entry     = (entry_fn) code;
     alignas(16) ularge_t initial_frame[DEFAULT_FRAME_SIZE + 2];
-    uintptr_t framep = uintptr_t(initial_jit_fp(initial_frame));
-    uint32_t  flags  = uint32_t(rt.flags);
+    stack_p   frame     = initial_jit_fp(initial_frame);
+    ularge_t *locals    = rt.frame;
+    uint32_t *flags_ptr = (uint32_t *) &rt.flags;
+
+    frame[0] = ularge_t(uintptr_t(locals));
+    frame[1] = ularge_t(uintptr_t(flags_ptr));
+
     asm volatile(
-        "mov %1, %%ebp\n\t"
-        "call *%0"
+        "push %%ebx\n\t"
+        "push %%edi\n\t"
+        "mov %[frame], %%ebp\n\t"
+        "mov %[entry], %%eax\n\t"
+        "mov 0(%%ebp), %%ecx\n\t"
+        "mov 0(%%ecx), %%ebx\n\t"
+        "mov 8(%%ecx), %%edi\n\t"
+        "mov 8(%%ebp), %%ecx\n\t"
+        "mov 0(%%ecx), %%esi\n\t"
+        "call *%%eax\n\t"
+        "mov 8(%%ebp), %%ecx\n\t"
+        "mov %%esi, 0(%%ecx)\n\t"
+        "mov 0(%%ebp), %%ecx\n\t"
+        "mov %%ebx, 0(%%ecx)\n\t"
+        "mov %%edi, 8(%%ecx)\n\t"
+        "pop %%edi\n\t"
+        "pop %%ebx"
         :
-        : "r"(entry), "r"(framep), "S"(flags)
-        : "eax", "ecx", "edx", "ebp", "memory", "cc");
+        : [entry] "r"(entry), [frame] "r"(frame)
+        : "eax", "ecx", "edx", "esi", "ebp", "memory", "cc");
 #else
     (void) code;
     rt.error("Cannot invoke x86 JIT on this host");
