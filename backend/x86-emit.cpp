@@ -425,6 +425,13 @@ EMIT(get)
         record(x86_ops, "emit_get [%u] = %u reg %u local %d",
                e.dst, e.src, dr, local_disp(e.src));
     }
+    else if (ptr64())
+    {
+        emit_load_u64(HW_RAX, HW_FRAME, 0);
+        emit_load_u64(dr, HW_RAX, local_disp(e.src));
+        record(x86_ops, "emit_get [%u] = %u reg %u parent %d",
+               e.dst, e.src, dr, local_disp(e.src));
+    }
     else
     {
         int off = arg_disp(e.src);
@@ -445,6 +452,13 @@ EMIT(set)
     {
         emit_store_u64(HW_FRAME, sr, local_disp(e.dst));
         record(x86_ops, "emit_set %u = [%u] reg %u local %d",
+               e.dst, e.src, sr, local_disp(e.dst));
+    }
+    else if (ptr64())
+    {
+        emit_load_u64(HW_RAX, HW_FRAME, 0);
+        emit_store_u64(HW_RAX, sr, local_disp(e.dst));
+        record(x86_ops, "emit_set %u = [%u] reg %u parent %d",
                e.dst, e.src, sr, local_disp(e.dst));
     }
     else
@@ -530,9 +544,9 @@ EMIT(dbra)
 {
     x86reg_t r = hw_local(e.dst);
     record(x86_ops, "emit_dbra %u, %lld reg %u", e.dst, e.broff, r);
-    emit_grp5_ff(r, 0xc8); // Decr
     if (ptr64())
         hw_sys_arg_reload(e.bpc + e.broff);
+    emit_grp5_ff(r, 0xc8); // Decr — must be last before JNZ (flags)
     hwcode_t pos = emit_jcc_rel32(JCC_JNZ);
     rel32_branch(e.bpc + e.broff, pos);
 }
