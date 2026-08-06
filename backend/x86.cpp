@@ -1123,26 +1123,16 @@ void x86::rel32_function(tok_t tok, hwcode_t site)
 
 void x86::prologue()
 // ----------------------------------------------------------------------------
-//   Push callee-saved registers only; do not move the frame pointer
+//   Per-function prologue; amd64 is a no-op (callee-saves live in invoke)
 // ----------------------------------------------------------------------------
-//   enter/leave own FP.  After leave, SP points here for epilogue to pop.
+//   On amd64, callee-saved registers (rbx, r12–r15) are saved/restored in
+//   invoke(), not per-function.  This allows jmp between JIT functions
+//   without stack growth.  i386 still saves ebx/esi/edi here.
 {
     record(x86, "prologue");
 
-    if (ptr64())
+    if (!ptr64())
     {
-        // amd64 direct-map: callee-saved durable homes rbx, r12–r15.
-        // 5 pushes (40 bytes) + 8-byte return address = 48 → SP stays
-        // 16-byte aligned after prologue (ready for enter push rbp).
-        emit_push_reg(HW_RBX);
-        emit_push_reg(HW_R12);
-        emit_push_reg(HW_R13);
-        emit_push_reg(HW_R14);
-        emit_push_reg(HW_R15);
-    }
-    else
-    {
-        // i386 SysV: ebx/esi/edi are callee-saved.
         emit_push_reg(HW_RBX);
         emit_push_reg(HW_RSI);
         emit_push_reg(HW_RDI);
@@ -1152,19 +1142,11 @@ void x86::prologue()
 
 void x86::epilogue()
 // ----------------------------------------------------------------------------
-//   Pop prologue callee-saves and return (SP must already be at that block)
+//   Per-function epilogue; amd64 just emits ret (callee-saves live in invoke)
 // ----------------------------------------------------------------------------
 {
     record(x86, "epilogue()");
-    if (ptr64())
-    {
-        emit_pop_reg(HW_R15);
-        emit_pop_reg(HW_R14);
-        emit_pop_reg(HW_R13);
-        emit_pop_reg(HW_R12);
-        emit_pop_reg(HW_RBX);
-    }
-    else
+    if (!ptr64())
     {
         emit_pop_reg(HW_RDI);
         emit_pop_reg(HW_RSI);
@@ -1202,9 +1184,19 @@ void x86::invoke(runtime &rt, void *code)
     stack_p  frame = initial_jit_fp(initial_frame);
     uint64_t flags = rt.flags;
     asm volatile(
-        "mov %1, %%rbp\n\t"
-        "mov %2, %%r11\n\t"
-        "call *%0"
+        "push %%rbx\n\t"
+        "push %%r12\n\t"
+        "push %%r13\n\t"
+        "push %%r14\n\t"
+        "push %%r15\n\t"
+        "mov  %1, %%rbp\n\t"
+        "mov  %2, %%r11\n\t"
+        "call *%0\n\t"
+        "pop  %%r15\n\t"
+        "pop  %%r14\n\t"
+        "pop  %%r13\n\t"
+        "pop  %%r12\n\t"
+        "pop  %%rbx"
         :
         : "r"(entry), "r"(frame), "r"(flags)
         : "rax", "rcx", "rdx", "rsi", "rdi",
