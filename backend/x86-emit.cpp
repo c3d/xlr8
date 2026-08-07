@@ -244,22 +244,14 @@ EMIT(ijmp)
 //   Unlike jmp, ijmp does NOT pop callee-saved regs: the target may be a
 //   mid-function label (no prologue).  Stack balance is maintained because
 //   the eventual end/epilogue in the target function pops the set.
+//   `pca` stores a bytecode PC; resolve to JIT via xlr8_jit_addr (amd64+i386).
 {
     record(x86_ops, "emit_ijmp %u", e.src);
-    if (ptr64())
-    {
-        hw_sys_arg_reload();
-        hw_sys_arg(0, e.src);
-        syscall(reinterpret_cast<void (*)()>(xlr8_jit_addr));
-        hw_sys_arg_reload();
-        emit_jmp_rr(HW_RAX);
-    }
-    else
-    {
-        hw_sys_arg_reload();
-        x86reg_t r = hw_local(e.src);
-        emit_jmp_rr(r);
-    }
+    hw_sys_arg_reload();
+    hw_sys_arg(0, e.src);
+    syscall(reinterpret_cast<void (*)()>(xlr8_jit_addr));
+    hw_sys_arg_reload();
+    emit_jmp_rr(HW_RAX);
 }
 
 
@@ -269,31 +261,17 @@ EMIT(icall)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_icall %u", e.src);
-    if (ptr64())
-    {
-        hw_sys_arg_reload();
-        hw_sys_arg(0, e.src);
-        syscall(reinterpret_cast<void (*)()>(xlr8_jit_addr));
-        // JIT address now in rax; reload spills then call.
-        hw_sys_arg_reload();
-        bool save_fp = !pre_enter_frame_size;
-        if (save_fp)
-            emit_push_reg(HW_FRAME);
-        emit_call_rr(HW_RAX);
-        if (save_fp)
-            emit_pop_reg(HW_FRAME);
-    }
-    else
-    {
-        hw_sys_arg_reload();
-        x86reg_t r = hw_local(e.src);
-        bool save_fp = !pre_enter_frame_size;
-        if (save_fp)
-            emit_push_reg(HW_FRAME);
-        emit_call_rr(r);
-        if (save_fp)
-            emit_pop_reg(HW_FRAME);
-    }
+    hw_sys_arg_reload();
+    hw_sys_arg(0, e.src);
+    syscall(reinterpret_cast<void (*)()>(xlr8_jit_addr));
+    // JIT address now in rax; reload spills then call.
+    hw_sys_arg_reload();
+    bool save_fp = !pre_enter_frame_size;
+    if (save_fp)
+        emit_push_reg(HW_FRAME);
+    emit_call_rr(HW_RAX);
+    if (save_fp)
+        emit_pop_reg(HW_FRAME);
 }
 
 
@@ -600,12 +578,17 @@ EMIT(dbra)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the dbra opcode
 // ----------------------------------------------------------------------------
+//   Overflow locals live in temps.  The JNZ may re-enter a loop body without
+//   running post-opcode register_sync, so write the decremented temp back to
+//   the frame before the branch (durable homes are updated in place).
 {
     x86reg_t r = hw_local(e.dst);
     record(x86_ops, "emit_dbra %u, %lld reg %u", e.dst, e.broff, r);
     if (ptr64())
         hw_sys_arg_reload(e.bpc + e.broff);
     emit_grp5_ff(r, 0xc8); // Decr — must be last before JNZ (flags)
+    if (r >= HW_TEMP0 && r < HW_TEMP0 + HW_TEMPS)
+        store(e.dst, r);
     hwcode_t pos = emit_jcc_rel32(JCC_JNZ);
     rel32_branch(e.bpc + e.broff, pos);
 }
