@@ -1552,8 +1552,12 @@ EMIT(ddiv)
 #define SYS(op) void x86::emit_sys_##op(emit_args &e)
 #define ARG(a, loc)   hw_sys_arg(a, loc);
 #define IMM(a, val)   hw_sys_imm(a, val);
+#define FARG(a, loc)  hw_sys_arg_fp(a, loc, false);
+#define DARG(a, loc)  hw_sys_arg_fp(a, loc, true);
 #define RET(loc)      hw_sys_ret(loc);
 #define SRET(loc,sz)  hw_sys_ret(loc, sz);
+#define FRET(loc)     hw_sys_ret_fp(loc, false);
+#define DRET(loc)     hw_sys_ret_fp(loc, true);
 #define NORET         /* no output */
 
 #define CALL(fn, inputs, outputs)                   \
@@ -2090,9 +2094,12 @@ SYS(read_float)
 //   Read float from input stream
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_read_float, IMM(0, e.knat),
-         x86reg_t d = hw(local(e.dst, RSPEC_FLT, false));
-         emit_sse_scalar_op(0xf3, 0x10, d, HW_XMM0F));
+    if (ptr64())
+        CALL(xlr8_jit_read_float, IMM(0, e.knat),
+             x86reg_t d = hw(local(e.dst, RSPEC_FLT, false));
+             emit_sse_scalar_op(0xf3, 0x10, d, HW_XMM0F));
+    else
+        CALL(xlr8_jit_read_float, IMM(0, e.knat), FRET(e.dst));
 }
 
 SYS(read_double)
@@ -2100,9 +2107,12 @@ SYS(read_double)
 //   Read double from input stream
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_read_double, IMM(0, e.knat),
-         x86reg_t d = hw(local(e.dst, RSPEC_DBL, false));
-         emit_sse_scalar_op(0xf2, 0x10, d, HW_XMM0D));
+    if (ptr64())
+        CALL(xlr8_jit_read_double, IMM(0, e.knat),
+             x86reg_t d = hw(local(e.dst, RSPEC_DBL, false));
+             emit_sse_scalar_op(0xf2, 0x10, d, HW_XMM0D));
+    else
+        CALL(xlr8_jit_read_double, IMM(0, e.knat), DRET(e.dst));
 }
 
 SYS(write_char)
@@ -2134,11 +2144,18 @@ SYS(write_float)
 //   Write float to output stream
 // ----------------------------------------------------------------------------
 {
-    x86reg_t s = load_fp(e.src, 32);
-    CALL(xlr8_jit_write_float,
-         IMM(0, e.knat);
-         if (s != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, HW_XMM0F, s),
-         NORET);
+    if (ptr64())
+    {
+        x86reg_t s = load_fp(e.src, 32);
+        CALL(xlr8_jit_write_float,
+             IMM(0, e.knat);
+             if (s != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, HW_XMM0F, s),
+             NORET);
+    }
+    else
+    {
+        CALL(xlr8_jit_write_float, IMM(0, e.knat) FARG(1, e.src), NORET);
+    }
 }
 
 SYS(write_double)
@@ -2146,11 +2163,18 @@ SYS(write_double)
 //   Write double to output stream
 // ----------------------------------------------------------------------------
 {
-    x86reg_t s = load_fp(e.src, 64);
-    CALL(xlr8_jit_write_double,
-         IMM(0, e.knat);
-         if (s != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, HW_XMM0D, s),
-         NORET);
+    if (ptr64())
+    {
+        x86reg_t s = load_fp(e.src, 64);
+        CALL(xlr8_jit_write_double,
+             IMM(0, e.knat);
+             if (s != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, HW_XMM0D, s),
+             NORET);
+    }
+    else
+    {
+        CALL(xlr8_jit_write_double, IMM(0, e.knat) DARG(1, e.src), NORET);
+    }
 }
 
 SYS(write_text)
@@ -2236,11 +2260,18 @@ SYS(flt)
 //   Append float to scanner output
 // ----------------------------------------------------------------------------
 {
-    x86reg_t s = load_fp(e.src, 32);
-    CALL(xlr8_jit_flt_append,
-         IMM(0, e.knat);
-         if (s != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, HW_XMM0F, s),
-         NORET);
+    if (ptr64())
+    {
+        x86reg_t s = load_fp(e.src, 32);
+        CALL(xlr8_jit_flt_append,
+             IMM(0, e.knat);
+             if (s != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, HW_XMM0F, s),
+             NORET);
+    }
+    else
+    {
+        CALL(xlr8_jit_flt_append, IMM(0, e.knat) FARG(1, e.src), NORET);
+    }
 }
 
 
@@ -2249,11 +2280,18 @@ SYS(dbl)
 //   Append double to scanner output
 // ----------------------------------------------------------------------------
 {
-    x86reg_t s = load_fp(e.src, 64);
-    CALL(xlr8_jit_dbl_append,
-         IMM(0, e.knat);
-         if (s != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, HW_XMM0D, s),
-         NORET);
+    if (ptr64())
+    {
+        x86reg_t s = load_fp(e.src, 64);
+        CALL(xlr8_jit_dbl_append,
+             IMM(0, e.knat);
+             if (s != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, HW_XMM0D, s),
+             NORET);
+    }
+    else
+    {
+        CALL(xlr8_jit_dbl_append, IMM(0, e.knat) DARG(1, e.src), NORET);
+    }
 }
 
 
@@ -2465,10 +2503,17 @@ SYS(fpush)
 //   Push float bits onto runtime stack
 // ----------------------------------------------------------------------------
 {
-    x86reg_t s = load_fp(e.src, 32);
-    CALL(xlr8_jit_fpush,
-         if (s != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, HW_XMM0F, s),
-         NORET);
+    if (ptr64())
+    {
+        x86reg_t s = load_fp(e.src, 32);
+        CALL(xlr8_jit_fpush,
+             if (s != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, HW_XMM0F, s),
+             NORET);
+    }
+    else
+    {
+        CALL(xlr8_jit_fpush, FARG(0, e.src), NORET);
+    }
 }
 
 
@@ -2477,10 +2522,17 @@ SYS(dpush)
 //   Push double bits onto runtime stack
 // ----------------------------------------------------------------------------
 {
-    x86reg_t s = load_fp(e.src, 64);
-    CALL(xlr8_jit_dpush,
-         if (s != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, HW_XMM0D, s),
-         NORET);
+    if (ptr64())
+    {
+        x86reg_t s = load_fp(e.src, 64);
+        CALL(xlr8_jit_dpush,
+             if (s != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, HW_XMM0D, s),
+             NORET);
+    }
+    else
+    {
+        CALL(xlr8_jit_dpush, DARG(0, e.src), NORET);
+    }
 }
 
 
@@ -2489,10 +2541,13 @@ SYS(fpop)
 //   Pop float bits from runtime stack
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_fpop,
-         /* no input */,
-         x86reg_t d = hw(local(e.dst, RSPEC_FLT, false));
-         if (d != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, d, HW_XMM0F));
+    if (ptr64())
+        CALL(xlr8_jit_fpop,
+             /* no input */,
+             x86reg_t d = hw(local(e.dst, RSPEC_FLT, false));
+             if (d != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, d, HW_XMM0F));
+    else
+        CALL(xlr8_jit_fpop, /* no input */, FRET(e.dst));
 }
 
 
@@ -2501,10 +2556,13 @@ SYS(dpop)
 //   Pop double bits from runtime stack
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_dpop,
-         /* no input */,
-         x86reg_t d = hw(local(e.dst, RSPEC_DBL, false));
-         if (d != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, d, HW_XMM0D));
+    if (ptr64())
+        CALL(xlr8_jit_dpop,
+             /* no input */,
+             x86reg_t d = hw(local(e.dst, RSPEC_DBL, false));
+             if (d != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, d, HW_XMM0D));
+    else
+        CALL(xlr8_jit_dpop, /* no input */, DRET(e.dst));
 }
 
 
@@ -2513,12 +2571,20 @@ SYS(fmod)
 //   Float remainder (modulo)
 // ----------------------------------------------------------------------------
 {
-    x86reg_t d = load_fp(e.dst, 32);
-    x86reg_t s = load_fp(e.src, 32);
-    CALL(static_cast<float (*)(float, float)>(::fmodf),
-         if (d != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, HW_XMM0F, d);
-         if (s != HW_XMM1F) emit_sse_scalar_op(0xf3, 0x10, HW_XMM1F, s),
-         if (d != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, d, HW_XMM0F));
+    if (ptr64())
+    {
+        x86reg_t d = load_fp(e.dst, 32);
+        x86reg_t s = load_fp(e.src, 32);
+        CALL(static_cast<float (*)(float, float)>(::fmodf),
+             if (d != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, HW_XMM0F, d);
+             if (s != HW_XMM1F) emit_sse_scalar_op(0xf3, 0x10, HW_XMM1F, s),
+             if (d != HW_XMM0F) emit_sse_scalar_op(0xf3, 0x10, d, HW_XMM0F));
+    }
+    else
+    {
+        CALL(static_cast<float (*)(float, float)>(::fmodf),
+             FARG(0, e.dst) FARG(1, e.src), FRET(e.dst));
+    }
 }
 
 
@@ -2527,36 +2593,61 @@ SYS(dmod)
 //   Double remainder (modulo)
 // ----------------------------------------------------------------------------
 {
-    x86reg_t d = load_fp(e.dst, 64);
-    x86reg_t s = load_fp(e.src, 64);
-    CALL(static_cast<double (*)(double, double)>(::fmod),
-         if (d != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, HW_XMM0D, d);
-         if (s != HW_XMM1D) emit_sse_scalar_op(0xf2, 0x10, HW_XMM1D, s),
-         if (d != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, d, HW_XMM0D));
+    if (ptr64())
+    {
+        x86reg_t d = load_fp(e.dst, 64);
+        x86reg_t s = load_fp(e.src, 64);
+        CALL(static_cast<double (*)(double, double)>(::fmod),
+             if (d != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, HW_XMM0D, d);
+             if (s != HW_XMM1D) emit_sse_scalar_op(0xf2, 0x10, HW_XMM1D, s),
+             if (d != HW_XMM0D) emit_sse_scalar_op(0xf2, 0x10, d, HW_XMM0D));
+    }
+    else
+    {
+        // Doubles occupy two dword slots each under cdecl
+        CALL(static_cast<double (*)(double, double)>(::fmod),
+             DARG(0, e.dst) DARG(2, e.src), DRET(e.dst));
+    }
 }
 
 
 #define REAL_OP(op, ffn, dfn)                                    \
 SYS(f##op)                                                      \
 {                                                               \
-    x86reg_t s = load_fp(e.src, 32);                            \
-    x86reg_t d = hw(local(e.dst, RSPEC_FLT, false));            \
-    CALL(static_cast<float (*)(float)>(ffn),                    \
-         if (s != HW_XMM0F)                                    \
-             emit_sse_scalar_op(0xf3, 0x10, HW_XMM0F, s),      \
-         if (d != HW_XMM0F)                                    \
-             emit_sse_scalar_op(0xf3, 0x10, d, HW_XMM0F));     \
+    if (ptr64())                                                \
+    {                                                           \
+        x86reg_t s = load_fp(e.src, 32);                        \
+        x86reg_t d = hw(local(e.dst, RSPEC_FLT, false));        \
+        CALL(static_cast<float (*)(float)>(ffn),                \
+             if (s != HW_XMM0F)                                \
+                 emit_sse_scalar_op(0xf3, 0x10, HW_XMM0F, s),  \
+             if (d != HW_XMM0F)                                \
+                 emit_sse_scalar_op(0xf3, 0x10, d, HW_XMM0F)); \
+    }                                                           \
+    else                                                        \
+    {                                                           \
+        CALL(static_cast<float (*)(float)>(ffn),                \
+             FARG(0, e.src), FRET(e.dst));                      \
+    }                                                           \
 }                                                               \
                                                                 \
 SYS(d##op)                                                      \
 {                                                               \
-    x86reg_t s = load_fp(e.src, 64);                            \
-    x86reg_t d = hw(local(e.dst, RSPEC_DBL, false));            \
-    CALL(static_cast<double (*)(double)>(dfn),                  \
-         if (s != HW_XMM0D)                                    \
-             emit_sse_scalar_op(0xf2, 0x10, HW_XMM0D, s),      \
-         if (d != HW_XMM0D)                                    \
-             emit_sse_scalar_op(0xf2, 0x10, d, HW_XMM0D));     \
+    if (ptr64())                                                \
+    {                                                           \
+        x86reg_t s = load_fp(e.src, 64);                        \
+        x86reg_t d = hw(local(e.dst, RSPEC_DBL, false));        \
+        CALL(static_cast<double (*)(double)>(dfn),              \
+             if (s != HW_XMM0D)                                \
+                 emit_sse_scalar_op(0xf2, 0x10, HW_XMM0D, s),  \
+             if (d != HW_XMM0D)                                \
+                 emit_sse_scalar_op(0xf2, 0x10, d, HW_XMM0D)); \
+    }                                                           \
+    else                                                        \
+    {                                                           \
+        CALL(static_cast<double (*)(double)>(dfn),              \
+             DARG(0, e.src), DRET(e.dst));                      \
+    }                                                           \
 }
 
 

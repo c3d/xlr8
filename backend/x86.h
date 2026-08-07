@@ -453,6 +453,46 @@ protected:
         return dst;
     }
 
+    x86reg_t hw_sys_arg_fp(uint arg, local_t loc, bool is_dbl)
+    // ------------------------------------------------------------------------
+    //   Pass float/double local as i386 cdecl stack arg (dword index `arg`)
+    // ------------------------------------------------------------------------
+    {
+        assert(!ptr64());
+        if (!spilled_args)
+            hw_sys_arg_spill();
+        x86reg_t xmm = hw(local(loc, is_dbl ? RSPEC_DBL : RSPEC_FLT, true));
+        int offs = int(arg * pointer_size());
+        emit8(is_dbl ? 0xf2 : 0xf3);        // movsd / movss
+        if (rex_r(xmm))
+            emit8(0x40 | 4);
+        emit8(0x0f);
+        emit8(0x11);
+        emit_modrm_reg_base(xmm, HW_RSP, offs);
+        return xmm;
+    }
+
+    void hw_sys_ret_fp(local_t loc, bool is_dbl)
+    // ------------------------------------------------------------------------
+    //   Capture i386 cdecl FP return from st(0) into an XMM local
+    // ------------------------------------------------------------------------
+    {
+        assert(!ptr64());
+        if (!spilled_args)
+            hw_sys_arg_spill();
+        // Scratch inside the reserved arg area (still live during CALL outputs)
+        const int tmp = is_dbl ? 16 : 24;
+        emit8(is_dbl ? 0xdd : 0xd9);        // fstp qword / dword
+        emit_modrm_reg_base(x86reg_t(3), HW_RSP, tmp);
+        x86reg_t d = hw(local(loc, is_dbl ? RSPEC_DBL : RSPEC_FLT, false));
+        emit8(is_dbl ? 0xf2 : 0xf3);        // movsd / movss
+        if (rex_r(d))
+            emit8(0x40 | 4);
+        emit8(0x0f);
+        emit8(0x10);
+        emit_modrm_reg_base(d, HW_RSP, tmp);
+    }
+
     x86reg_t hw_sys_ret(local_t loc, byte bsize = 64)
     // ------------------------------------------------------------------------
     //   Move C return value (rax) into a local's durable home
@@ -1281,6 +1321,23 @@ protected:
     //   Emit a movd xmm, r32 or movq xmm, r64 to load a float/double constant
     // ------------------------------------------------------------------------
     {
+        // i386 has no movq xmm,r64: spill both halves then movsd.
+        if (is_double && !ptr64())
+        {
+            emit_sub_rsp_imm(8);
+            set_imm(HW_RAX, uint32_t(bits));
+            emit_store_u32(HW_RSP, HW_RAX, 0);
+            set_imm(HW_RAX, uint32_t(bits >> 32));
+            emit_store_u32(HW_RSP, HW_RAX, 4);
+            emit8(0xf2);
+            if (rex_r(xmm))
+                emit8(0x40 | 4);
+            emit8(0x0f);
+            emit8(0x10);
+            emit_modrm_reg_base(xmm, HW_RSP, 0);
+            emit_add_rsp_imm(8);
+            return;
+        }
         set_imm(HW_RAX, bits);
         emit8(0x66);         // movd/movq xmm, rax
         if (is_double && ptr64())
