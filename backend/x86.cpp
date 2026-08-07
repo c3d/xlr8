@@ -971,11 +971,16 @@ void x86::cond_mov_local(byte p, local_t d, local_t s)
 // ----------------------------------------------------------------------------
 //   Conditionally move local s into d when predicate p is set
 // ----------------------------------------------------------------------------
+//   mov_local updates emit-time maps even when the runtime path skips the
+//   mov.  Spill inside the fall-through so a taken update hits the frame,
+//   and so maps are cleared for later opcodes either way.
 {
     record(x86, "cond_mov_local(%u, %u, %u)", p, d, s);
     emit_pred_test_bit(p);      // BT -> CF
     hwcode_t off = emit_jcc_rel8(JCC_JNC);     // skip if bit clear
     mov_local(d, s);
+    if (d < local_reg.size() && local_reg[d] != NO_REGISTER)
+        spill(local_reg[d]);
     patch(off, cursor());
 }
 
@@ -989,9 +994,13 @@ void x86::select_local(byte p, local_t d, local_t s, byte x)
     emit_pred_test_bit(p);                     // BT -> CF
     hwcode_t jnc_pos = emit_jcc_rel8(JCC_JNC); // bit clear -> pick x
     mov_local(d, s);
+    if (d < local_reg.size() && local_reg[d] != NO_REGISTER)
+        spill(local_reg[d]);
     hwcode_t jmp_pos = emit_jmp_rel8();
     patch(jnc_pos, cursor());
     mov_local(d, x);
+    if (d < local_reg.size() && local_reg[d] != NO_REGISTER)
+        spill(local_reg[d]);
     patch(jmp_pos, cursor());
 }
 
