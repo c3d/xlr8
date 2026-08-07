@@ -2190,6 +2190,8 @@ SYS(read_scanner)
 // ----------------------------------------------------------------------------
 //   Scan next token from input stream
 // ----------------------------------------------------------------------------
+//   Out-params are ularge_t (8 bytes).  On i386 keep them inside the shared
+//   32-byte cdecl arg area — do not push args (syscall would spill again).
 {
     if (ptr64())
     {
@@ -2200,23 +2202,21 @@ SYS(read_scanner)
              emit_load_u64(hw_dst_local(e.dst), HW_RSP, 0);
              emit_load_u64(hw_dst_local(local_t(e.dst + 1)), HW_RSP, 8);
              emit_add_rsp_imm(16));
+        return;
     }
-    else
-    {
-        hw_sys_arg_respill();
-        emit_sub_rsp_imm(16);
-        emit_lea(HW_RAX, HW_RSP, 8);
-        emit_push_reg(HW_RAX);
-        emit_lea(HW_RAX, HW_RSP, 4);
-        emit_push_reg(HW_RAX);
-        set_imm(HW_RAX, uint64_t(e.knat));
-        emit_push_reg(HW_RAX);
-        syscall(reinterpret_cast<void (*)()>(xlr8_jit_read_scanner));
-        emit_add_esp_imm(12);
-        emit_load_u64(hw_dst_local(e.dst), HW_RSP, 0);
-        emit_load_u64(hw_dst_local(local_t(e.dst + 1)), HW_RSP, 8);
-        emit_add_rsp_imm(16);
-    }
+    if (!spilled_args)
+        hw_sys_arg_spill();
+    set_imm(HW_RAX, uint64_t(e.knat));
+    emit_store_u32(HW_RSP, HW_RAX, 0);            // arg0 = stream
+    emit_lea(HW_RAX, HW_RSP, 12);
+    emit_store_u32(HW_RSP, HW_RAX, 4);            // arg1 = &tok
+    emit_lea(HW_RAX, HW_RSP, 20);
+    emit_store_u32(HW_RSP, HW_RAX, 8);            // arg2 = &val
+    syscall(reinterpret_cast<void (*)()>(xlr8_jit_read_scanner));
+    x86reg_t d0 = hw_dst_local(e.dst);
+    x86reg_t d1 = hw_dst_local(local_t(e.dst + 1));
+    emit_load_u32(d0, HW_RSP, 12);
+    emit_load_u32(d1, HW_RSP, 20);
 }
 
 
