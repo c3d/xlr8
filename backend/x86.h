@@ -1174,8 +1174,20 @@ protected:
     // ------------------------------------------------------------------------
     //   Emit mov byte ptr [dstptr+offs], src.l
     // ------------------------------------------------------------------------
+    //   i386 only has al/cl/dl/bl as 8-bit GPRs.  A "REX" force prefix is
+    //   INC on i386, so move esi/edi/ebp through a low-byte temp instead.
     {
-        emit_rex_mem(0, src, dstptr, reg_value(src) >= 4);
+        if (!ptr64() && reg_value(src) >= 4)
+        {
+            // Prefer scratch ecx; fall back if the address is in ecx.
+            x86reg_t tmp = (dstptr == HW_RCX) ? HW_RAX : HW_RCX;
+            emit_mov_rr(tmp, src);
+            src = tmp;
+        }
+        else if (ptr64())
+        {
+            emit_rex_mem(0, src, dstptr, reg_value(src) >= 4);
+        }
         emit8(0x88);
         emit_modrm_reg_base(src, dstptr, offs);
     }
