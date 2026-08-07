@@ -2019,7 +2019,7 @@ SYS(branch_on_eof)
     CALL(xlr8_jit_stream_eof,
          IMM(0, e.knat),
          emit_mov_rr(HW_SCRATCH, HW_RAX);
-         if (ptr64()) hw_sys_arg_reload(e.bpc + e.broff);
+         hw_sys_arg_reload(e.bpc + e.broff);
          emit_test_rr(HW_SCRATCH, HW_SCRATCH);
          hwcode_t pos = emit_jcc_rel32(JCC_JNZ);
          rel32_branch(e.bpc + e.broff, pos));
@@ -2033,7 +2033,7 @@ SYS(branch_on_bad)
     CALL(xlr8_jit_stream_bad,
          IMM(0, e.knat),
          emit_mov_rr(HW_SCRATCH, HW_RAX);
-         if (ptr64()) hw_sys_arg_reload(e.bpc + e.broff);
+         hw_sys_arg_reload(e.bpc + e.broff);
          emit_test_rr(HW_SCRATCH, HW_SCRATCH);
          hwcode_t pos = emit_jcc_rel32(JCC_JNZ);
          rel32_branch(e.bpc + e.broff, pos));
@@ -2296,7 +2296,7 @@ SYS(trap_error)
     CALL(xlr8_jit_has_error,
          /* no input */,
          emit_mov_rr(HW_SCRATCH, HW_RAX);
-         if (ptr64()) hw_sys_arg_reload(e.bpc + e.broff);
+         hw_sys_arg_reload(e.bpc + e.broff);
          emit_test_rr(HW_SCRATCH, HW_SCRATCH);
          hwcode_t pos = emit_jcc_rel32(JCC_JNZ);
          rel32_branch(e.bpc + e.broff, pos));
