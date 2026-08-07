@@ -873,15 +873,12 @@ EMIT(pushf)
 // ----------------------------------------------------------------------------
 //   Emit bytecode for the pushf opcode
 // ----------------------------------------------------------------------------
+//   One stack slot (value_t).  On i386, preds 0–31 live in esi; preds 32–63
+//   stay in the enter frame word at [ebp+4] and are not part of pushf/popf
+//   (a second push would desync `pop` into a 32-bit local).
 {
     record(x86_ops, "emit_pushf()");
-    x86reg_t flags = hw_flags();
-    if (!ptr64())
-    {
-        emit_load_u32(HW_RAX, HW_FRAME, 4);
-        emit_push_reg(HW_RAX);
-    }
-    emit_push_reg(flags);
+    emit_push_reg(hw_flags());
 }
 
 
@@ -891,13 +888,7 @@ EMIT(popf)
 // ----------------------------------------------------------------------------
 {
     record(x86_ops, "emit_popf()");
-    x86reg_t flags = hw_flags();
-    emit_pop_reg(flags);
-    if (!ptr64())
-    {
-        emit_pop_reg(HW_RAX);
-        emit_store_u32(HW_FRAME, HW_RAX, 4);
-    }
+    emit_pop_reg(hw_flags());
 }
 
 
