@@ -2724,10 +2724,11 @@ SYS(leb2i)
     emit_lea(HW_RAX, HW_RSP, 16);
     emit_store_u32(HW_RSP, HW_RAX, 8);             // arg2 = &next
     syscall(reinterpret_cast<void (*)()>(xlr8_jit_leb2i_outs));
-    emit_load_u32(HW_RAX, HW_RSP, 12);
-    emit_mov_rr(hw_dst_local(e.dst), HW_RAX);
-    emit_load_u32(HW_RAX, HW_RSP, 16);
-    emit_mov_rr(hw_dst_local(e.src), HW_RAX);
+    // Load into final homes first — do not stage both through rax.
+    x86reg_t d = hw_dst_local(e.dst);
+    x86reg_t s = hw_dst_local(e.src);
+    emit_load_u32(d, HW_RSP, 12);
+    emit_load_u32(s, HW_RSP, 16);
 }
 
 
@@ -2753,10 +2754,10 @@ SYS(leb2u)
     emit_lea(HW_RAX, HW_RSP, 16);
     emit_store_u32(HW_RSP, HW_RAX, 8);
     syscall(reinterpret_cast<void (*)()>(xlr8_jit_leb2u_outs));
-    emit_load_u32(HW_RAX, HW_RSP, 12);
-    emit_mov_rr(hw_dst_local(e.dst), HW_RAX);
-    emit_load_u32(HW_RAX, HW_RSP, 16);
-    emit_mov_rr(hw_dst_local(e.src), HW_RAX);
+    x86reg_t d = hw_dst_local(e.dst);
+    x86reg_t s = hw_dst_local(e.src);
+    emit_load_u32(d, HW_RSP, 12);
+    emit_load_u32(s, HW_RSP, 16);
 }
 
 
