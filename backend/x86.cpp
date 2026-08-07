@@ -830,10 +830,12 @@ void x86::binop_local(local_t dloc, local_t sloc, op_t op, byte fp)
 // ----------------------------------------------------------------------------
 //   Apply binary operator to two bytecode locals
 // ----------------------------------------------------------------------------
+//   Destination is read-modify-write: always load it.  Durable homes ignore
+//   ld; overflow temps must be filled from the frame (i386 has only two
+//   integer shadows, so this matters there).
 {
     hwspec_t spec = fp == 64 ? RSPEC_DBL : fp == 32 ? RSPEC_FLT : RSPEC_INT;
-    bool fp_op = (fp != 0);
-    x86reg_t d = hw(local(dloc, spec, fp_op));
+    x86reg_t d = hw(local(dloc, spec, true));
     x86reg_t s = hw(local(sloc, spec, true));
     record(x86, "binop_local%+s [%u]=[%u] reg %u=%u",
            opcode_name(op), dloc, sloc, d, s);
