@@ -1593,7 +1593,9 @@ protected:
     //   Set predicate p from FP comparison (ucomiss/ucomisd + BTR/BTS/CMOVcc)
     // ------------------------------------------------------------------------
     //   BTR/BTS clobber CF, so the compare must happen after them.
+    //   rax is scratch — spill first (same as emit_pred_cmp).
     {
+        spill(HW_RAX);
         x86reg_t flags = hw_flags();
         emit_mov_rr(HW_RAX, flags);
         emit_btx_imm8(flags,  /*BTR*/ 6, p);
@@ -1612,7 +1614,11 @@ protected:
     //   Force bit n of a to 0/1 from (cmp b,c) under condition cc:
     //     mov tmp,a; btr a,n; bts tmp,n; cmp b,c; cmovcc a,tmp
     //   a must be distinct from b, c, and tmp.
+    //   Callers keep x/y off rax; spill any local still mapped there before
+    //   rax becomes the flags scratch (otherwise overflow locals like i386
+    //   temp0 appear as the flags bitmap, often 1).
     {
+        spill(HW_RAX);
         x86reg_t flags = hw_flags();
         emit_mov_rr(HW_RAX, flags);
         emit_btx_imm8(flags,  /*BTR*/ 6, p);
