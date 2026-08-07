@@ -1591,7 +1591,7 @@ SYS(alloca)
     if (ptr64())
         hw_sys_arg_reload();
 
-    int align = ptr64() ? 16 : 8;
+    int align = 16;
     int64_t bytes = int64_t(e.kint);
     if (bytes > 0)
         bytes = (bytes + align - 1) & ~int64_t(align - 1);
@@ -1616,7 +1616,7 @@ SYS(valloca)
     x86reg_t sz = hw_local(e.src);
     x86reg_t t  = HW_RAX;
     emit_mov_rr(t, sz);
-    int align = ptr64() ? 16 : 8;
+    int align = 16;
     set_imm(HW_RCX, uint64_t(align - 1));
     emit_mov_rr(HW_RDX, t);
     emit_add_rr(HW_RDX, HW_RCX);          // size + (align-1)
