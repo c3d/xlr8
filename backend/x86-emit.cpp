@@ -2704,11 +2704,30 @@ SYS(leb2i)
 // ----------------------------------------------------------------------------
 //   Decode LEB128 signed integer
 // ----------------------------------------------------------------------------
+//   amd64: struct return in rax:rdx.  i386 GCC uses a hidden pointer + ret $4,
+//   so call the out-param helper and keep the shared 32-byte arg area intact.
 {
-    CALL(xlr8_jit_leb2i,
-         ARG(0, e.src),
-         emit_mov_rr(hw_dst_local(e.dst), HW_RAX);
-         emit_mov_rr(hw_dst_local(e.src), HW_RDX));
+    if (ptr64())
+    {
+        CALL(xlr8_jit_leb2i,
+             ARG(0, e.src),
+             emit_mov_rr(hw_dst_local(e.dst), HW_RAX);
+             emit_mov_rr(hw_dst_local(e.src), HW_RDX));
+        return;
+    }
+    if (!spilled_args)
+        hw_sys_arg_spill();
+    x86reg_t p = hw(local(e.src, RSPEC_INT, true));
+    emit_store_u32(HW_RSP, p, 0);                 // arg0 = p
+    emit_lea(HW_RAX, HW_RSP, 12);
+    emit_store_u32(HW_RSP, HW_RAX, 4);             // arg1 = &value
+    emit_lea(HW_RAX, HW_RSP, 16);
+    emit_store_u32(HW_RSP, HW_RAX, 8);             // arg2 = &next
+    syscall(reinterpret_cast<void (*)()>(xlr8_jit_leb2i_outs));
+    emit_load_u32(HW_RAX, HW_RSP, 12);
+    emit_mov_rr(hw_dst_local(e.dst), HW_RAX);
+    emit_load_u32(HW_RAX, HW_RSP, 16);
+    emit_mov_rr(hw_dst_local(e.src), HW_RAX);
 }
 
 
@@ -2717,10 +2736,27 @@ SYS(leb2u)
 //   Decode LEB128 unsigned integer
 // ----------------------------------------------------------------------------
 {
-    CALL(xlr8_jit_leb2u,
-         ARG(0, e.src),
-         emit_mov_rr(hw_dst_local(e.dst), HW_RAX);
-         emit_mov_rr(hw_dst_local(e.src), HW_RDX));
+    if (ptr64())
+    {
+        CALL(xlr8_jit_leb2u,
+             ARG(0, e.src),
+             emit_mov_rr(hw_dst_local(e.dst), HW_RAX);
+             emit_mov_rr(hw_dst_local(e.src), HW_RDX));
+        return;
+    }
+    if (!spilled_args)
+        hw_sys_arg_spill();
+    x86reg_t p = hw(local(e.src, RSPEC_INT, true));
+    emit_store_u32(HW_RSP, p, 0);
+    emit_lea(HW_RAX, HW_RSP, 12);
+    emit_store_u32(HW_RSP, HW_RAX, 4);
+    emit_lea(HW_RAX, HW_RSP, 16);
+    emit_store_u32(HW_RSP, HW_RAX, 8);
+    syscall(reinterpret_cast<void (*)()>(xlr8_jit_leb2u_outs));
+    emit_load_u32(HW_RAX, HW_RSP, 12);
+    emit_mov_rr(hw_dst_local(e.dst), HW_RAX);
+    emit_load_u32(HW_RAX, HW_RSP, 16);
+    emit_mov_rr(hw_dst_local(e.src), HW_RAX);
 }
 
 

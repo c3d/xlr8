@@ -105,6 +105,9 @@ typedef struct { value_t  value; byte_p next; } xlr8_leb_i_t;
 typedef struct { uvalue_t value; byte_p next; } xlr8_leb_u_t;
 xlr8_leb_i_t xlr8_jit_leb2i(byte_p p);
 xlr8_leb_u_t xlr8_jit_leb2u(byte_p p);
+// Out-param form for i386 (8-byte struct returns use a hidden pointer there)
+void         xlr8_jit_leb2i_outs(byte_p p, value_t *value_out, byte_p *next_out);
+void         xlr8_jit_leb2u_outs(byte_p p, uvalue_t *value_out, byte_p *next_out);
 byte        *xlr8_jit_i2leb(byte *p, value_t v);
 byte        *xlr8_jit_u2leb(byte *p, uvalue_t v);
 uvalue_t     xlr8_jit_i2lebsz(value_t v);

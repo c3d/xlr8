@@ -399,6 +399,22 @@ xlr8_leb_u_t xlr8_jit_leb2u(byte_p p)
 }
 
 
+void xlr8_jit_leb2i_outs(byte_p p, value_t *value_out, byte_p *next_out)
+{
+    xlr8_leb_i_t r = xlr8_jit_leb2i(p);
+    *value_out = r.value;
+    *next_out  = r.next;
+}
+
+
+void xlr8_jit_leb2u_outs(byte_p p, uvalue_t *value_out, byte_p *next_out)
+{
+    xlr8_leb_u_t r = xlr8_jit_leb2u(p);
+    *value_out = r.value;
+    *next_out  = r.next;
+}
+
+
 byte *xlr8_jit_i2leb(byte *p, value_t v)
 {
     return leb128(p, v);
