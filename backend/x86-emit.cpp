@@ -53,8 +53,17 @@ EMIT(user)
             hw_sys_imm(0, pc);
             call_ptr(xlr8_get_runtime_with_pc);
             if (ptr64())
+            {
                 emit_mov_rr(HW_RDI, HW_RAX);
-            hw_sys_imm(1, 0);
+                hw_sys_imm(1, 0);
+            }
+            else
+            {
+                // i386 cdecl: rax = runtime*; do not clobber it via hw_sys_imm.
+                emit_store_u32(HW_RSP, HW_RAX, 0);
+                set_imm(HW_RAX, 0);
+                emit_store_u32(HW_RSP, HW_RAX, int(pointer_size()));
+            }
 
             user = runtime::user_fn(fnaddr);
             call_ptr(user);
